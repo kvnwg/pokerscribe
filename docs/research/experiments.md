@@ -353,6 +353,26 @@ third condition only.
   `stab: 0.0`, passes anyway (0.12). Any such rule is chosen after seeing run 4, so it should
   be confirmed by a run on fresh seeds before Phase 2.
 
+**Decision (Kevin, 26 Nov 2026, after run 4):** judge only comparisons in which at least 1%
+of hands play differently, and confirm on fresh seeds.
+
+### Gate run 5
+
+Rule (`runs/phase1_gate5.sh`, committed before any hand on its seeds was played):
+
+- The new way: as in run 4, on seeds 808 and 909 (never used before).
+- The old way: classic raw, pooled over seeds 303, 404, 606, 707, 808 and 909.
+- Judged: the comparisons in which at least 1% of the new way's hands differ (seeds 808 and
+  909 together).
+- Pass:
+  - geometric mean of r over those at most 0.5;
+  - none of them above 0.75;
+  - CPU per hand at most 1.25 times classic, over all eight comparisons.
+- If run 5 passes, the Phase 1 gate is passed. Run 4 would also pass this rule (0.34; largest
+  0.51; CPU 1.17), but it was used to choose the rule, so it doesn't count.
+
+RUN5_PLACEHOLDER
+
 
 ### Held-out opponents
 
