@@ -26,5 +26,8 @@ nothing is misread on stage. How the screen reader reads a table is in `SCREEN_R
 
 ## Strength needed by May
 
-- Phases 2 and 3: should beat most casual players over the event.
-- Phase 4: needed to hold up against good players. Pluribus-level 6-max by May is a stretch.
+Phases are from the roadmap in `README.md`.
+
+- Heads-up challenge: needs Phase 7, the blueprint with depth-limited search, to hold up against
+  good players.
+- Six-max (Phase 8) will not be ready by May 2027, so the demo is heads-up only.
