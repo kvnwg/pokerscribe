@@ -53,6 +53,9 @@ API" [G4]; Ruse AI was bought by GTO Wizard in 2023 [G7].
 The API only plays hands and reports chips won or lost; requests for solver features are refused,
 and access can be revoked on suspected misuse [G2, G6].
 
+Our client for this API is `tools/gtowizard` (added after these notes were written; its README has
+the steps for requesting access and what the spec leaves open).
+
 ### Limits
 
 | Rule | Value | Source |

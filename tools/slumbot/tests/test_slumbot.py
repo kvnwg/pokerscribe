@@ -141,6 +141,20 @@ def test_every_recorded_prefix_parses():
             assert h.over == (i == len(toks)) or whole.all_in, prefix
 
 
+def test_postflop_order_and_opponent_name_can_be_set_for_other_servers():
+    # tools/gtowizard reuses this parser. Slumbot's own order and name stay the defaults.
+    h = parse_action("b200c/")
+    assert h.to_act == protocol.BB_SEAT and h.postflop_first == protocol.BB_SEAT
+    h = parse_action("b200c/kb400", postflop_first=protocol.SB_SEAT)
+    assert [(a.seat, a.kind) for a in h.streets[1]] == [(1, "check"), (0, "bet")]
+    assert h.to_act == protocol.SB_SEAT and h.contributed == [600, 200]
+    assert h.legal_incr("c") and not h.legal_incr("k")
+    nxt = parse_action("b200c/kb400c/", postflop_first=protocol.SB_SEAT)
+    assert nxt.street == 2 and nxt.to_act == protocol.SB_SEAT
+    assert h.by_street(me=0, opponent="gto_wizard")["flop"] == ["gto_wizard checks", "me bets to 400"]
+    assert parse_action("b200c/kb400").by_street(me=0)["flop"] == ["me checks", "slumbot bets to 400"]
+
+
 # --- the bots -----------------------------------------------------------------------------------
 
 def state(action, me=0, hole=("Ah", "Kd"), board=()):

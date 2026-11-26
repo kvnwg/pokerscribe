@@ -4,30 +4,41 @@
 //!   probabilities, information set keys, legal actions, utilities).
 //! - [`Cfr`]: full-width vanilla CFR, CFR+, Linear CFR and Discounted CFR.
 //! - [`Mccfr`]: Monte Carlo CFR with external or outcome sampling, linear
-//!   weighting and Pluribus-style negative-regret pruning.
+//!   weighting and Pluribus-style negative-regret pruning. It runs on one
+//!   thread or on many that share the tables without locks, stores regrets
+//!   as floats or as 32-bit integers, and saves and resumes a run
+//!   ([`checkpoint`], [`signal`]).
 //! - [`eval`]: exact expected values, best responses, NashConv and
 //!   exploitability for games small enough to walk.
 //!
-//! Regrets and strategy sums live in flat `f64` arrays indexed through an
-//! [`InfoTable`]; tree walks reuse per-depth buffers, so a warmed-up
-//! iteration allocates nothing. Sampling uses this crate's own seeded
-//! [`Rng`], so a seed always reproduces the same run.
+//! Regrets and strategy sums live in flat per-action arrays found through an
+//! index of information set keys; tree walks reuse per-depth buffers, so a
+//! warmed-up iteration allocates nothing. Sampling uses this crate's own
+//! seeded [`Rng`], so on one thread a seed always reproduces the same run.
 
 pub mod cfr;
+pub mod checkpoint;
 pub mod eval;
 pub mod game;
 pub mod mccfr;
 pub mod policy;
 pub mod rng;
 mod scratch;
+mod shared;
+pub mod signal;
+mod store;
 pub mod table;
 
 pub use crate::cfr::{Cfr, Variant};
+pub use crate::checkpoint::{Checkpoints, Stop, TrainReport};
 pub use crate::eval::{best_response_value, expected_values, exploitability, nash_conv};
 pub use crate::game::{child, Action, Game, InfoKey, Node};
-pub use crate::mccfr::{LinearWeighting, Mccfr, MccfrConfig, MccfrStats, Pruning, Sampling};
+pub use crate::mccfr::{
+    LinearWeighting, Mccfr, MccfrConfig, MccfrStats, Memory, Pruning, Sampling,
+};
 pub use crate::policy::{Policy, TabularPolicy, UniformPolicy};
 pub use crate::rng::Rng;
+pub use crate::store::RegretStorage;
 pub use crate::table::{InfoSet, InfoTable};
 
 /// What every solver offers.
