@@ -195,6 +195,8 @@ What is exact is the call-or-fold decision when calling ends the betting (heads-
 
 Strategy work follows a written plan with measured gates, kept in `docs/research/` so it never depends on one chat: the research report (where strength is lost, eight research directions, a roadmap toward a Pluribus-style agent), the frozen baseline agent, a log of every experiment with its result and standard error, the dataset report, and the book and paper principles with their status in the engine. A change replaces the baseline only after beating it by at least 2.5 standard errors in paired simulation, without losing to any opponent type. All testing stays offline or on tables you're allowed to use; PokerScribe never plays for you.
 
+The comparisons take out as much luck as they can (Phase 1 of the roadmap): every deck is played six times with the players moved round one seat each time, every bot decision has its own random seed so two versions of the app face the same choices, and a hand where the two versions part is played six more times from that point, with fresh board cards and the opponents dealt fresh hands they could have held given what they did, and averaged. The luck of board cards after which nobody can bet is taken out too (`tools/luck.py`, after the AIVAT method; `tools/hidden.py` has AIVAT's correction for the opponents' hidden cards). Opponents the strategy was never tuned on (`heldout`, `regulars`, `switchers`, `wildcards`) judge whether a change generalises, and `tools/weakness.py` lists the spots where a different move would have won more.
+
 ## Project structure
 
 ```
@@ -210,12 +212,20 @@ app/
                      the record of who bet on each round (while watching)
   solver/            river solver and heads-up push-or-fold solver (Phase 2, not used by the
                      advice yet): spots, betting tree, fast river ranking, exploitability
-                     checker, timing, label format, river ranges from the betting so far
+                     checker, timing, label format, river ranges from the betting so far, and
+                     rust_backend.py, which hands a river spot to the Rust solver program
+                     (behind a switch that is off)
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
   tests/             test suite and the synthetic table renderer
-tools/               benchmarks, template builders, the simulator and paired comparisons
+engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
+                     the hand evaluator, the river and turn solver (subgame-solve), and
+                     crates/py, the Python module pokerscribe_engine.
+                     Optional: the app runs without Rust (see engine/crates/py/README.md)
+tools/               benchmarks, template builders, the simulator, paired comparisons,
+                     the luck adjustment (luck.py), the opponents' hidden cards (hidden.py)
+                     and the weakness report (weakness.py)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```
@@ -227,7 +237,7 @@ docs/research/       research report link, frozen baseline, experiment log, data
 .venv/bin/python -m pytest
 ```
 
-The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
+The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the simulator's measurement tools (the luck adjustment averages exactly zero, duplicate deals, identical results when split over processes, the weakness report), the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
 
 ## Checks
 

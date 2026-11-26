@@ -1,0 +1,25 @@
+[package]
+name = "py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings (PyO3) for the PokerScribe engine: the hand evaluator and the No-Limit Hold'em rules engine. The Python module is pokerscribe_engine."
+publish = false
+
+[lib]
+# The library name is the Python module name: `import pokerscribe_engine`.
+name = "pokerscribe_engine"
+crate-type = ["cdylib"]
+# The bindings are tested from Python (app/tests/test_engine_bindings.py).
+test = false
+doctest = false
+
+[features]
+# The bindings themselves. Off by default, so that `cargo build` and `cargo test` in the
+# workspace need neither PyO3 nor Python. maturin turns it on (see pyproject.toml).
+python = ["dep:pyo3"]
+
+[dependencies]
+eval = { path = "../eval" }
+nlhe = { path = "../nlhe", features = ["eval"] }
+# abi3-py310: one build works on Python 3.10 and every later version.
+pyo3 = { version = "0.30", features = ["abi3-py310"], optional = true }

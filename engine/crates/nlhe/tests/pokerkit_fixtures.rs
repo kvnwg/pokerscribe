@@ -4,8 +4,13 @@
 //!
 //! PokerKit's player 0 is the seat after the button. Each hand here puts the button on a
 //! different seat (hand index mod players), so the seat arithmetic is tested too.
+//!
+//! Showdowns are ranked by `BruteForceRanker`, and again by `EvalRanker` (the eval crate's
+//! evaluator, feature `eval`): PokerKit's final stacks must come out with either.
 
-use nlhe::{Action, BruteForceRanker, Card, Chips, Config, Deal, RaiseRange, State};
+#[cfg(feature = "eval")]
+use nlhe::EvalRanker;
+use nlhe::{Action, BruteForceRanker, Card, Chips, Config, Deal, HandRanker, RaiseRange, State};
 
 const FIXTURES: &str = include_str!("fixtures/pokerkit_nlhe.txt");
 
@@ -102,9 +107,9 @@ fn parse_hand(line: &str) -> Hand {
     }
 }
 
-/// Plays one fixture hand with the button on `button`. Returns a description of the first
-/// difference, if any.
-fn replay(hand: &Hand, button: usize) -> Result<(), String> {
+/// Plays one fixture hand with the button on `button`, ranking the showdown with `ranker`.
+/// Returns a description of the first difference, if any.
+fn replay<R: HandRanker>(hand: &Hand, button: usize, ranker: &R) -> Result<(), String> {
     let n = hand.n;
     let seat = |p: usize| (button + 1 + p) % n;
     let mut stacks = vec![0; n];
@@ -195,7 +200,7 @@ fn replay(hand: &Hand, button: usize) -> Result<(), String> {
     } else if state.active_mask().count_ones() != 1 {
         return Err("PokerKit had no showdown".into());
     }
-    let fin = state.final_stacks(&BruteForceRanker).unwrap();
+    let fin = state.final_stacks(ranker).unwrap();
     let want: Vec<Chips> = (0..n)
         .map(|s| hand.final_stacks[(s + n - button - 1) % n])
         .collect();
@@ -205,10 +210,11 @@ fn replay(hand: &Hand, button: usize) -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn every_pokerkit_hand_matches() {
+/// Replays every hand with the button on its own seat (hand index mod players).
+fn check_every_hand<R: HandRanker>(ranker: &R) {
     let mut hands = 0;
     let mut steps = 0;
+    let mut showdowns = 0;
     let mut flags = [0usize; 2];
     let mut players = [0usize; 7];
     let mut failures = Vec::new();
@@ -220,6 +226,7 @@ fn every_pokerkit_hand_matches() {
         let button = hands % hand.n;
         hands += 1;
         steps += hand.steps.len();
+        showdowns += hand.pots.is_some() as usize;
         players[hand.n] += 1;
         for s in &hand.steps {
             match s.flag {
@@ -228,18 +235,20 @@ fn every_pokerkit_hand_matches() {
                 _ => {}
             }
         }
-        if let Err(e) = replay(&hand, button) {
+        if let Err(e) = replay(&hand, button, ranker) {
             failures.push(format!("line {}: {e}", line_no + 1));
         }
     }
     println!(
-        "{hands} hands, {steps} decisions, players {:?}, reopening flags D={} A={}",
+        "{hands} hands, {steps} decisions, {showdowns} showdowns, players {:?}, \
+         reopening flags D={} A={}",
         &players[2..],
         flags[0],
         flags[1]
     );
     assert_eq!(hands, 10_000);
     assert!(players[2] > 0 && players[6] > 0);
+    assert!(showdowns > 5_000, "most hands should reach a showdown");
     assert!(
         flags[0] > 0 && flags[1] > 0,
         "the fixtures should exercise both reopening cases"
@@ -252,9 +261,8 @@ fn every_pokerkit_hand_matches() {
     );
 }
 
-#[test]
-fn every_hand_matches_with_the_button_anywhere() {
-    // The same hands with every other button position.
+/// The same hands with the button on every other seat.
+fn check_every_button<R: HandRanker>(ranker: &R) {
     let mut failures = Vec::new();
     for (k, line) in FIXTURES
         .lines()
@@ -266,7 +274,7 @@ fn every_hand_matches_with_the_button_anywhere() {
             if button == k % hand.n {
                 continue;
             }
-            if let Err(e) = replay(&hand, button) {
+            if let Err(e) = replay(&hand, button, ranker) {
                 failures.push(format!("hand {k} button {button}: {e}"));
             }
         }
@@ -277,4 +285,26 @@ fn every_hand_matches_with_the_button_anywhere() {
         failures.len(),
         failures[..failures.len().min(20)].join("\n")
     );
+}
+
+#[test]
+fn every_pokerkit_hand_matches() {
+    check_every_hand(&BruteForceRanker);
+}
+
+#[test]
+fn every_hand_matches_with_the_button_anywhere() {
+    check_every_button(&BruteForceRanker);
+}
+
+#[cfg(feature = "eval")]
+#[test]
+fn every_pokerkit_hand_matches_with_the_eval_ranker() {
+    check_every_hand(&EvalRanker);
+}
+
+#[cfg(feature = "eval")]
+#[test]
+fn every_hand_matches_with_the_button_anywhere_with_the_eval_ranker() {
+    check_every_button(&EvalRanker);
 }

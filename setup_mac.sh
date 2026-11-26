@@ -25,5 +25,27 @@ echo "Using $($PY --version)"
 "$PY" -m venv --clear .venv
 .venv/bin/python -m pip install --upgrade pip >/dev/null
 .venv/bin/python -m pip install -r requirements.txt
+
+# Optional: the Rust engine (engine/). PokerScribe runs without it, so nothing here can
+# make the setup fail. With Rust installed (https://rustup.rs) this builds the Python
+# module pokerscribe_engine and the solver program subgame-solve. Set
+# POKERSCRIBE_SKIP_RUST=1 to leave it out.
+if [ "${POKERSCRIBE_SKIP_RUST:-}" != "1" ] && command -v cargo >/dev/null 2>&1; then
+  echo
+  echo "Rust is installed: building the optional Rust engine (a minute or two the first time)."
+  if .venv/bin/python -m pip install ./engine/crates/py; then
+    echo "Built the Python module pokerscribe_engine."
+  else
+    echo "Could not build pokerscribe_engine. PokerScribe works without it; see engine/crates/py/README.md."
+  fi
+  if [ -d engine/crates/subgame ]; then
+    if (cd engine && cargo build --release --bin subgame-solve); then
+      echo "Built the solver program engine/target/release/subgame-solve."
+    else
+      echo "Could not build subgame-solve. PokerScribe works without it (the Python solver is used)."
+    fi
+  fi
+fi
+
 echo
 echo "Setup complete. Start PokerScribe with ./run_mac.sh or by double-clicking PokerScribe.command"

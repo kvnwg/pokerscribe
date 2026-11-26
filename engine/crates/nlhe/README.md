@@ -1,12 +1,14 @@
 # nlhe: No-Limit Hold'em rules engine
 
 An exact rules engine for No-Limit Texas Hold'em with 2 to 6 players, written for the
-solver-based agent. Integer chips, no dependencies, and a state that is cheap to clone
-inside CFR loops. Every rule is checked against PokerKit 0.7.8 on 10,000 recorded hands.
+solver-based agent. Integer chips, a state that is cheap to clone inside CFR loops, and no
+dependency outside this workspace (only the eval crate, and that one is optional). Every
+rule is checked against PokerKit 0.7.8 on 10,000 recorded hands.
 
 ```
 cd engine
-cargo test -p nlhe            # under 10 seconds in debug
+cargo test -p nlhe                         # about 12 seconds in debug
+cargo test -p nlhe --no-default-features   # the rules engine alone, without the eval crate
 cargo clippy -p nlhe --all-targets
 ```
 
@@ -58,7 +60,7 @@ fixtures only use a small blind below the big blind.
 ## API
 
 ```rust
-use nlhe::{Action, BruteForceRanker, Config, State};
+use nlhe::{Action, Config, EvalRanker, State};
 
 // stacks per seat, small blind, big blind, ante, button
 let config = Config::new(&[200, 150, 80, 200, 40, 300], 1, 2, 0, 0)?;
@@ -70,8 +72,8 @@ while let Some(seat) = state.current_player() {
     let action = if legal.check { Action::Check } else { Action::Call };
     state.apply(action)?;                        // an illegal action is an error and changes nothing
 }
-let net = state.payouts(&BruteForceRanker).unwrap();        // final stack minus starting stack
-let fin = state.final_stacks(&BruteForceRanker).unwrap();
+let net = state.payouts(&EvalRanker).unwrap();        // final stack minus starting stack
+let fin = state.final_stacks(&EvalRanker).unwrap();
 ```
 
 - `Action::RaiseTo(x)` is the total bet for the street, not the increment.
@@ -84,7 +86,7 @@ let fin = state.final_stacks(&BruteForceRanker).unwrap();
 
 ### Showdown ranking
 
-The engine does not depend on the eval crate. Showdowns go through a trait:
+The engine never ranks hands itself. Showdowns go through a trait:
 
 ```rust
 pub trait HandRanker {
@@ -92,9 +94,27 @@ pub trait HandRanker {
 }
 ```
 
-`BruteForceRanker` in `src/ranker.rs` tries all 21 five-card hands and is meant to be
-read, not to be fast. Plug the eval crate's evaluator in with a one-line `impl`. Only
-the order of the values matters.
+Two rankers come with the crate, both in `src/ranker.rs`:
+
+- `EvalRanker` uses the eval crate's table evaluator. It is the one to play and solve
+  with: about 6 nanoseconds a hand. Its value is the eval crate's rank, 1 (7-5-4-3-2
+  offsuit) to 7,462 (royal flush).
+- `BruteForceRanker` tries all 21 five-card hands. It is meant to be read, not to be
+  fast (about 3.7 microseconds a hand, over 600 times slower), and it is the reference
+  the tests check `EvalRanker` against.
+
+The two times are from `cargo run --release -p nlhe --example rankers` (10,000 random
+hands, a cloud container with an Intel Xeon at 2.10 GHz, 26 Nov 2026).
+
+Only the order of the values matters, and the two rankers use different numbers for the
+same hand, so never compare a value from one with a value from the other.
+
+`EvalRanker` is behind the Cargo feature `eval`, which is on by default. A crate that
+wants the rules engine with no dependency at all asks for it without default features:
+
+```toml
+nlhe = { path = "../nlhe", default-features = false }
+```
 
 ### Cost
 
@@ -143,12 +163,24 @@ deals, long histories), checks the brute-force ranker against the known count of
 category over all 2,598,960 five-card hands, and plays 20,000 random hands checking that
 no chip is lost.
 
+`EvalRanker` is checked in two ways (both need the feature `eval`):
+
+- `tests/eval_ranker.rs` deals 100,000 random showdowns with 2 to 6 players (399,794
+  hands, 4,769 of the 4,824 seven-card ranks). In each one the two rankers must give
+  every hand the same category and put every pair of hands in the same order; sorted
+  together, all the hands seen must come out in one order under both. Then everyone goes
+  all in from random stacks (79,720 of the showdowns have side pots, 5,559 a tie for the
+  best hand) and the engine must pay out the same chips with either ranker.
+- `tests/pokerkit_fixtures.rs` replays the 10,000 PokerKit hands a second time with
+  `EvalRanker`, the button on every seat as before. PokerKit's pots and final stacks must
+  come out again.
+
 ## Layout
 
 | File | What |
 | --- | --- |
 | `src/state.rs` | `Config`, `State`, actions, betting, pots, payouts |
 | `src/cards.rs` | card encoding, `Deal`, the seeded `Rng` |
-| `src/ranker.rs` | `HandRanker` and `BruteForceRanker` |
+| `src/ranker.rs` | `HandRanker`, `BruteForceRanker` and `EvalRanker` |
 | `src/history.rs` | `Move` and the inline history |
-| `tests/` | the PokerKit replay, the rule tests, the fixture file |
+| `tests/` | the PokerKit replay, the rule tests, the two rankers compared, the fixture file |

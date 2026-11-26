@@ -1,0 +1,6 @@
+folds_river_bets: costs -14.1 ± 14.1 bb/100 (not a significant cost); its spot found at 8 (Folds to every bet on the river without two pair or better.)
+     river, facing a bet: it chose fold; a small bet or raise gains +11.0 ± 7.5 bb/100 (+16.49 bb a decision, 13 decisions); most with pair (+4.1 bb/100)
+     top 1: preflop, facing a 3-bet+: it chose call; a big bet or raise gains +32.0 ± 15.6 bb/100 (+29.55 bb a decision, 18 decisions); most with top 5% (+25.7 bb/100)
+     top 2: flop, checked to: it chose bet; a big bet or raise gains +16.7 ± 5.5 bb/100 (+3.65 bb a decision, 55 decisions); most with pair + draw (+4.0 bb/100)
+     top 3: flop, facing a bet: it chose call; all in gains +33.9 ± 20.7 bb/100 (+67.82 bb a decision, 24 decisions); most with pair + draw (+1.1 bb/100)
+0 of 0 planted flaws that cost money are in the top 10 (907s)

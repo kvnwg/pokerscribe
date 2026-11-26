@@ -1,0 +1,4 @@
+ystar_[0-9][0-9][0-9].json: hands 513, control mismatches 0; real-card minus extra-draw replays +0.948 ± 0.440 bb per hand (+2.16 SE); exact sign-flip p one-sided 0.0186, two-sided 0.0337; signs +139/-121
+ystar_4[1-4].json: hands 499, control mismatches 0; real-card minus extra-draw replays -0.143 ± 0.326 bb per hand (-0.44 SE); exact sign-flip p one-sided 0.6630, two-sided 0.6707; signs +120/-117
+ystar_4[5-8].json: hands 521, control mismatches 0; real-card minus extra-draw replays +0.147 ± 0.340 bb per hand (+0.43 SE); exact sign-flip p one-sided 0.3359, two-sided 0.6770; signs +122/-139
+ystar_4[1-8].json: hands 1020, control mismatches 0; real-card minus extra-draw replays +0.005 ± 0.236 bb per hand (+0.02 SE); exact sign-flip p one-sided 0.4847, two-sided 0.9825; signs +242/-256

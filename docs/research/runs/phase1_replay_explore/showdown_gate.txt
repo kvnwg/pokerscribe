@@ -1,0 +1,6 @@
+all       bots  630: real hand beats the app  140 times, class predicts  127.0  (+1.53 SE)
+flop      bots  362: real hand beats the app   92 times, class predicts   78.9  (+1.84 SE)
+heads-up  bots  405: real hand beats the app  103 times, class predicts   89.4  (+1.90 SE)
+multiway  bots  225: real hand beats the app   37 times, class predicts   37.6  (-0.13 SE)
+river     bots  107: real hand beats the app   15 times, class predicts   15.5  (-0.19 SE)
+turn      bots  161: real hand beats the app   33 times, class predicts   32.6  (+0.10 SE)

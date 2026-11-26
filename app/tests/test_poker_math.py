@@ -133,3 +133,16 @@ def test_decision_benchmark_river_and_turn():
     assert totals["wrong"] == 0
     assert totals["loss"] / totals["staked"] < 0.001  # under 0.1% of the chips at stake
     assert per["river"]["close"] == 0  # river equity is exact, never "too close"
+
+
+def test_royal_flush_is_class_one():
+    """Regression: treys calls a royal flush class 0, which made a royal flush lying on the
+    board look like the player's own improvement over it (0 < 1) and broke the simulator's
+    spot labels. Category is 1 for every straight flush, as board_category is."""
+    from app.poker import advice
+
+    assert hands.category(("As", "Ks"), ["Qs", "Js", "Ts"]) == 1
+    board = ("As", "Ks", "Qs", "Js", "Ts")
+    assert hands.category(("2c", "3d"), board) == hands.board_category(board) == 1
+    assert not advice._top_pair_plus(("2c", "3d"), board)
+    assert hands.CATEGORY[hands.category(("As", "Ks"), ["Qs", "Js", "Ts", "2d", "3c"])] == "Straight Flush"
