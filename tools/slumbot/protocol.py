@@ -56,8 +56,8 @@ class Action:
     def street_name(self) -> str:
         return STREETS[self.street]
 
-    def describe(self, me: Optional[int] = None) -> str:
-        who = SEAT_NAMES[self.seat] if me is None else ("me" if self.seat == me else "slumbot")
+    def describe(self, me: Optional[int] = None, opponent: str = "slumbot") -> str:
+        who = SEAT_NAMES[self.seat] if me is None else ("me" if self.seat == me else opponent)
         if self.kind in ("fold", "check"):
             return f"{who} {self.kind}s"
         if self.kind == "call":
@@ -82,6 +82,7 @@ class ActionHistory:
     street_in: List[int] = field(default_factory=lambda: [BIG_BLIND, SMALL_BLIND])  # this street
     last_raise: int = BIG_BLIND - SMALL_BLIND  # size of the last bet or raise on this street, 0 if none
     last_aggressor: Optional[int] = BB_SEAT  # who made the last bet on this street (the blind preflop)
+    postflop_first: int = BB_SEAT  # who opens the flop, turn and river (the big blind, at Slumbot)
 
     # --- the hand ---
     @property
@@ -144,17 +145,17 @@ class ActionHistory:
 
     def legal_incr(self, incr: str) -> bool:
         try:
-            parse_action(self.action + incr)
+            parse_action(self.action + incr, self.postflop_first)
         except ActionParseError:
             return False
         return True
 
     # --- for logs ---
-    def by_street(self, me: Optional[int] = None) -> dict:
+    def by_street(self, me: Optional[int] = None, opponent: str = "slumbot") -> dict:
         out = {}
         for i, acts in enumerate(self.streets):
             if i <= self.street:
-                out[STREETS[i]] = [a.describe(me) for a in acts]
+                out[STREETS[i]] = [a.describe(me, opponent) for a in acts]
         return out
 
     def to_dict(self) -> dict:
@@ -166,9 +167,14 @@ def tokenize(action: str) -> List[str]:
     return _TOKEN.findall(action)
 
 
-def parse_action(action: str) -> ActionHistory:
-    """Parse a full Slumbot action string. See the module docstring for the format."""
-    h = ActionHistory(action=action)
+def parse_action(action: str, postflop_first: int = BB_SEAT) -> ActionHistory:
+    """Parse a full Slumbot action string. See the module docstring for the format.
+
+    ``postflop_first`` is the seat that opens the flop, turn and river. At Slumbot that is the
+    big blind, the default. ``tools/gtowizard`` passes the other seat if that server turns out
+    to deal the betting the other way round.
+    """
+    h = ActionHistory(action=action, postflop_first=postflop_first)
     toks = tokenize(action)
     i = 0
     street_closes = False  # a check or call now would end the street
@@ -213,7 +219,7 @@ def parse_action(action: str) -> ActionHistory:
                         i += 1
                     h.street += 1
                     h.street_in = [0, 0]
-                    h.to_act = BB_SEAT
+                    h.to_act = h.postflop_first
                     h.last_raise = 0
                     h.last_aggressor = None
                 street_closes = False
