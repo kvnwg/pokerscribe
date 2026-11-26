@@ -8,3 +8,7 @@ phh_data/
 uoftcprg/
 *.parquet
 .DS_Store
+
+# Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md)
+*.jsonl.state.json
+*.jsonl.state.json.tmp

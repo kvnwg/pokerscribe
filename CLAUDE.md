@@ -53,6 +53,8 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `engine/`: the Rust core (Phase 3 on), a Cargo workspace with crates in `engine/crates/*`. Speed
   critical code (rules engine, hand evaluator, CFR, subgame solver, blueprint) goes here. Python
   stays for the app, analysis and experiment scripts, not for speed-critical loops.
+- `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
+  parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
   isn't in the repo (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
@@ -68,8 +70,10 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
 - Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
   closed-form and published results, with p95 decision time under 400 ms. They are now the
   reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.
-- Next is Phase 3: the Rust core on toy games in `engine/` (rules engine, hand evaluator, CFR
-  library, exact best response), checked on Kuhn and Leduc. Suggested model: Claude Fable.
+- Phase 3 is under way: the Rust core on toy games in `engine/`. Crates so far: `cfr` (CFR
+  library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
+  Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
+  7-card hands. Suggested model: Claude Fable.
 - Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
   last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
   For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.
