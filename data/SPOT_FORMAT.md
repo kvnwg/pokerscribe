@@ -164,7 +164,9 @@ Header:
             "iterations": 120, "elapsed_s": 3.2, "exploitability_pot": 0.0027,
             "exploitability_trace": [[0, 61.2], [10, 4.1]], "converged": true,
             "reading": "by", "notes": []},
- "checks": {"exploitability_pot": 0.0026, "filled_rows": 0, "expected_failures": []},
+ "checks": {"exploitability_pot": 0.0026, "filled_rows": 0,
+            "values": {"oop": 38.4989, "ip": 61.5011}, "oop_value_bounds": [38.2132, 38.7272],
+            "expected_failures": []},
  "nodes": 18, "created": "2026-11-26T12:00:00Z"}
 ```
 
@@ -177,6 +179,8 @@ Header:
 | `solver.reading`, `solver.notes` | How TexasSolver's amounts were read, and anything odd found reading its output (`data/answer_keys/README.md`, "Quirks"). |
 | `checks.exploitability_pot` | River spots: exploitability of this answer worked out by `app/solver/exploitability.py`, independent of the solver. `null` for turn spots. |
 | `checks.filled_rows` | Combos the solver left out at some node, given a uniform row for that check. |
+| `checks.values` | River spots: chips a hand each player wins when both follow this answer, counting the starting pot as nobody's yet (the two add up to the pot; `SOLVER.md`, "Payoffs"). `null` for turn spots. |
+| `checks.oop_value_bounds` | River spots: `[low, high]`, where the spot's true value for OOP must lie. The spot has one true value v (two players, zero sum). OOP's best response to IP's part of the answer wins at least v, and IP's best response to OOP's part wins at least pot - v, so pot - (IP's best response) <= v <= OOP's best response. The width is twice the exploitability. `null` for turn spots. |
 | `checks.expected_failures` | The spot's expected checks that fail (always empty in a saved result). |
 
 Node lines, in the order of `spots.decision_nodes`:
@@ -199,6 +203,17 @@ solver's answer, not a record of anyone's play (rule 3 in `docs/research/README.
 ### Comparing a solver with a RESULT
 
 A solver's answer can differ from the key and still be right: spots can have more than one
-equilibrium. So the main test is exploitability (for river spots,
-`checks.river_exploitability` on the new answer), then the expected checks, then closeness
-to the key's action frequencies at the nodes both players reach often.
+equilibrium. But every equilibrium of a spot has the same value. So, for river spots
+(`tools.answer_keys.checks.river_checks` works all of these out for a new answer):
+
+1. its exploitability is under the target;
+2. its value is close to the key's `checks.values.oop` (the Phase 4 gate allows 0.5% of
+   the pot);
+3. its own bounds meet the key's `checks.oop_value_bounds`: the true value lies in both,
+   so two intervals that don't meet mean one of the two answers is wrong;
+4. the expected checks pass;
+5. then, as a softer check, its action frequencies are close to the key's at the nodes both
+   players reach often.
+
+For turn spots only 4 and 5 can be checked against a key today, plus the new solver's own
+exploitability.
