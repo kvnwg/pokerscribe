@@ -1,0 +1,17 @@
+[package]
+name = "arena"
+version = "0.1.0"
+edition = "2021"
+description = "Match arena for PokerScribe agents: duplicate heads-up and six-max matches, all-in equity adjustment, bb/100 with standard errors."
+publish = false
+
+[dependencies]
+eval = { path = "../eval" }
+nlhe = { path = "../nlhe" }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "arena"
+path = "src/bin/arena.rs"
