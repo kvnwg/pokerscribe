@@ -101,8 +101,10 @@ def parse_amount(text: str) -> Optional[Amount]:
     """The amount when `text` is essentially just an amount (e.g. a stack label)."""
     stripped = text.strip()
     # a chip or coin icon before the number, read as a lone "0", "o" or "@" ("0 210"): no
-    # amount starts with a lone 0
+    # amount starts with a lone 0. Or glued to the number as a round letter ("C210", "©70";
+    # an "O" becomes a 0 anyway)
     stripped = re.sub(r"^[0oO@©®•°*]\s+(?=[$€£¥₹]?\s*\d)", "", stripped)
+    stripped = re.sub(r"^[cCGeQ@©®•°*](?=[$€£¥₹]?\d[\d.,]*\d)", "", stripped)
     found = find_amounts(stripped)
     if len(found) != 1:
         return None

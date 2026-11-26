@@ -352,6 +352,18 @@ def test_a_chip_icon_read_as_a_zero():
     assert parse_amount("0").value == 0
 
 
+def test_a_chip_icon_glued_to_the_bet():
+    """Self-test round 6 (stock): the chip icon read as a letter stuck to the number, "C210".
+    The leftover "C" made it no amount, and the top seat's bet of 210 came back as nothing."""
+    assert parse_amount("C210").value == 210
+    assert parse_amount("©70").value == 70
+    assert parse_amount("c1,550").value == 1550
+    assert parse_amount("C$2,100").value == 2100
+    # a name or a card is not an amount: one digit, or letters after it
+    assert parse_amount("Q9") is None
+    assert parse_amount("C3PO") is None
+
+
 @needs_ocr
 def test_face_up_cards_at_showdown_are_still_in_the_hand(rec):
     """Showdown: the players left turn their cards face up. With no card backs anywhere,
