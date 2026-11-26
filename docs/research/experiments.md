@@ -321,9 +321,209 @@ the rules for that decision.
 
 - The switch stays off; no B0 comparison (after Phase 1).
 - Ranges in the advice are still the placeholder (Phase 3). Facing a raise still uses the
-  rules.
+  rules. (Both done since: the next section.)
 - The push-or-fold solver isn't wired into the advice. The `push_chart` option still
   uses its hand-typed table.
+
+## Phase 2: river ranges from the betting, and facing a raise (26 Nov 2026)
+
+Two things the river solver lacked: it was given the same top 25% of hands for both players
+whatever had happened, and it left a raise of your bet to the rules. Both are done. The
+`river_solver` switch is still off, B0 is untouched, and nothing was compared against B0:
+that waits for Phase 1. Raw numbers: `runs/phase2_ranges.log`, made by
+`runs/phase2_ranges.py`. How it works: `SOLVER.md`.
+
+### What was built
+
+- `app/poker/history.py`: `BettingRecord` keeps who bet how much on each round of the hand
+  being watched. `app/poker/profiles.py` feeds it every read and puts the result on the
+  river state.
+- `app/solver/ranges.py`: `river_ranges` turns that record, the seats and what the app has
+  learned about the opponent into weighted ranges for both players.
+- `app/solver/bridge.py`: a raise of the hero's bet is solved (fold, call or all in). The
+  bets already made are the only sizes on offer where they were made. Three safeguards
+  (below).
+- `BetSizes`: `reraises`, `allin_within` and `exact`.
+- 69 more tests than before. Full suite: 623 passed, 1 skipped, and the 6 known failures
+  of this container (4 need fonts, 2 need a screen).
+
+### How the ranges were measured
+
+The simulator is only used here to deal hands and to see which cards the bots really hold.
+The app's seat plays the frozen baseline with the switch off, so this is not a strategy
+comparison. For every hand that reaches the river heads-up with the app to act, the real
+two cards are looked up in each guess of the range:
+
+- **in range**: how often the real hand is in the range at all;
+- **bits**: log2 of (the probability the range gives the real hand / the probability with
+  no information), with 5% of the weight spread evenly so a miss costs a lot, not
+  everything. 0 = knowing nothing; each bit halves the field.
+
+Seed 31 is where the settings were looked at. Seed 77 was held out and run once, after
+the settings were frozen. 6000 hands per table, with `--profiles`. Seed 31 is in brackets.
+
+**The opponent's range.**
+
+| Table | Guess | Real hand in range | Combos | Bits |
+|---|---|---|---|---|
+| mixed (366 hands) | placeholder, top 25% | 59.0% (70.1%) | 274 | -0.63 (0.05) |
+| | pot size only | 73.8% (75.0%) | 402 | -0.44 (-0.41) |
+| | recorded betting | 72.1% (73.9%) | 377 | -0.39 (-0.38) |
+| | recorded betting + profile | 89.1% (91.5%) | 465 | 0.54 (0.62) |
+| fish247 (440 hands) | placeholder, top 25% | 81.1% (79.9%) | 270 | 0.76 (0.68) |
+| | pot size only | 91.6% (90.9%) | 435 | 0.55 (0.45) |
+| | recorded betting | 87.5% (88.5%) | 406 | 0.40 (0.41) |
+| | recorded betting + profile | 98.0% (95.8%) | 463 | 1.28 (1.01) |
+
+**The app's own range**, as the opponent should see it (the profile isn't used for it).
+
+| Table | Guess | Real hand in range | Combos | Bits |
+|---|---|---|---|---|
+| mixed | placeholder, top 25% | 59.3% (57.7%) | 274 | -0.62 (-0.73) |
+| | pot size only | 83.3% (80.5%) | 404 | 0.50 (0.45) |
+| | recorded betting | 86.6% (80.8%) | 376 | 1.16 (0.75) |
+| fish247 | placeholder, top 25% | 57.5% (51.9%) | 270 | -0.72 (-1.09) |
+| | pot size only | 91.4% (88.1%) | 460 | 0.91 (0.81) |
+| | recorded betting | 96.6% (93.6%) | 445 | 1.58 (1.33) |
+
+What the tables say:
+
+- **The full guess is clearly better than the placeholder, on hands it had never seen.**
+  "Recorded betting + profile" is what the advice gets while watching. The opponent's real
+  hand is in it 89% and 98% of the time, against 59% and 81%, and it scores 1.17 and 0.52
+  bits more. The standard errors of the in-range shares are about 1 to 3 points (366 and
+  440 hands). The bits have no standard errors.
+- **Without the profile the betting record does little for the opponent's range.** It is
+  about level with the pot-size guess. On the fish247 table both score fewer bits than
+  the placeholder (0.40 and 0.55 against 0.76), though they hold the real hand more often:
+  they are wider than they need to be. The difference between the last two rows is the
+  profile: these bots are far from the typical player the defaults assume (the station
+  plays 45% of hands, the maniac about 50%, the 247-style fish 33% while raising 5%). So
+  for the first hands of a session, before the profiles know the players, expect the
+  weaker row.
+- **The app's own range gains the most from the record**, because the app does play by the
+  charts: its hand is in the range 87% and 97% of the time, against 59% and 58%.
+
+How the model got here, all on seed 31:
+
+1. The first version was worse than the placeholder: the opponent's real hand in range
+   54% to 62% of the time, against 68% to 77% (1500 hands). Three causes, each found by
+   looking at which step lost the real hand, each fixed:
+   - ranges were cut to the 400 heaviest combos, which chopped wide ranges in half. The
+     solver was timed on bigger ranges (about 0.15% to 0.27% of the pot from an
+     equilibrium with ranges of 800 combos, 0.34% to 0.9% with 1000; side measurements,
+     not in the log), and the cap is now 700;
+   - a caller's hands before the flop came straight from the charts, far too few for
+     loose players, and limping then calling a raise wasn't a case at all. Opponents'
+     ranges are now as wide as their style is loose;
+   - a flop bet by the player who raised before the flop was read like any bet. It comes
+     from many more hands.
+2. Of the 44 misses then left on the mixed table, 24 were lost at the preflop step,
+   mostly against the maniac bot, which the profiles label "lag" (see "Profiles check"
+   above). The ranges now use the counted shares of hands played and raised, not only the
+   label. Mixed table: 87.9% to 91.5% in range, 0.40 to 0.62 bits. fish247: 95.4% to
+   95.8%, 0.73 to 1.01 bits.
+3. The settings are standard poker reasoning and none was fitted to a bot. But seed 31
+   was looked at many times, so only seed 77 counts as a test.
+
+### Facing a raise, and three safeguards
+
+The bridge now builds the spot from the start of the river with the bets already made in
+it, at their real sizes, and finds the hero's node: "b100 r300" for a bet of 100 raised to
+300. Testing it on real states turned up a fault that also affected facing a plain bet.
+
+**The fault.** Three of a kind, facing a half-pot bet, got "fold 25%, call 25%, raise 25%,
+raise 25%". The tree offered the opponent several bet sizes. In the solution the opponent
+used other sizes and never the one that was really made, so the answer to that bet was
+never worked out against anything, and a strategy that was never worked out is an even
+split.
+
+**The fixes.**
+
+- The bets and raises already made are the only sizes offered where they were made. The
+  question is what to do now that this bet happened.
+- If under 0.2% of the opponent's range makes this bet in the solution anyway, the solver
+  has no answer, and the rules decide.
+- If the hero's own hand gets to this spot under 5% of the time in the solution (it was
+  played differently earlier than the solver would have), its mix there means little. The
+  instruction is then the best action for that hand against the opponent's solved
+  strategy.
+- An answer more than 1% of the pot from an equilibrium is not used. The rules decide.
+
+**How it was checked.** The simulator's bots next to never raise a river bet: 2 real cases
+in 24,000 hands (both on seed 31, both answered). So each river bet the app made was
+answered by a made-up raise the size of the pot, and the solver was asked what to do.
+Seed 77:
+
+| | mixed | fish247 |
+|---|---|---|
+| River bets by the app | 78 | 106 |
+| Answered | 76 (fold 30, call 41, all in 5) | 103 (fold 58, call 36, all in 9) |
+| No answer (the solution has no hands for that raise) | 2 | 3 |
+| Solver time p50 / p95 / max | 265 / 290 / 300 ms | 246 / 290 / 295 ms |
+| Distance from an equilibrium, % of the pot, p50 / p95 / max | 0.08 / 0.35 / 0.54 | 0.07 / 0.27 / 0.82 |
+
+This shows the machinery answers in time and near an equilibrium. It says nothing about
+whether folding or calling was right: a made-up raise isn't one the opponent chose, and
+nothing was played out.
+
+### All in only up to six pots
+
+The first cost run found about one solver answer in six over the 1% bar: 12 of 80
+decisions on the mixed table and 16 of 80 on fish247 (seed 31). All were limped pots: 2
+big blinds in the middle and 100 behind. All in was always one of the choices, and there
+it is a bet of 40 pots. The same spots solved for 300 ms with all in on offer and with it
+left out (seed 31, the first 150 river decisions of each table, at most 25 per row):
+
+| Stack, in pots | Spots | With all in: median % of the pot | Over 1% | Without: median | Over 1% |
+|---|---|---|---|---|---|
+| up to 1 | 12 | 0.04 | 0 of 12 | 0.04 | 0 of 12 |
+| 1 to 2 | 21 | 0.07 | 0 of 21 | 0.05 | 0 of 21 |
+| 2 to 3 | 17 | 0.05 | 0 of 17 | 0.06 | 0 of 17 |
+| 3 to 4 | 11 | 0.06 | 0 of 11 | 0.06 | 0 of 11 |
+| 4 to 6 | 22 | 0.13 | 0 of 22 | 0.08 | 0 of 22 |
+| 6 to 10 | 30 | 0.20 | 0 of 25 | 0.08 | 0 of 25 |
+| 10 to 20 | 102 | 0.56 | 2 of 25 | 0.06 | 0 of 25 |
+| over 20 | 85 | 2.67 | 22 of 25 | 0.10 | 1 of 25 |
+
+So `BetSizes.allin_within`: all in is a choice of its own only where it is a bet of at
+most that many pots (for a raise, pots after calling). The bridge uses 6. A bet that was
+really made is in the tree at any size. After the change, on seed 31: 0 of 400 answers
+over the bar.
+
+### Cost of a decision
+
+The whole decision through `advise()`, with the switch turned on inside the measuring
+script only. The first 200 heads-up river decisions of each table, seed 77:
+
+| | mixed | fish247 |
+|---|---|---|
+| Time p50 / p95 / max (target 400 ms) | 292 / 298 / 322 ms | 294 / 299 / 332 ms |
+| Answered by the solver | 197 of 200 | 199 of 200 |
+| Left to the rules: the solver over its 300 ms | 1 | 0 |
+| Left to the rules: over 1% of the pot | 0 | 0 |
+| Left to the rules: no answer for that bet | 2 | 0 |
+| Left to the rules: not counted by the script | 0 | 1 |
+| Answered with the best action for a hand the solution never brings there | 4 | 1 |
+| Distance from an equilibrium, % of the pot, p50 / p95 / max | 0.08 / 0.26 / 0.61 | 0.09 / 0.24 / 0.53 |
+| Combos in the two ranges together, p50 / max | 871 / 1401 | 1047 / 1394 |
+
+The one decision the script has no reason for is most likely a solve that the advice's
+own clock, which starts a little earlier, put just past 300 ms (that table's slowest
+decision took 332 ms).
+
+The ranges are bigger than the placeholder's (about 870 to 1050 combos together against
+550), so the solver now uses its whole 300 ms on most decisions: p50 went from 155 ms to
+about 293 ms. p95 stays under 400 ms.
+
+### What this doesn't show
+
+- Whether the solver's play wins more than the rules. That is the B0 comparison after
+  Phase 1. Run it with `--profiles`: without them the simulator keeps no betting record
+  and the ranges are only guessed from the pot.
+- Real opponents. The cards looked up here are bots' cards.
+- Real river raises: 2 in 24,000 hands.
+- Hands with three or more players on the river: the rules still decide those.
 
 ## Research notes (paraphrased, with sources)
 

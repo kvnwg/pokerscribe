@@ -65,7 +65,10 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   Phase 2 status: the river solver and the push-or-fold solver are written and match the
   closed-form and published results, with p95 decision time under 400 ms. The solver's ranges
   now come from the betting so far (who bet how much on each round, the seats, the opponent's
-  profile), and it also answers a raise of your bet. The switch `river_solver` is still off.
+  profile), and it also answers a raise of your bet. On held-out simulated hands the
+  opponent's real cards are in the range 89% to 98% of the time (59% to 81% before), mostly
+  thanks to the profile; the raise answers were only checked on made-up raises, because the
+  simulator's bots almost never raise the river. The switch `river_solver` is still off.
   Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1 (run that comparison with
   `--profiles`, or the solver sees no betting record). Smaller jobs left: make the solver
   repeat exactly in the simulator, and give big pots more time.

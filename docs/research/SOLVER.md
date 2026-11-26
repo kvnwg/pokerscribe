@@ -8,12 +8,16 @@ Status, 26 Nov 2026:
 - **Matches closed-form results: done.** The river solver reproduces the half-street game
   of The Mathematics of Poker, and the push-or-fold solver matches the published
   heads-up equilibrium.
-- **p95 under 400 ms: done.** 313 ms for the whole decision, with no benchmark spot more
-  than 1% of the pot from an equilibrium.
+- **p95 under 400 ms: done.** About 300 ms for the whole decision with the ranges below
+  (the solver uses its whole 300 ms on most decisions), and 396 of 400 held-out decisions
+  answered within 1% of the pot of an equilibrium.
 - **Ranges from the betting so far: done, a first version.** The solver no longer gets the
   same top 25% of hands for everyone: both ranges are worked out from who bet how much on
-  each round, the seats, and what the app has learned about the opponent.
+  each round, the seats, and what the app has learned about the opponent. On held-out
+  simulated hands the opponent's real cards are in the range 89% and 98% of the time
+  (mixed and fish247 tables), against 59% and 81% for the old placeholder.
 - **Facing a raise: done.** A raise of the hero's bet is solved too (fold, call or all in).
+  Checked on made-up raises only: the simulator's bots next to never raise the river.
 - **Beats B0 by 2.5 SE: not started.** It waits for Phase 1. The advice switch
   `river_solver` is off.
 
@@ -172,7 +176,10 @@ The hero's own combo is always in the hero's range.
 
 **How good it is.** `docs/research/runs/phase2_ranges.py` deals simulated hands and looks
 up the cards the bots really hold in each guess. Numbers in `experiments.md`. The settings
-are standard poker reasoning and were not fitted to the bots.
+are standard poker reasoning and were not fitted to the bots. One thing to know: against
+these bots the betting record alone does little for the opponent's range. What the app has
+counted about that player (hands played and raised) is what makes it good, so the ranges
+are weaker in a session's first hands.
 
 **Not done:** rates per seat, sizing tells, what a check-raise says beyond its size, and
 ranges for hands with three or more players on the river.
