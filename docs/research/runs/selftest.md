@@ -155,3 +155,26 @@ Also fixed after round 6:
   lost. A name with nothing under it now has the spot under it read directly.
 - A lone "9" beside its chip read as "19": the chip's edge was in the crop. Only the text is
   read now, and a lone digit without "$" never counts on one read.
+
+## Round 7: final check (fresh seed 7, 25 hands, 15% skipped), every fix in
+
+| Layout | Same instruction | Move shown on their turn | Acting seat not read | Mistakes |
+| --- | --- | --- | --- | --- |
+| wireframe | 32/32 | 0/82 | 0/203 | bets 3 |
+| green | 31/32 | 0/81 | 0/207 | bets 3 |
+| compact | 32/32 | 0/82 | 0/203 | bets 4 |
+| ninemax | 32/32 | 0/82 | 0/203 | bets 3 |
+| tags | 33/33 | 0/81 | 0/216 | bets 4 |
+| wide (held out) | 32/32 | 0/82 | 0/203 | bets 3 |
+
+192 of 193 instructions the same as from the true table; no wrong card, no lost seat, no
+unknown stack. The one difference (green): both saw the raise, but with 9-4 suited in the big
+blind the read said FOLD and the true table CALL 6, a close spot moved by a misread amount.
+
+Still open:
+
+- At showdown, with opponents' cards face up, the tracker can take the picture for a new hand
+  start and show the river bets as whole-hand amounts (the "bets 3" above). Nothing is decided
+  then, but it should be fixed.
+- Lone single-digit bets without "$" are read only when two reads agree; otherwise UNKNOWN.
+- Not yet checked against a real 247 table: run "Save last reads" there and replay them.
