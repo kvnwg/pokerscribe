@@ -17,7 +17,9 @@ They are what a faster solver is checked against: today the Rust one in
 equilibrium, so each one pins the true value of its spot down to a window up to 0.6 chips
 wide in a pot of 100. That is enough for the Phase 4 gate (0.5% of the pot) and no finer.
 
-These are different in three ways:
+`data/answer_keys/python_solver` (`docs/research/PHASE4.md`) holds this same solver's
+answers to those 40 spots, within 0.01% of the pot. The spots here are other spots, and
+differ in three ways:
 
 1. **Tighter.** Every answer here is within 0.001% of the pot of an equilibrium, so the
    true value of each spot is known to within 0.002 chips (`checks.oop_value_bounds`).
@@ -158,6 +160,20 @@ python -m tools.reference_spots rust --target 0.01 --max-exploitability 0.02 --v
 
 Result for the Rust solver, 26 Nov 2026: no problems on any of the 20, at its default
 target (0.3%) and at the tight one. Numbers: `docs/research/RIVER_SOLVER.md`.
+
+The Phase 4 harness (`docs/research/PHASE4.md`) reads this folder as well, which covers the
+closed-form results that page lists under "Not covered". It adds timing and action
+frequencies, and doesn't check the known shares:
+
+```bash
+python -m tools.answer_keys --spots-dir data/reference_spots/python_solver/spots run --solver engine/target/release/subgame-solve --target 0.3 --out /tmp/reference_run
+```
+
+```bash
+python -m tools.answer_keys --spots-dir data/reference_spots/python_solver/spots compare /tmp/reference_run --against data/reference_spots/python_solver/results
+```
+
+On 26 Nov 2026 that passed every gate on the 20 spots, with the same numbers as `rust`.
 
 ## Making them again
 

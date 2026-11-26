@@ -269,7 +269,9 @@ Time to reach a given accuracy, with no clock (median of three runs):
 
 What it can't do:
 
-1. **River only.** No turn or flop: it can't deal a card. The Rust solver does the turn.
+1. **River only.** No turn or flop: it can't deal a card. The Rust solver does the turn,
+   and a separate exact turn solver for reference answers is in
+   `tools/answer_keys/turn_solver.py` (`PHASE4.md`).
 2. **Two players only.**
 3. **A fixed menu of bet sizes.** It solves the game with the sizes it is given, which is
    not quite poker. A real bet between two sizes has to be put in the tree by the caller
@@ -328,3 +330,8 @@ python -m tools.reference_spots validate
   `data/reference_spots/python_solver/README.md`.
 - To add a spot, edit `tools/reference_spots/defs.py`, then `make-spots`, `solve` and
   `validate`.
+- The Phase 4 harness (`PHASE4.md`, `python -m tools.answer_keys run` and `compare`) reads
+  the same folder through `--spots-dir`, with timing and action frequencies. It lists
+  closed-form results as not covered by the 40 answer-key spots. These 20 cover them. The
+  Rust solver passes every gate there too, with the same numbers. The two command lines are
+  in the folder's README.
