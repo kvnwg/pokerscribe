@@ -1,0 +1,9 @@
+[package]
+name = "toygames"
+version = "0.1.0"
+edition = "2021"
+description = "Small poker games for testing the CFR core: Kuhn (n players) and Leduc hold'em, OpenSpiel rules."
+publish = false
+
+[dependencies]
+cfr = { path = "../cfr" }
