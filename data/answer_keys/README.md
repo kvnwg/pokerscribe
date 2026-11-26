@@ -11,8 +11,14 @@ Reference answers the PokerScribe solvers are checked against: today the Python 
 
 ## Status, 26 Nov 2026
 
-Solving in progress in the cloud session: TexasSolver is built (below) and the converter
-matches its trees on every spot tried. Results are committed as they finish.
+All 40 spots are solved, with status `ok`: TexasSolver's tree matched the spot's on
+every one, every answer is under 0.3% of the pot exploitability, and the three trivial
+spots pass their checks. On all 30 river spots our own exploitability check gives the
+same number as TexasSolver's, to the third decimal. The turn spots have only
+TexasSolver's own number until a turn checker exists (the Rust solver's).
+
+Solved in the cloud session, 4 threads: 5 to 7 s a spot, most of it start-up (Quirk 11).
+The results take 5.7 MB: 10 to 40 KB a river spot, 0.3 to 0.7 MB a turn spot (gzipped).
 
 ## Licence: keep TexasSolver out of this repo
 
@@ -83,7 +89,50 @@ its answer worked out by `app/solver/exploitability.py` (river spots only), whic
 depend on TexasSolver at all.
 
 <!-- solve-table:start -->
-Not solved yet.
+TexasSolver console@02c8021, binary sha256 `a752c18a7021f6fe9809e544f212a25de24d4f49a4a1c29a62ae97463c46ceb5`.
+
+| Spot | Street | Status | Solve time (s) | Iterations | TexasSolver exploitability | Our check | Nodes | File |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| r01 | river | ok | 5.58 | 31 | 0.166% | 0.166% | 8 | r01.jsonl |
+| r02 | river | ok | 5.5 | 21 | 0.124% | 0.124% | 8 | r02.jsonl |
+| r03 | river | ok | 5.52 | 11 | 0.000% | 0.000% | 8 | r03.jsonl |
+| r04 | river | ok | 5.51 | 61 | 0.205% | 0.205% | 8 | r04.jsonl |
+| r05 | river | ok | 5.34 | 71 | 0.257% | 0.257% | 18 | r05.jsonl |
+| r06 | river | ok | 5.47 | 41 | 0.289% | 0.289% | 8 | r06.jsonl |
+| r07 | river | ok | 5.5 | 101 | 0.236% | 0.236% | 26 | r07.jsonl |
+| r08 | river | ok | 5.13 | 61 | 0.296% | 0.296% | 8 | r08.jsonl |
+| r09 | river | ok | 5.92 | 61 | 0.266% | 0.266% | 8 | r09.jsonl |
+| r10 | river | ok | 5.39 | 51 | 0.209% | 0.209% | 10 | r10.jsonl |
+| r11 | river | ok | 5.34 | 111 | 0.298% | 0.298% | 12 | r11.jsonl |
+| r12 | river | ok | 5.09 | 51 | 0.297% | 0.297% | 8 | r12.jsonl |
+| r13 | river | ok | 5.73 | 51 | 0.266% | 0.266% | 10 | r13.jsonl |
+| r14 | river | ok | 6.1 | 51 | 0.147% | 0.147% | 8 | r14.jsonl |
+| r15 | river | ok | 5.64 | 61 | 0.227% | 0.227% | 12 | r15.jsonl |
+| r16 | river | ok | 5.65 | 51 | 0.232% | 0.232% | 10 | r16.jsonl |
+| r17 | river | ok | 5.71 | 61 | 0.154% | 0.154% | 24 | r17.jsonl |
+| r18 | river | ok | 5.41 | 41 | 0.273% | 0.273% | 8 | r18.jsonl |
+| r19 | river | ok | 6.47 | 61 | 0.165% | 0.165% | 8 | r19.jsonl |
+| r20 | river | ok | 5.63 | 51 | 0.188% | 0.188% | 10 | r20.jsonl |
+| r21 | river | ok | 6.23 | 41 | 0.185% | 0.185% | 8 | r21.jsonl |
+| r22 | river | ok | 5.81 | 81 | 0.300% | 0.300% | 10 | r22.jsonl |
+| r23 | river | ok | 5.83 | 31 | 0.283% | 0.283% | 8 | r23.jsonl |
+| r24 | river | ok | 5.22 | 91 | 0.238% | 0.238% | 16 | r24.jsonl |
+| r25 | river | ok | 5.61 | 41 | 0.258% | 0.258% | 10 | r25.jsonl |
+| r26 | river | ok | 5.7 | 41 | 0.245% | 0.245% | 12 | r26.jsonl |
+| r27 | river | ok | 5.02 | 41 | 0.131% | 0.131% | 8 | r27.jsonl |
+| r28 | river | ok | 5.36 | 91 | 0.192% | 0.192% | 10 | r28.jsonl |
+| r29 | river | ok | 5.47 | 71 | 0.203% | 0.203% | 14 | r29.jsonl |
+| r30 | river | ok | 5.51 | 61 | 0.180% | 0.180% | 8 | r30.jsonl |
+| t01 | turn | ok | 5.87 | 81 | 0.264% |  | 1160 | t01.jsonl.gz |
+| t02 | turn | ok | 5.9 | 91 | 0.235% |  | 1160 | t02.jsonl.gz |
+| t03 | turn | ok | 6.59 | 171 | 0.283% |  | 1736 | t03.jsonl.gz |
+| t04 | turn | ok | 5.63 | 81 | 0.202% |  | 1160 | t04.jsonl.gz |
+| t05 | turn | ok | 5.78 | 31 | 0.221% |  | 1160 | t05.jsonl.gz |
+| t06 | turn | ok | 5.98 | 61 | 0.245% |  | 1736 | t06.jsonl.gz |
+| t07 | turn | ok | 6.42 | 91 | 0.210% |  | 1932 | t07.jsonl.gz |
+| t08 | turn | ok | 5.58 | 71 | 0.221% |  | 1160 | t08.jsonl.gz |
+| t09 | turn | ok | 6.02 | 81 | 0.233% |  | 1736 | t09.jsonl.gz |
+| t10 | turn | ok | 5.8 | 71 | 0.165% |  | 2320 | t10.jsonl.gz |
 <!-- solve-table:end -->
 
 ## Quirks
@@ -126,7 +175,7 @@ saving a wrong key.
     header stores it as a share. On the river spots it equals our own check, so the two
     measure the same thing.
 11. **Start-up time.** About 5 s of each run is TexasSolver loading its 52 MB hand-ranking
-    table, so most river spots take about 5.5 s whatever their size.
+    table, so every spot here takes 5 to 7 s whatever its size, turn spots included.
 
 ## The spots
 

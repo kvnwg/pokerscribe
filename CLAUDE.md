@@ -48,8 +48,8 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
   format. See `docs/research/SOLVER.md`.
 - `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
-  keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. TexasSolver is AGPL: it runs on the Mac
-  from `~/answer-keys`, never in the repo. Not solved yet (`data/answer_keys/README.md`).
+  keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
+  built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
