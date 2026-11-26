@@ -340,7 +340,7 @@ import subprocess  # noqa: E402
 from app.solver.labels import SOLVER_NAME  # noqa: E402
 from app.solver.ranking import hand_value  # noqa: E402
 from tools.answer_keys import compare as cmp  # noqa: E402
-from tools.answer_keys import python_solver, runner, standin_solver  # noqa: E402
+from tools.answer_keys import python_solver, runner, standin_solver, turn_solver  # noqa: E402
 from tools.answer_keys.result import make_header, node_record  # noqa: E402
 from tools.answer_keys.spots import RESULTS_DIR as TEXASSOLVER_DIR  # noqa: E402
 from tools.answer_keys.values import RIVER_CARDS, TEXASSOLVER_RIVER_CARDS, Game  # noqa: E402
@@ -352,6 +352,10 @@ STANDIN = standin_solver.__file__
 def _key(spots, spot_id):
     """TexasSolver's saved answer to a spot: (header, nodes)."""
     return cmp.load_valid(TEXASSOLVER_DIR, spots[spot_id])
+
+
+def _reference(spots, spot_id):
+    return cmp.load_valid(PYTHON_DIR, spots[spot_id])
 
 
 def _rule_nodes(spot, rule):
@@ -497,47 +501,139 @@ def test_texassolver_weighs_each_river_card_by_one_in_46(spots):
 
 
 # -------------------------------------------- the Python reference answers
-def test_the_python_reference_answers_every_river_spot(spots):
-    rivers = [s for s in spots.values() if s["street"] == "river"]
+def test_the_python_reference_answers_every_spot(spots):
     names = sorted(n for n in os.listdir(PYTHON_DIR) if n != "index.json")
-    assert names == [s["id"] + ".jsonl" for s in rivers]  # 30 river spots, no turn spots
-    target = python_solver.REFERENCE_TARGET_PCT / 100
-    for s in rivers:
+    assert [n.split(".")[0] for n in names] == sorted(spots)  # 30 river and 10 turn spots
+    for s in spots.values():
+        river = s["street"] == "river"
         header, nodes = cmp.load_valid(PYTHON_DIR, s)  # the same spot (sha256), the same tree, rows add up
-        assert header["solver"]["name"] == SOLVER_NAME and header["solver"]["converged"]
-        assert header["solver"]["settings"]["target_exploitability_pct"] == python_solver.REFERENCE_TARGET_PCT
-        assert header["checks"]["expected_failures"] == [] and header["checks"]["filled_rows"] == 0
-        checked = river_exploitability(s, nodes)[0]
-        assert checked == pytest.approx(header["checks"]["exploitability_pot"], abs=1e-7)
-        assert checked <= 1.05 * target  # the saved rows are rounded to 6 places
+        solver, c = header["solver"], header["checks"]
+        assert solver["name"] == (SOLVER_NAME if river else turn_solver.NAME) and solver["converged"]
+        target = python_solver.default_target_pct(s)
+        assert solver["settings"]["target_exploitability_pct"] == target == 0.01
+        assert c["expected_failures"] == [] and c["filled_rows"] == 0
+        assert c["exploitability_pot"] <= 1.05 * target / 100  # the saved rows are rounded to 6 places
+        # the values add up to the pot, and lie inside the bounds on the true value
+        assert c["values"]["oop"] + c["values"]["ip"] == pytest.approx(s["pot"], abs=1e-4)
+        lo, hi = c["oop_value_bounds"]
+        assert lo - 1e-6 <= c["values"]["oop"] <= hi + 1e-6
+        assert hi - lo == pytest.approx(2 * c["exploitability_pot"] * s["pot"], abs=1e-4)
+        if river:  # worked out again: every river spot here, the turn spots in the next two tests
+            assert river_exploitability(s, nodes)[0] == pytest.approx(c["exploitability_pot"], abs=1e-7)
     index = json.loads(open(os.path.join(PYTHON_DIR, "index.json")).read())
-    assert sorted(index["spots"]) == [s["id"] for s in rivers]
+    assert sorted(index["spots"]) == sorted(spots)
     assert all(e["status"] == "ok" for e in index["spots"].values())
+    assert index["timing"]["river"]["spots"] == 30 and index["timing"]["turn"]["spots"] == 10
+
+
+TURN_SAMPLE = ("t05", "t10")  # a turn spot takes a second or two to check, so the tests take two of the ten
 
 
 def test_the_python_reference_passes_the_phase4_gates_against_texassolver(spots):
-    rows = cmp.compare_dirs(PYTHON_DIR, TEXASSOLVER_DIR, list(spots.values()))
-    done = [r for r in rows if r.compared]
-    assert [r.spot_id for r in done] == [k for k, s in spots.items() if s["street"] == "river"]
-    assert all(r.passed for r in done), [(r.spot_id, r.problems) for r in done if not r.passed]
-    for r in done:
+    chosen = [s for s in spots.values() if s["street"] == "river" or s["id"] in TURN_SAMPLE]
+    rows = cmp.compare_dirs(PYTHON_DIR, TEXASSOLVER_DIR, chosen)
+    assert [r.spot_id for r in rows if r.compared] == [s["id"] for s in chosen]
+    assert all(r.passed for r in rows), [(r.spot_id, r.problems) for r in rows if not r.passed]
+    for r in rows:
         assert max(abs(d) for d in r.ev_diff) <= cmp.GATE_EV_PCT
         assert r.ev_diff[0] == pytest.approx(-r.ev_diff[1], abs=1e-9)  # one player's gain is the other's loss
         assert r.exploitability < 0.011 and r.exploitability_source == "checked"
         assert r.reported == pytest.approx(r.exploitability, abs=1e-3)
         assert (r.expected == []) == ("trivial" in spots[r.spot_id]["tags"])
+    turn = {r.spot_id: r for r in rows if r.street == "turn"}
+    assert sorted(turn) == sorted(TURN_SAMPLE)
+    # t10 is where TexasSolver's rule for the river card moves the value most (PHASE4.md)
+    assert 0.25 < abs(turn["t10"].ev_diff[0]) < 0.4 and abs(turn["t05"].ev_diff[0]) < 0.1
     summary = cmp.summarize(rows, "texassolver", PYTHON_DIR)
-    assert summary.passed and summary.n_compared == 30 and summary.expected_spots == 3
+    assert summary.passed and summary.n_compared == 32 and summary.expected_spots == 3
     assert summary.worst_ev <= cmp.GATE_EV_PCT and summary.worst_exploitability < 0.011
-    assert any("No result, not checked: t01" in line for line in summary.lines)
-    assert summary.lines[-3].startswith("Phase 4 gates on 30 of 40 spots: PASS")
+    assert any(line.startswith("Phase 4 gates on 32 of 32 spots: PASS") for line in summary.lines)
+    assert set(summary.solver_ms) == {"river", "turn"}
     text = cmp.format_table(rows)
     assert text.splitlines()[0].split() == ["Spot", "Street", "EV", "oop", "dEV", "oop", "dEV", "ip", "Exploit.",
                                             "Reported", "Expected", "Freq", "mean", "Freq", "max", "Solve", "ms",
                                             "Iter.", "Gates"]
-    assert len(text.splitlines()) == 41 and text.splitlines()[-1].split()[-2:] == ["no", "result"]
+    assert len(text.splitlines()) == 33 and text.splitlines()[-1].split()[-1] == "pass"
     row = cmp.markdown_row("python_solver", "texassolver", summary)
     assert row.count("|") == cmp.MARKDOWN_ROW_HEADER.splitlines()[0].count("|") and row.endswith("| PASS |")
+
+
+def test_texassolvers_turn_answers_against_the_exact_reference(spots):
+    """What the turn reference is for. Held against it, TexasSolver's turn answers are within
+    the EV gate, and over the exploitability gate on some spots once the river card is
+    weighed exactly (t05 and t10 are two of those)."""
+    chosen = [spots[k] for k in TURN_SAMPLE]
+    rows = cmp.compare_dirs(TEXASSOLVER_DIR, PYTHON_DIR, chosen)
+    for r in rows:
+        assert max(abs(d) for d in r.ev_diff) <= cmp.GATE_EV_PCT
+        assert r.exploitability > cmp.GATE_EXPLOITABILITY_PCT > r.reported  # 0.55% and 0.61%, reported 0.22% and 0.17%
+        assert not r.passed
+    assert not cmp.summarize(rows, "python_solver", TEXASSOLVER_DIR).passed
+    taken = cmp.compare_dirs(TEXASSOLVER_DIR, PYTHON_DIR, chosen, turn_exploitability="reported")
+    assert all(r.passed for r in taken)
+
+
+# ----------------------------------------------------- turn_solver.py
+def test_the_turn_solver_solves_a_tiny_turn_spot():
+    answer = turn_solver.solve(TINY_TURN, target_exploitability=0.001, max_iterations=4000)
+    assert answer.exploitability <= 0.001 and answer.iterations % turn_solver.CHECK_EVERY == 0
+    assert answer.trace[-1] == (answer.iterations, answer.exploitability)
+    assert answer.trace[0][1] > answer.trace[-1][1]  # it got better
+    nodes = turn_solver.node_records(answer)
+    tree = decision_nodes(TINY_TURN)
+    validate_result(make_header(TINY_TURN, spot_hash(TINY_TURN), {}, len(nodes)), nodes, TINY_TURN,
+                    spot_hash(TINY_TURN), tree)
+    game = Game(TINY_TURN)
+    assert game.exploitability(nodes) == (pytest.approx(answer.exploitability, abs=2e-6), 0)  # rows rounded to 6 places
+    # a combo that holds the river card has no row at that card's nodes
+    key = next(k for k in tree if " Qh" in k and tree[k].actor == "oop")
+    assert "QsQh" not in nodes[key]["strategy"] and "KhKd" in nodes[key]["strategy"]
+    # the value, deal by deal, lies inside the bounds on the true value
+    value, _, _ = _deal_by_deal(TINY_TURN, nodes)
+    c = game.checks(nodes)
+    assert c["values"]["oop"] == pytest.approx(value, abs=1e-5)
+    lo, hi = c["oop_value_bounds"]
+    assert lo - 1e-6 <= value <= hi + 1e-6 and hi - lo == pytest.approx(2 * c["exploitability_pot"] * 100, abs=1e-5)
+    # no clock in it: the same work gives the same answer
+    one, two = (turn_solver.solve(TINY_TURN, max_iterations=30) for _ in range(2))
+    assert one.iterations == 30 and all(np.array_equal(one.probs[k], two.probs[k]) for k in one.probs)
+    assert [t for t, _ in one.trace] == [25, 30]
+    # TexasSolver's rule is another game: its answer isn't an equilibrium of the exact one
+    other = turn_solver.solve(TINY_TURN, target_exploitability=0.001, max_iterations=4000,
+                              river_cards=TEXASSOLVER_RIVER_CARDS)
+    assert other.exploitability <= 0.001 and game.exploitability(turn_solver.node_records(other))[0] > 0.003
+    with pytest.raises(ValueError):
+        turn_solver.solve(TINY_TURN)  # no limit at all
+    with pytest.raises(ValueError):
+        turn_solver.solve(TINY_TURN, max_iterations=0)
+
+
+def test_the_turn_solver_agrees_with_app_solver_on_a_river_spot(spots):
+    """It takes river spots too, where app/solver can check it: app/solver's exploitability
+    checker shares no code with the turn solver or with values.py."""
+    s = spots["r13"]
+    answer = turn_solver.solve(s, target_exploitability=0.0005, max_iterations=4000)
+    nodes = turn_solver.node_records(answer)
+    checked, filled = river_exploitability(s, nodes)
+    assert filled == 0 and checked == pytest.approx(answer.exploitability, abs=2e-6) and checked <= 0.000505
+    reference = _reference(spots, "r13")[0]["checks"]
+    mine = python_solver.our_checks(s, nodes)
+    lo, hi = mine["oop_value_bounds"]
+    assert max(lo, reference["oop_value_bounds"][0]) <= min(hi, reference["oop_value_bounds"][1]) + 1e-6
+    # each value is within twice its answer's exploitability of the true value
+    assert mine["values"]["oop"] == pytest.approx(reference["values"]["oop"], abs=2 * (0.0005 + 0.0001) * s["pot"])
+
+
+def test_the_turn_reference_is_an_equilibrium_of_the_exact_game(spots):
+    """The saved turn answers, checked again from the file (two of the ten)."""
+    for spot_id in TURN_SAMPLE:
+        s = spots[spot_id]
+        header, nodes = _reference(spots, spot_id)
+        c = Game(s).checks(nodes)
+        assert c == {k: header["checks"][k] for k in c}
+        assert c["exploitability_pot"] <= 0.000105 and c["filled_rows"] == 0
+        # by TexasSolver's rule it is not one: the two rules are two games
+        assert Game(s, TEXASSOLVER_RIVER_CARDS).exploitability(nodes)[0] > 0.001
 
 
 # ------------------------------------------------------------------ compare.py
@@ -637,24 +733,49 @@ def test_compare_fails_bad_missing_and_invalid_results(tmp_path, spots, capsys):
 # -------------------------------------------------- export-python and the stand-in
 def test_export_python_saves_results_and_an_index(tmp_path, spots, capsys):
     out = tmp_path / "py"
-    assert cli.main(["export-python", "r01", "r06", "t01", "--out", str(out), "--target", "0.05"]) == 0
-    assert sorted(os.listdir(out)) == ["index.json", "r01.jsonl", "r06.jsonl"]  # the turn spot is skipped
+    args = ["export-python", "r01", "r06", "t01", "--spots", "river", "--out", str(out), "--target", "0.05"]
+    assert cli.main(args) == 0
+    assert sorted(os.listdir(out)) == ["index.json", "r01.jsonl", "r06.jsonl"]  # --spots river leaves t01 out
     printed = capsys.readouterr().out
-    assert "Skipped 1 turn spots" in printed and "holds 2 river RESULTs" in printed
+    assert "holds 2 river RESULTs" in printed and "turn RESULTs" not in printed
     index = json.loads((out / "index.json").read_text())
-    assert index["settings"]["target_exploitability_pct"] == 0.05 and index["timing"]["river"]["spots"] == 2
+    assert index["settings"]["river"]["target_exploitability_pct"] == 0.05 and index["timing"]["river"]["spots"] == 2
     for spot_id in ("r01", "r06"):
         header, nodes = cmp.load_valid(str(out), spots[spot_id])
         assert header["solver"]["exploitability_pot"] <= 0.0005 and header["solver"]["iterations"] >= 8
         checked = river_exploitability(spots[spot_id], nodes)[0]
         assert header["checks"]["exploitability_pot"] == pytest.approx(checked, abs=1e-7)
         assert index["spots"][spot_id]["iterations"] == header["solver"]["iterations"]
-    # solving one spot again keeps the other in the index; a turn spot alone changes nothing
+        assert index["spots"][spot_id]["oop_value"] == header["checks"]["values"]["oop"]
+    # solving one spot again keeps the other in the index; no spot at all changes nothing
     assert cli.main(["export-python", "r06", "--out", str(out), "--target", "0.05"]) == 0
-    assert cli.main(["export-python", "t01", "--out", str(out)]) == 2
+    assert cli.main(["export-python", "r06", "--spots", "turn", "--out", str(out)]) == 2
     assert sorted(json.loads((out / "index.json").read_text())["spots"]) == ["r01", "r06"]
-    with pytest.raises(SpotError, match="river spots only"):
-        python_solver.solve_spot(spots["t01"])
+
+
+def test_export_python_solves_turn_spots_with_the_turn_solver(tmp_path, spots):
+    """A small turn spot through the same code as the ten real ones (those take 20 to 30 s each)."""
+    tiny = dict(TINY_TURN, id="t99")
+    out = tmp_path / "py"
+    index = python_solver.export([spots["r01"], tiny], str(out), target_pct=0.05, turn_target_pct=0.1,
+                                 log=lambda line: None)
+    assert sorted(index["spots"]) == ["r01", "t99"] and set(index["timing"]) == {"river", "turn"}
+    assert index["solver"]["turn"]["name"] == turn_solver.NAME and index["solver"]["river"]["name"] == SOLVER_NAME
+    e = index["spots"]["t99"]
+    assert e["status"] == "ok" and e["street"] == "turn" and e["target_exploitability_pct"] == 0.1
+    header, nodes = cmp.load_valid(str(out), tiny)
+    solver, c = header["solver"], header["checks"]
+    assert solver["name"] == turn_solver.NAME and solver["converged"] and solver["exploitability_pot"] <= 0.001
+    assert solver["settings"]["method"] == "dcfr" and solver["iterations"] == e["iterations"] > 0
+    assert c == dict(Game(tiny).checks(nodes), expected_failures=[])  # the header's checks are on the saved rows
+    assert e["checked_exploitability_pot"] == c["exploitability_pot"] <= 0.00101
+    assert e["oop_value"] == c["values"]["oop"]
+    # solve_spot's limits: iterations, or the clock
+    header, _ = python_solver.solve_spot(tiny, 0, max_iterations=10)
+    assert header["solver"]["iterations"] == 10 and not header["solver"]["converged"]
+    header, _ = python_solver.solve_spot(tiny, 0, time_ms=1)
+    assert header["solver"]["iterations"] >= 1 and header["solver"]["settings"]["max_iterations"] is None
+    assert python_solver.default_max_iterations(tiny) < python_solver.default_max_iterations(spots["r01"])
 
 
 def test_the_stand_in_follows_the_command_line(tmp_path, spots):
@@ -672,7 +793,14 @@ def test_the_stand_in_follows_the_command_line(tmp_path, spots):
     lines = [json.loads(line) for line in done.stdout.decode().splitlines()]
     assert lines[0]["kind"] == "header" and lines[0]["spot_id"] == "r06" and len(lines) == 1 + lines[0]["nodes"]
     assert lines[0]["solver"]["settings"]["time_ms"] == 50
-    assert standin_solver.main([os.path.join(SPOTS_DIR, "t01.json")]) == 2  # river spots only
+    # a turn spot goes to the turn solver
+    tiny = tmp_path / "t99.json"
+    tiny.write_text(json.dumps(dict(TINY_TURN, id="t99")))
+    assert standin_solver.main([str(tiny), "--out", str(out), "--target-exploitability", "0.3"]) == 0
+    header, nodes = runner.read_output(str(out))
+    assert header["street"] == "turn" and header["solver"]["converged"] and header["solver"]["name"] == turn_solver.NAME
+    assert 0 < header["checks"]["exploitability_pot"] <= 0.003
+    assert standin_solver.main([str(tmp_path / "missing.json")]) == 2
 
 
 # ------------------------------------------------------------------- runner.py
@@ -724,10 +852,13 @@ def test_run_saves_results_and_times_a_solver(tmp_path, spots, capsys):
 
 
 def test_run_reports_a_solver_that_fails(tmp_path, capsys):
-    out = tmp_path / "standin"
-    assert cli.main(["run", "--solver", STANDIN, "--out", str(out), "--spots", "turn", "t01"]) == 1
+    out = tmp_path / "broken"
+    broken = tmp_path / "broken-solver"
+    broken.write_text(f"#!{sys.executable}\nimport sys\nsys.exit('river spots only')\n")
+    broken.chmod(broken.stat().st_mode | stat.S_IEXEC)
+    assert cli.main(["run", "--solver", str(broken), "--out", str(out), "--spots", "turn", "t01"]) == 1
     printed = capsys.readouterr().out
-    assert "t01  turn  FAIL  exit status 2" in printed and "river spots only" in printed
+    assert "t01  turn  FAIL  exit status 1" in printed and "river spots only" in printed
     assert "1 of 1 spots failed: t01" in printed and "Saved 0 RESULTs" in printed
     index = json.loads((out / "index.json").read_text())
     assert index["spots"]["t01"]["status"] == "fail" and index["timing"] == {}
@@ -771,7 +902,8 @@ def test_run_reads_a_turn_result_in_another_layout(tmp_path, spots):
     index = runner.run_spots(solver, [spots["t05"]], str(out), "other", repeat=1, log=lambda line: None)
     e = index["spots"]["t05"]
     assert e["status"] == "ok" and e["solver_ms"] == [7.5] and e["iterations"] == 3 and e["exploitability_pot"] == 0.004
-    assert e["checked_exploitability_pot"] is None  # the header's own check is for river spots (SPOT_FORMAT.md)
+    assert e["checked_exploitability_pot"] > 0.05  # our own check, by values.py on a turn spot: far from 0.4%
+    assert read_result(os.path.join(str(out), e["file"]))[0]["checks"]["values"]["oop"] > 0
     assert e["file"] == "t05.jsonl.gz" and index["timing"]["turn"]["runs"] == 1
     assert index["solver"]["file"] == "other-solver" and runner.timing_lines(index)[0].startswith("turn: wall time p50")
     (row,) = cmp.compare_dirs(str(out), TEXASSOLVER_DIR, [spots["t05"]], turn_exploitability="reported")

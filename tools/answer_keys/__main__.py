@@ -9,7 +9,8 @@ them (docs/research/PHASE4.md).
     python -m tools.answer_keys recheck [ids ...]       # our checks again on saved river results
     python -m tools.answer_keys report                  # rewrite the solve table in the README
 
-    python -m tools.answer_keys export-python           # river spots by app/solver -> data/answer_keys/python_solver/
+    python -m tools.answer_keys export-python [--spots river|turn|all]   # the Python reference answers:
+                                    # river spots by app/solver, turn spots by turn_solver.py
     python -m tools.answer_keys compare <results dir> [--against texassolver|python_solver]
     python -m tools.answer_keys run --solver <path to subgame-solve> [--spots river|turn|all] [--target 0.5]
                                     [--repeat 3]
@@ -295,17 +296,22 @@ def select_spots(spots_dir: str, which: str = "all", ids: Optional[List[str]] = 
 
 
 def cmd_export_python(args) -> int:
-    spots = select_spots(args.spots_dir, "all", args.ids)
-    index = python_solver.export(spots, args.out, args.target, args.max_iterations)
-    entries = index["spots"]
-    if not entries:
-        print("No river spot to solve.")
+    spots = select_spots(args.spots_dir, args.spots, args.ids)
+    if not spots:
+        print("No spot to solve.")
         return 2
-    worst = max(entries, key=lambda k: entries[k]["checked_exploitability_pot"])
-    t = index["timing"]["river"]
-    print(f"{args.out} holds {len(entries)} river RESULTs: largest exploitability "
-          f"{100 * entries[worst]['checked_exploitability_pot']:.4f}% of the pot ({worst}), "
-          f"solve time p50 {t['solver_ms_p50']:.0f} ms, p95 {t['solver_ms_p95']:.0f} ms")
+    index = python_solver.export(spots, args.out, args.target, args.max_iterations,
+                                 args.turn_target, args.turn_max_iterations)
+    entries = index["spots"]
+    for street in ("river", "turn"):
+        of_street = {k: e for k, e in entries.items() if e["street"] == street}
+        if not of_street:
+            continue
+        worst = max(of_street, key=lambda k: of_street[k]["checked_exploitability_pot"])
+        t = index["timing"][street]
+        print(f"{args.out} holds {len(of_street)} {street} RESULTs: largest exploitability "
+              f"{100 * of_street[worst]['checked_exploitability_pot']:.4f}% of the pot ({worst}), "
+              f"solve time p50 {t['solver_ms_p50']:.0f} ms, p95 {t['solver_ms_p95']:.0f} ms")
     return 0 if all(e["status"] == "ok" for e in entries.values()) else 1
 
 
@@ -414,12 +420,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     q.set_defaults(fn=cmd_recheck)
     sub.add_parser("report").set_defaults(fn=cmd_report)
 
-    q = sub.add_parser("export-python", help="solve the river spots with app/solver: the Phase 2 reference answers")
-    q.add_argument("ids", nargs="*", help="only these spots (default: every river spot)")
+    q = sub.add_parser("export-python", help="the Python reference answers: river spots solved by app/solver "
+                                             "(Phase 2), turn spots by the exact turn solver (turn_solver.py)")
+    q.add_argument("ids", nargs="*", help="only these spots (default: every spot)")
+    q.add_argument("--spots", choices=("river", "turn", "all"), default="all",
+                   help="turn spots take seconds to minutes each")
     q.add_argument("--out", default=python_solver.RESULTS_DIR)
     q.add_argument("--target", type=float, default=python_solver.REFERENCE_TARGET_PCT,
-                   help="stop at this exploitability, percent of the pot")
+                   help="river spots stop at this exploitability, percent of the pot")
     q.add_argument("--max-iterations", type=int, default=python_solver.MAX_ITERATIONS)
+    q.add_argument("--turn-target", type=float, default=python_solver.TURN_REFERENCE_TARGET_PCT,
+                   help="turn spots stop at this exploitability, percent of the pot")
+    q.add_argument("--turn-max-iterations", type=int, default=python_solver.TURN_MAX_ITERATIONS)
     q.set_defaults(fn=cmd_export_python)
 
     q = sub.add_parser("compare", help="compare a folder of RESULTs with a reference; pass/fail on the Phase 4 gates")

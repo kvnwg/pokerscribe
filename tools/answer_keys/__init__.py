@@ -8,10 +8,12 @@ the harness that checks a solver against them (docs/research/PHASE4.md).
 - checks.py: the "expected" checks of the trivial spots, and our own exploitability check
 - values.py: an answer's EVs, reach and action frequencies, and an exact best response,
   for river and turn spots
-- python_solver.py: the river spots solved by app/solver (data/answer_keys/python_solver/)
+- turn_solver.py: an exact turn solver in numpy, the reference answer for the turn spots
+- python_solver.py: the Python reference answers (data/answer_keys/python_solver/): river
+  spots solved by app/solver, turn spots by turn_solver.py
 - compare.py: a solver's answers against a reference, with the Phase 4 gates
 - runner.py: run and time any binary that follows the subgame-solve command line
-- standin_solver.py: that command line answered by app/solver, to test the harness
+- standin_solver.py: that command line answered by the Python solvers, to test the harness
 - __main__.py: the command line (python -m tools.answer_keys --help)
 
 TexasSolver (AGPL-3.0) is only ever run as a separate program from its config files. None

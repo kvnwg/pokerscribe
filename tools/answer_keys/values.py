@@ -24,6 +24,7 @@ this module.
 For a river spot these are the numbers of app/solver/exploitability.py (the tests check
 that they agree). compare.py uses app/solver's own checker for the exploitability of river
 spots, and this module for turn spots and for the EVs, reach and frequencies of both.
+turn_solver.py solves a spot on the same Game (the exact turn reference).
 
 TexasSolver's rule. TexasSolver gives each river card a weight of 1/46 where the exact
 weight is 1/44 (it leaves out the opponent's two cards: 52 - 4 on the board - 2 in hand),
@@ -81,7 +82,7 @@ class Game:
         self.turn = spot["street"] == "turn"
         self.combos = tuple(list(spot["ranges"][name]) for name in PLAYER_NAMES)
         self.weights = tuple(np.array([float(w) for w in spot["ranges"][name].values()]) for name in PLAYER_NAMES)
-        self._actor = {key: PLAYER_NAMES.index(node.actor) for key, node in self.nodes.items()}
+        self.actor = {key: PLAYER_NAMES.index(node.actor) for key, node in self.nodes.items()}
         hands = tuple([parse_combo(c) for c in self.combos[p]] for p in (OOP, IP))
         board = list(spot["board"])
         # tables[card] = (meets, wins), both shaped (oop combos, ip combos): the weight of
@@ -128,7 +129,7 @@ class Game:
             return None
         return next(t for t in node.key.split() if t in self.tables)
 
-    def _child(self, node: Decision, action: str, before: float):
+    def child(self, node: Decision, action: str, before: float):
         """Where an action leads. `before` is what each player put in on earlier streets.
         ("node", key, 0), ("fold", None, what the folder has put in), ("show", None, what
         each player has put in), or ("deal", the key before the river card, what each put
@@ -137,7 +138,7 @@ class Game:
         if key in self.nodes:
             return "node", key, 0.0
         if action == "f":
-            return "fold", None, before + node.put_in[self._actor[node.key]]
+            return "fold", None, before + node.put_in[self.actor[node.key]]
         matched = max(node.put_in)  # a call matches the bet; after a check both are equal
         if self.turn and node.street == "turn" and matched < self.stack - EPS:
             return "deal", key, matched
@@ -156,7 +157,7 @@ class Game:
                 raise ValueError(f"{key!r}: actions {rec['actions']} differ from {list(node.actions)}.")
             rows = rec["strategy"]
             card = self.river_card(node)
-            combos = self.combos[self._actor[key]]
+            combos = self.combos[self.actor[key]]
             n = len(node.actions)
             arr = np.full((len(combos), n), 1.0 / n)
             for i, combo in enumerate(combos):
@@ -183,7 +184,7 @@ class Game:
             """OOP's chips from this node on, summed over every deal that gets here."""
             node = self.nodes[key]
             meets, wins = self.tables[card]
-            oop_acts = self._actor[key] == OOP
+            oop_acts = self.actor[key] == OOP
             s = sigma[key]
             mass = r_oop * (meets @ r_ip) if oop_acts else r_ip * (r_oop @ meets)
             here = float(mass.sum())
@@ -193,7 +194,7 @@ class Game:
             total = 0.0
             for a, action in enumerate(node.actions):
                 q_oop, q_ip = (r_oop * s[:, a], r_ip) if oop_acts else (r_oop, r_ip * s[:, a])
-                kind, child, chips = self._child(node, action, before)
+                kind, child, chips = self.child(node, action, before)
                 if kind == "node":
                     total += walk(child, card, before, q_oop, q_ip)
                 elif kind == "fold":
@@ -217,7 +218,7 @@ class Game:
             """For each of the player's combos: the best it can do from this node on, summed
             over the opponent's combos (weighted by how often each gets here)."""
             node = self.nodes[key]
-            mine = self._actor[key] == player
+            mine = self.actor[key] == player
             best = None
             for a, action in enumerate(node.actions):
                 v = after(node, action, card, before, opp if mine else opp * sigma[key][:, a])
@@ -228,7 +229,7 @@ class Game:
             return best
 
         def after(node: Decision, action: str, card: Optional[str], before: float, opp: np.ndarray) -> np.ndarray:
-            kind, child, chips = self._child(node, action, before)
+            kind, child, chips = self.child(node, action, before)
             if kind == "node":
                 return values(child, card, before, opp)
             if kind == "deal":
@@ -239,7 +240,7 @@ class Game:
             meets, wins = self.tables[card]
             if kind == "fold":
                 m = meets @ opp if player == OOP else opp @ meets
-                return (-(half + chips) if self._actor[node.key] == player else half + chips) * m
+                return (-(half + chips) if self.actor[node.key] == player else half + chips) * m
             return (half + chips) * (wins @ opp if player == OOP else -(opp @ wins))
 
         root = values("", None, 0.0, self.weights[1 - player])
@@ -250,3 +251,15 @@ class Game:
         sigma, filled = self.strategy_arrays(nodes)
         best = self.best_response(sigma, OOP) + self.best_response(sigma, IP)
         return (best - self.pot) / 2 / self.pot, filled
+
+    def checks(self, nodes: Mapping[str, Mapping]) -> Dict:
+        """What checks.river_checks gives for a river spot, for any spot: the answer's
+        exploitability, each player's value, and bounds on the spot's true value for OOP
+        (pot - IP's best response <= true value <= OOP's best response)."""
+        sigma, filled = self.strategy_arrays(nodes)
+        best = (self.best_response(sigma, OOP), self.best_response(sigma, IP))
+        value = self.evaluate(nodes).value
+        r = lambda x: round(float(x), 6)  # noqa: E731
+        return {"exploitability_pot": round((best[OOP] + best[IP] - self.pot) / 2 / self.pot, 8),
+                "filled_rows": filled, "values": {"oop": r(value[OOP]), "ip": r(value[IP])},
+                "oop_value_bounds": [r(self.pot - best[IP]), r(best[OOP])]}

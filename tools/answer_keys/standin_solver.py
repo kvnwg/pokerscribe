@@ -1,6 +1,7 @@
-"""A stand-in for the Rust subgame-solve binary: the same command line, answered by
-app/solver. It is here to test the harness (python -m tools.answer_keys run) before the
-Rust binary exists, and to time the Python solver the way the Rust one will be timed.
+"""A stand-in for the Rust subgame-solve binary: the same command line, answered by the
+Python solvers (app/solver for a river spot, turn_solver.py for a turn spot). It is here to
+test the harness (python -m tools.answer_keys run) before the Rust binary exists, and to
+time the Python solvers the way the Rust one will be timed.
 
     python tools/answer_keys/standin_solver.py <spot.json> [--out result.json]
         [--target-exploitability 0.3] [--max-iterations N] [--time-ms N] [--threads N]
@@ -11,7 +12,7 @@ the solve time (elapsed_s), the iterations and the exploitability (exploitabilit
 share of the pot).
 
 --target-exploitability is in percent of the pot, like TexasSolver's accuracy. --threads
-is accepted and ignored. River spots only: a turn spot ends with exit status 2.
+is accepted and ignored. A turn spot takes seconds where a river spot takes milliseconds.
 
     python -m tools.answer_keys run --solver tools/answer_keys/standin_solver.py --spots river --out /tmp/standin
 """
@@ -24,7 +25,7 @@ from typing import List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from tools.answer_keys.python_solver import MAX_ITERATIONS, solve_spot  # noqa: E402
+from tools.answer_keys.python_solver import solve_spot  # noqa: E402
 from tools.answer_keys.result import encode  # noqa: E402
 from tools.answer_keys.spots import SpotError, load_spot  # noqa: E402
 
@@ -43,9 +44,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
     try:
         spot = load_spot(args.spot)
-        # without a limit of its own a run still ends: the safety stop of the reference
-        cap = args.max_iterations if args.max_iterations is not None else (None if args.time_ms else MAX_ITERATIONS)
-        header, nodes = solve_spot(spot, args.target_exploitability, cap, args.time_ms)
+        # without a limit of its own a run still ends: solve_spot's safety stop on iterations
+        header, nodes = solve_spot(spot, args.target_exploitability, args.max_iterations, args.time_ms)
     except (SpotError, OSError, ValueError) as e:
         print(f"standin_solver: {e}", file=sys.stderr)
         return 2
