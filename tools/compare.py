@@ -46,6 +46,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import hidden  # noqa: E402
 import luck  # noqa: E402
 import simulate as sim  # noqa: E402
 
@@ -65,7 +66,8 @@ def deal(k: int, method: str) -> tuple:
 
 def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0, stacks: str = "even",
            profiles: bool = False, method: str = "classic", adjust: bool = True, adjust_all: bool = False,
-           start: int = 0, resample: int = 1):
+           start: int = 0, resample: int = 1, use_hidden: bool = False, lean: bool = False,
+           redeal: bool = False, exact_luck: bool = False):
     """With profiles, the app learns the bots' styles from the hands as in watch mode. They are
     learned from the base variant's hands; a replayed hand starts from the same profiles.
 
@@ -83,18 +85,37 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
     each replay), and extra["resampled"] is the average luck-adjusted difference over the K
     plays (extra["resampled_raw"] the same without the luck adjustment). Which hands get
     replayed depends only on what happened before they part, so the average has the same
-    expected value as one play."""
+    expected value as one play.
+
+    use_hidden (keyed or duplicate, no profiles): for hands where the variants part heads-up
+    after the flop, extra["hidden"] also takes the opponent's hidden cards and random choices
+    out (tools/hidden.py), averaged over the same plays; other hands that differ use the
+    resampled luck-adjusted difference. extra["eligible"] marks the hands that used it.
+
+    lean (with use_hidden): compute only what extra["hidden"] needs, so its time can be
+    measured; the luck-adjusted columns are then NaN for the hands that use hidden cards.
+
+    redeal (with resample): each replay also deals the bots still in at the split a fresh draw
+    from the hands they could hold given what they did before it (tools/hidden.live_classes),
+    so the replays average over the opponents' cards too. Given the split each replay is a
+    fresh draw of the rest of the hand, so the average keeps the expected value.
+
+    exact_luck: the luck adjustment only corrects board cards after which nobody can bet
+    again, where the checked-down value is exact (tools/luck.no_more_betting)."""
     assert method in METHODS, method
     assert resample <= 1 or (method != "classic" and not profiles), "resample needs keyed bots and no profiles"
+    assert not use_hidden or (method != "classic" and not profiles), "hidden needs keyed bots and no profiles"
     sa, sb = new_stats(base, other), new_stats(other)
     diffs, replayed = [], 0
     zero = [0.0] * (1 + luck.N_FEATURES)
     extra = {"decks": [], "adjusted": [], "checked_down": [], "x": [], "weights": [],
-             "base_adjusted": [], "other_adjusted": [], "resampled": [], "resampled_raw": []}
+             "base_adjusted": [], "other_adjusted": [], "resampled": [], "resampled_raw": [], "hidden": [],
+             "eligible": [], "hidden_seconds": 0.0}
     base_y, base_x = [], []
     prof = sim.new_profiles() if profiles else None
     sa["profiles"] = prof
     for k in range(start, start + n):
+        sim.clear_advice_cache()
         d, r = deal(k, method)
         styles, names = sim.seating(table, seed, d)
         hand_seed = seed * 100003 + d
@@ -105,37 +126,59 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
         rec_a = sa["last"]
         fa = luck.features(rec_a) if adjust_all else None
         fd = zero
+        # board cards dealt before the split are the same for both variants: their luck
+        # cancels in the difference, so only the later ones are worked out
+        after = rec_a["spots"][rec_a["diverge_at"]]["board_len"] if sa["diverged"] else -1
+        b_seat = hidden.opponent(rec_a, rec_a["diverge_at"]) if (use_hidden and sa["diverged"]) else None
+        need_luck = adjust and not (lean and b_seat is not None)
         if sa["diverged"]:
             replayed += 1
             net_b = sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, sb, stacks, names, before, k + 1,
                                   rotate=r, keyed=keyed)[0] / sim.BB
-            if adjust:
-                fa = fa or luck.features(rec_a)
-                fb = luck.features(sb["last"])
-                fd = [b - a for a, b in zip(fa, fb)]
+            if need_luck:
+                fd = [b - a for a, b in zip(luck.features(rec_a, after=after, exact_only=exact_luck),
+                                            luck.features(sb["last"], after=after, exact_only=exact_luck))]
         else:
             net_b = net_a
             sb["hands"].append(net_b)
-        if resample > 1:
-            raw_s, adj_s = [net_b - net_a], [luck.adjust(net_b - net_a, fd)]
+        if resample > 1 or use_hidden:
+            raw_s, adj_s = [net_b - net_a], [luck.adjust(net_b - net_a, fd)] if need_luck else None
+            hid_s, eligible = None, False
             if sa["diverged"]:
                 j = rec_a["diverge_at"]
+                pairs = [(rec_a, sb["last"])]
+                classes = hidden.live_classes(rec_a, j) if (redeal and resample > 1) else None
+                draws = hidden.redeal(classes, resample - 1, (hand_seed, r, "redeal")) if classes else None
                 for salt in range(1, resample):
                     recs = []
                     for v in (base, other):
                         st = new_stats(v)
                         sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, st, stacks, names, None, k + 1,
-                                      rotate=r, keyed=keyed, split_at=j, resample=salt)
+                                      rotate=r, keyed=keyed, split_at=j, resample=salt,
+                                      hole_override=draws[salt - 1] if draws else None)
                         recs.append(st["last"])
+                    pairs.append(tuple(recs))
                     raw_s.append(recs[1]["net"] - recs[0]["net"])
-                    f0, f1 = luck.features(recs[0]), luck.features(recs[1])
-                    adj_s.append(luck.adjust(raw_s[-1], [b - a for a, b in zip(f0, f1)]))
+                    if need_luck:
+                        f0 = luck.features(recs[0], after=after, exact_only=exact_luck)
+                        f1 = luck.features(recs[1], after=after, exact_only=exact_luck)
+                        adj_s.append(luck.adjust(raw_s[-1], [b - a for a, b in zip(f0, f1)]))
+                if b_seat is not None:
+                    t_h = time.process_time()
+                    sp = hidden.Split(rec_a, j, b_seat, cls=classes[b_seat] if classes else None)
+                    hid_s = [hidden.estimate(pb, sp) - hidden.estimate(pa, sp) for pa, pb in pairs]
+                    eligible = True
+                    extra["hidden_seconds"] += time.process_time() - t_h
             extra["resampled_raw"].append(sum(raw_s) / len(raw_s))
-            extra["resampled"].append(sum(adj_s) / len(adj_s))
+            extra["resampled"].append(sum(adj_s) / len(adj_s) if adj_s else float("nan"))
+            if use_hidden:
+                extra["hidden"].append(sum(hid_s) / len(hid_s) if hid_s else extra["resampled"][-1])
+                extra["eligible"].append(eligible)
         diffs.append(net_b - net_a)
         extra["decks"].append(d)
         if adjust:
-            extra["checked_down"].append(net_b - net_a - fd[0])
+            nan = not need_luck
+            extra["checked_down"].append(float("nan") if nan else net_b - net_a - fd[0])
             extra["x"].append(fd[1:])
         if adjust_all:
             base_y.append(net_a - fa[0])
@@ -151,24 +194,27 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
 
 
 def _paired_star(args):
-    return paired(*args[:-2], start=args[-2], resample=args[-1])
+    *rest, start, resample, use_hidden, lean, redeal, exact_luck = args
+    return paired(*rest, start=start, resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal,
+                  exact_luck=exact_luck)
 
 
 def run_paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0,
                stacks: str = "even", profiles: bool = False, method: str = "classic", adjust: bool = True,
-               adjust_all: bool = False, jobs: int = 1, resample: int = 1):
+               adjust_all: bool = False, jobs: int = 1, resample: int = 1, use_hidden: bool = False,
+               lean: bool = False, redeal: bool = False, exact_luck: bool = False):
     """paired() split over `jobs` processes by whole decks and merged; the result is the same
     hand for hand. With profiles the hands depend on the ones before, so it runs in one."""
     if jobs <= 1 or profiles or n < 12:
         return paired(base, other, n, table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all,
-                      resample=resample)
+                      resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal, exact_luck=exact_luck)
     from concurrent.futures import ProcessPoolExecutor
 
     chunk = -(-n // jobs)
     chunk += (-chunk) % 6  # whole decks
     starts = list(range(0, n, chunk))
     args = [(base, other, min(chunk, n - st), table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all, st,
-             resample) for st in starts]
+             resample, use_hidden, lean, redeal, exact_luck) for st in starts]
     with ProcessPoolExecutor(max_workers=jobs) as ex:
         parts = list(ex.map(_paired_star, args))
     sa, sb, diffs, replayed, extra = parts[0]
@@ -186,7 +232,7 @@ def run_paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb:
         for key, val in ex_.items():
             if key == "weights":
                 continue
-            extra[key] += val
+            extra[key] += val  # lists are joined, seconds added
     sa["examples"] = sa["examples"][:25]
     return sa, sb, diffs, replayed, extra
 
@@ -206,6 +252,10 @@ def summary(values, units=None):
     g = len(sums)
     ss = sum((sums[u] - sizes[u] * mean) ** 2 for u in sums)
     return 100 * mean, 100 * math.sqrt(ss * g / max(1, g - 1)) / n
+
+
+def adjust_ok(a) -> bool:
+    return not a.no_luck
 
 
 def main():
@@ -229,22 +279,32 @@ def main():
                          "(default 6; 1 with --method classic or --profiles)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="processes to split the hands over (same results; not with --profiles)")
+    ap.add_argument("--redeal", action="store_true",
+                    help="replays also deal the opponents still in fresh hands from their classes")
+    ap.add_argument("--exact-luck", action="store_true",
+                    help="correct only board cards after which nobody can bet again (exact values)")
+    ap.add_argument("--lean", action="store_true",
+                    help="compute only the headline estimate (raw and hidden cards), to time it")
+    ap.add_argument("--no-hidden", action="store_true",
+                    help="skip the hidden-cards estimate (tools/hidden.py; keyed methods without profiles only)")
     a = ap.parse_args()
     if a.resample is None:
         a.resample = 1 if (a.method == "classic" or a.profiles) else 6
+    use_hidden = not a.no_hidden and a.method != "classic" and not a.profiles and adjust_ok(a)
     if a.method == "duplicate" and a.hands % 6:
         a.hands += 6 - a.hands % 6  # whole decks
         print(f"(rounded up to {a.hands} hands: six per deck)")
     base, other = json.loads(a.base), json.loads(a.other)
     adjust = not a.no_luck
-    total, total_adj, total_units, total_res = [], [], [], []
+    total, total_adj, total_units, total_res, total_hid = [], [], [], [], []
     saved = {"args": vars(a), "tables": {}}
     t0 = time.time()
     for table in a.tables.split(","):
-        t_table = time.time()
+        t_table, c_table = time.time(), time.process_time()
         sa, sb, diffs, replayed, extra = run_paired(base, other, a.hands, table, a.seed, 500.0 if a.deep else 100.0,
                                                     a.stacks, a.profiles, a.method, adjust, a.adjust_all, a.jobs,
-                                                    a.resample)
+                                                    a.resample, use_hidden, a.lean and use_hidden, a.redeal,
+                                                    a.exact_luck)
         units = extra["decks"] if a.method == "duplicate" else None
         wa, ea = summary(sa["hands"], units)
         wb, eb = summary(sb["hands"], units)
@@ -253,19 +313,25 @@ def main():
         total_units += [(table, u) for u in extra["decks"]]
         line = (f"{table:9s} base {wa:+7.1f} (±{ea:5.1f})  other {wb:+7.1f} (±{eb:5.1f})  "
                 f"difference {d:+6.1f} ± {de:4.1f}")
-        if adjust:
+        lean = a.lean and use_hidden
+        if adjust and not lean:
             ad, ade = summary(extra["adjusted"], units)
             cd, cde = summary(extra["checked_down"], units)
             total_adj += extra["adjusted"]
             line += f"  luck-adjusted {ad:+6.1f} ± {ade:4.1f} (checked down only {cd:+6.1f} ± {cde:4.1f})"
         probs = dict(sa["problems"]) or "none"
         print(f"{line} bb/100  [{replayed}/{a.hands} hands differ, problems {probs}]", flush=True)
-        if a.resample > 1:
+        if a.resample > 1 and not lean:
             rs, rse = summary(extra["resampled"], units)
             rr, rre = summary(extra["resampled_raw"], units)
             total_res += extra["resampled"]
             print(f"          replayed {a.resample} times from where they part: luck-adjusted {rs:+6.1f} ± {rse:4.1f} "
                   f"(raw {rr:+6.1f} ± {rre:4.1f})", flush=True)
+        if use_hidden:
+            hs, hse = summary(extra["hidden"], units)
+            total_hid += extra["hidden"]
+            print(f"          with the opponent's hidden cards: {hs:+6.1f} ± {hse:4.1f} "
+                  f"({sum(extra['eligible'])} hands heads-up after the flop, {extra['hidden_seconds']:.0f}s)", flush=True)
         if a.adjust_all:
             xa, xea = summary(extra["base_adjusted"], units)
             xb, xeb = summary(extra["other_adjusted"], units)
@@ -278,19 +344,25 @@ def main():
                                   "resampled": extra["resampled"], "resampled_raw": extra["resampled_raw"],
                                   "base": sa["hands"], "other": sb["hands"], "replayed": replayed,
                                   "base_adjusted": extra["base_adjusted"], "other_adjusted": extra["other_adjusted"],
-                                  "seconds": time.time() - t_table}
+                                  "hidden": extra["hidden"], "eligible": extra["eligible"],
+                                  "hidden_seconds": extra["hidden_seconds"],
+                                  "seconds": time.time() - t_table,
+                                  "cpu_seconds": time.process_time() - c_table if a.jobs <= 1 else None}
     if a.save:
         with open(a.save, "w") as f:
             json.dump(saved, f)
     units = total_units if a.method == "duplicate" else None
     d, de = summary(total, units)
     line = f"ALL       difference {d:+6.1f} ± {de:4.1f}"
-    if adjust:
+    if adjust and total_adj:
         ad, ade = summary(total_adj, units)
         line += f"  luck-adjusted {ad:+6.1f} ± {ade:4.1f}"
     if total_res:
         rs, rse = summary(total_res, units)
         line += f"  replayed {a.resample} times {rs:+6.1f} ± {rse:4.1f}"
+    if total_hid:
+        hs, hse = summary(total_hid, units)
+        line += f"  hidden cards {hs:+6.1f} ± {hse:4.1f}"
     print(f"{line} bb/100 over {len(total)} hands, {a.method} ({time.time() - t0:.0f}s)")
 
 

@@ -1,0 +1,8 @@
+{"ev_sizing": true} on fish247 (even), seed 404: 1500 hands, 29 differ; CPU s: resampled 48, redeal 47, classes 7
+  raw                -4.28 ±  7.38 bb/100
+  resampled raw      -2.09 ±  5.08 bb/100
+  resampled luck     -3.45 ±  5.56 bb/100
+  redeal raw         +3.12 ±  2.49 bb/100
+  redeal luck        +2.05 ±  2.71 bb/100
+  redeal exact luck   +3.67 ±  2.55 bb/100
+  resampled exact luck   -2.09 ±  5.08 bb/100

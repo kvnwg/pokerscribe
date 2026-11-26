@@ -1,0 +1,8 @@
+{"push_chart": true} on mixed (tourney), seed 303: 1500 hands, 16 differ; CPU s: resampled 0, redeal 0, classes 0
+  raw                +3.47 ±  2.03 bb/100
+  resampled raw      +1.51 ±  1.00 bb/100
+  resampled luck     +0.16 ±  0.77 bb/100
+  redeal raw         +0.59 ±  0.73 bb/100
+  redeal luck        +0.28 ±  0.25 bb/100
+  redeal exact luck   +0.25 ±  0.23 bb/100
+  resampled exact luck   +0.16 ±  0.77 bb/100

@@ -117,10 +117,19 @@ def spr_band(node: dict, me: int) -> int:
     return sum(spr > x for x in SPR_BANDS)
 
 
-def node_lucks(record: dict, samples: int = FLOP_SAMPLES) -> List[Tuple[float, float, int]]:
+def no_more_betting(node: dict) -> bool:
+    """At most one player still in has chips behind, so nobody can bet again: the checked-down
+    value is then the hand's exact value."""
+    return sum(1 for i in node["live"] if node.get("behind", (1,) * 6)[i] > 1e-9) <= 1
+
+
+def node_lucks(record: dict, samples: int = FLOP_SAMPLES, from_board: int = -1,
+               exact_only: bool = False) -> List[Tuple[float, float, int]]:
     """For each chance event in a hand: (checked-down luck, all-in luck, feature index:
     street and SPR band), in big blinds. `record` is stats["last"] from
-    tools/simulate.play_hand."""
+    tools/simulate.play_hand. With from_board = n, only the events dealing cards onto a board
+    of n or more cards (those after a split on that street). With exact_only, only the events
+    after which nobody can bet again (no_more_betting)."""
     cards, me, key = record["cards"], record["me"], record["key"]
     cache: Dict[tuple, List[float]] = {}
 
@@ -133,6 +142,8 @@ def node_lucks(record: dict, samples: int = FLOP_SAMPLES) -> List[Tuple[float, f
 
     out = []
     for node in record["chance"]:
+        if len(node["board"]) < from_board or (exact_only and not no_more_betting(node)):
+            continue
         full = all_in(node["put_in"], node.get("behind", (0.0,) * len(node["put_in"])), node["live"])
         before = v(node["board"], node["live"], node["put_in"], full)
         after = v(node["board"] + node["deal"], node["live"], node["put_in"], full)
@@ -147,11 +158,13 @@ def corrections(record: dict, samples: int = FLOP_SAMPLES) -> List[float]:
     return [c for c, _, _ in node_lucks(record, samples)]
 
 
-def features(record: dict, samples: int = FLOP_SAMPLES) -> List[float]:
+def features(record: dict, samples: int = FLOP_SAMPLES, after: int = -1, exact_only: bool = False) -> List[float]:
     """[checked-down luck, then (all-in luck - checked-down luck) for each street and SPR
-    band], summed over the hand. Every entry averages exactly zero."""
+    band], summed over the hand. Every entry averages exactly zero. With after = n, only the
+    board cards dealt after a split on a board of n cards: two variants that part there share
+    everything before it, so the earlier terms cancel in their difference and need no work."""
     f = [0.0] * (1 + N_FEATURES)
-    for c, a, idx in node_lucks(record, samples):
+    for c, a, idx in node_lucks(record, samples, from_board=after, exact_only=exact_only):
         f[0] += c
         f[1 + idx] += a - c
     return f

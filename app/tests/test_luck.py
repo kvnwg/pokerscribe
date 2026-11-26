@@ -182,3 +182,21 @@ def test_resampling_from_the_split(tools):
     one = compare.paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate", resample=3)
     split = compare.run_paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate", jobs=2, resample=3)
     assert one[4]["resampled"] == split[4]["resampled"] and len(one[4]["resampled"]) == 24
+
+
+def test_exact_only_corrections(tools):
+    """Only board cards after which nobody can bet again are corrected with exact_only; all in
+    before the flop every card qualifies, so nothing changes; with chips behind nothing does."""
+    sim, luck, _ = tools
+    live, put_in = (0, 1), (200.0, 200.0, 0.0, 0.0, 1.0, 2.0)
+    board = ("2h", "7d", "Js", "Kc", "Ah")
+    for behind, same in (((0.0,) * 6, True), ((50.0, 50.0, 0.0, 0.0, 0.0, 0.0), False)):
+        chance = [{"board": board[:a], "deal": board[a:b], "live": live, "put_in": put_in, "behind": behind}
+                  for a, b in ((0, 3), (3, 4), (4, 5))]
+        rec = {"cards": CARDS, "me": 0, "key": 11, "chance": chance, "net": 0.0}
+        exact = luck.features(rec, exact_only=True)
+        if same:
+            assert exact == luck.features(rec)
+        else:
+            assert exact == [0.0] * len(exact)
+        assert luck.features(rec, after=4) == luck.features({**rec, "chance": chance[2:]})

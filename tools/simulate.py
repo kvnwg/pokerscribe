@@ -145,19 +145,31 @@ class Hand:
     split_at: Optional[int] = None
     resample: Optional[int] = None
     diverge_at: Optional[int] = None  # the app's decision where a shadow variant first disagreed
+    last_spec: object = None  # the seed of the bot decision being made
     rng_counts: Dict[tuple, int] = field(default_factory=dict)
     chance: List[dict] = field(default_factory=list)  # board cards dealt while the app was in (tools/luck.py)
     spots: List[dict] = field(default_factory=list)  # the app's decisions, for tools/weakness.py
+    # every bot decision with what it saw and its seed, and the order of all events (bot and app
+    # moves, board cards), so tools/hidden.py can ask what a bot would have done with other cards
+    bot_decisions: List[dict] = field(default_factory=list)
+    events: List[tuple] = field(default_factory=list)
 
     def bot_rng(self, i: int, stream: random.Random) -> random.Random:
         if self.rng_key is None:
+            self.last_spec = None
             return stream
+        self.last_spec = self.bot_spec(i)
+        return random.Random(self.last_spec)
+
+    def bot_spec(self, i: int):
+        """The seed of bot i's next decision (keyed randomness): an int, or a string after the
+        split when resampling. random.Random(spec) gives the same numbers again."""
         k = (i, len(self.board))
         n = self.rng_counts.get(k, 0)
         self.rng_counts[k] = n + 1
         if self.resample is not None and self.split_at is not None and len(self.spots) > self.split_at:
-            return random.Random(f"{self.rng_key}/{self.resample}/{i}/{len(self.board)}/{n}")
-        return random.Random(((self.rng_key * 8 + i) * 8 + len(self.board)) * 64 + n)
+            return f"{self.rng_key}/{self.resample}/{i}/{len(self.board)}/{n}"
+        return ((self.rng_key * 8 + i) * 8 + len(self.board)) * 64 + n
 
     def position(self, i: int) -> str:
         return POSITIONS[(i - self.button) % 6]
@@ -319,12 +331,30 @@ class variant:
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 0.03, 4000
 
 
+# Replays from the split (tools/compare.py --resample) play the same hand again and again: up
+# to the split the app sees exactly the same table each time (the opponents' cards are not part
+# of what it sees), so its advice there is kept for the hand and reused.
+_PRE_SPLIT_ADVICE: Dict[tuple, object] = {}
+
+
+def clear_advice_cache() -> None:
+    _PRE_SPLIT_ADVICE.clear()
+
+
 def decision(h: Hand, me: int, overrides: Optional[dict], st: Optional[GameState] = None):
     import copy
 
+    key = None
+    if h.split_at is not None and h.rng_key is not None and len(h.spots) <= h.split_at and h.profiles is None:
+        key = (h.rng_key, len(h.spots), repr(sorted((overrides or {}).items())))
+        if key in _PRE_SPLIT_ADVICE:
+            return _PRE_SPLIT_ADVICE[key]
     st = observe(h, me) if st is None else copy.deepcopy(st)
     with variant(overrides):
-        return advise(st, computed=sim_compute(st), numbers_checked=True)
+        adv = advise(st, computed=sim_compute(st), numbers_checked=True)
+    if key is not None:
+        _PRE_SPLIT_ADVICE[key] = adv
+    return adv
 
 
 STREETS = {0: "preflop", 3: "flop", 4: "turn", 5: "river"}
@@ -352,6 +382,7 @@ def spot(h: Hand, me: int, action: str) -> dict:
             "situation": situation(h, me), "players": len(h.active()), "facing": to_call > 0, "made": made,
             "draw": draw, "action": action, "pot_bb": h.pot / BB, "to_call_bb": to_call / BB,
             "put_in_bb": seat.put_in / BB, "board_len": len(h.board), "current_bb": h.current / BB,
+            "live": tuple(h.active()),
             "stack_bb": (seat.stack + seat.bet) / BB}
 
 
@@ -562,11 +593,23 @@ def betting_round(h: Hand, first: int, rng: random.Random, budget_ms: int, stats
                 continue
             if all(o.folded or o.all_in for j, o in enumerate(h.seats) if j != i) and s.bet >= h.current:
                 continue
-            kind, to = (app_decide(h, i, budget_ms, stats) if s.style == "app"
-                        else bot_decide(h, i, h.bot_rng(i, rng)))
+            if s.style == "app":
+                kind, to = app_decide(h, i, budget_ms, stats)
+            else:
+                snap = {"i": i, "current": h.current, "bet": s.bet, "stack": s.stack, "pot": h.pot,
+                        "board": tuple(h.board), "min_raise": h.min_raise, "number": h.number,
+                        "put_in": tuple(o.put_in for o in h.seats), "live": tuple(h.active()),
+                        "behind": tuple(o.stack for o in h.seats)}
+                kind, to = bot_decide(h, i, h.bot_rng(i, rng))
+                snap["spec"] = h.last_spec
             facing = h.current > s.bet
             act(h, i, kind, to)
-            if s.style != "app":
+            if s.style == "app":
+                h.events.append(("app", len(h.spots) - 1))
+            else:
+                snap["action"] = (h.log[-1][1], h.log[-1][2])
+                h.bot_decisions.append(snap)
+                h.events.append(("bot", len(h.bot_decisions) - 1))
                 stats.setdefault("bot_actions", defaultdict(int))[
                     (s.style, len(h.board), facing, h.log[-1][1])] += 1
             if h.profiles is not None:
@@ -615,7 +658,8 @@ def stack_sizes(styles: List[str], seed: int, depth_bb: float, stacks: str = "ev
 def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_bb: float, stats,
               stacks: str = "even", names: Optional[List[str]] = None, profiles=None,
               number: int = 0, rotate: int = 0, keyed: bool = False, split_at: Optional[int] = None,
-              resample: Optional[int] = None) -> Dict[int, float]:
+              resample: Optional[int] = None, hole_override: Optional[Dict[int, Tuple[str, str]]] = None,
+              board_override: Optional[Dict[int, str]] = None) -> Dict[int, float]:
     """Play one hand; the app is styles.index("app"). The deck deals hole cards to six card
     slots and the button sits at slot `button`. With `rotate` r the players move r slots on
     (the app takes slot r's cards and position), so the six rotations of one deck give the
@@ -624,6 +668,16 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     rng = random.Random(seed)
     deck = list(hands.DECK)
     rng.shuffle(deck)
+    # tests only (tools/hidden.py): deal these hole cards to a seat, or these board cards
+    # (board position 0-4), by swapping cards within the deck so it stays a whole deck
+    wanted = {}
+    for k, cards in (hole_override or {}).items():
+        slot = (k + rotate) % 6
+        wanted.update({2 * slot: cards[0], 2 * slot + 1: cards[1]})
+    wanted.update({12 + pos: c for pos, c in (board_override or {}).items()})
+    for pos, c in wanted.items():
+        j = deck.index(c)
+        deck[pos], deck[j] = deck[j], deck[pos]
     seats = [Seat(st, stack=d * BB) for st, d in zip(styles, stack_sizes(styles, seed, depth_bb, stacks))]
     for k, s in enumerate(seats):
         slot = (k + rotate) % 6
@@ -660,6 +714,7 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
             h.chance.append({"board": tuple(h.board), "deal": tuple(board_cards[len(h.board):n]),
                              "live": tuple(h.active()), "put_in": tuple(s.put_in for s in seats),
                              "behind": tuple(s.stack for s in seats)})
+            h.events.append(("card", len(h.chance) - 1))
         if resample is not None and split_at is not None and len(h.spots) > split_at:
             dead = {c for st_ in seats for c in st_.cards} | set(h.board)
             fresh = [c for c in hands.DECK if c not in dead]
@@ -679,7 +734,10 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     stats["last"] = {"cards": tuple(s.cards for s in seats), "board": tuple(board_cards), "me": me,
                      "chance": h.chance, "spots": h.spots, "net": net[me] / BB, "key": seed * 6 + rotate,
                      "pos": h.position(me), "put_in": seats[me].put_in / BB, "pot_type": pot_type(h),
-                     "diverge_at": h.diverge_at}
+                     "diverge_at": h.diverge_at, "bot_decisions": h.bot_decisions, "events": h.events,
+                     "final_put_in": tuple(s.put_in for s in seats), "final_live": tuple(h.active()),
+                     "final_board": tuple(h.board), "seats": tuple((s.style, s.name) for s in seats),
+                     "number": number}
     stats["hands"].append(net[me] / BB)
     pos = h.position(me)
     stats["by_pos"][pos].append(net[me] / BB)

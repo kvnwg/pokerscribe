@@ -1,0 +1,8 @@
+{"semibluff_turn": "never"} on mixed (even), seed 404: 1500 hands, 7 differ; CPU s: resampled 1, redeal 1, classes 1
+  raw                -0.95 ±  1.12 bb/100
+  resampled raw      -1.92 ±  1.16 bb/100
+  resampled luck     -1.89 ±  1.14 bb/100
+  redeal raw         -1.45 ±  0.86 bb/100
+  redeal luck        -1.38 ±  0.73 bb/100
+  redeal exact luck   -1.45 ±  0.86 bb/100
+  resampled exact luck   -1.92 ±  1.16 bb/100
