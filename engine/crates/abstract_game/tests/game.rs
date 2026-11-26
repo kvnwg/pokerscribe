@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use abstract_game::{
     pseudo_harmonic, raise_amount, raise_to, AbstractGame, Bucketer, BuildError, EquityBands,
-    GameConfig, HandState, Lossless, Menus, Size, Translation, CALL, FOLD,
+    GameConfig, HandState, Lossless, Menus, Size, Translation, CALL, CHIPS_PER_BIG_BLIND, FOLD,
 };
 use cfr::{Game, InfoKey, Mccfr, MccfrConfig, Node, Policy, Rng, Sampling, Solver, UniformPolicy};
 use nlhe::{parse_card, Card, Street};
@@ -496,4 +496,52 @@ fn mccfr_trains_a_game_with_every_street() {
          the big blind (random against random: {mirror:+.3} for the small blind)"
     );
     assert!(as_small_blind > 0.3 && as_big_blind > 0.3);
+}
+
+/// The `cfr` crate shares the game between its threads, so the game has to be `Sync`
+/// whenever its bucketer is.
+#[test]
+fn the_game_can_be_shared_between_threads() {
+    fn shareable<T: Send + Sync>() {}
+    shareable::<AbstractGame<Lossless>>();
+    shareable::<AbstractGame<EquityBands>>();
+    shareable::<AbstractGame<std::sync::Arc<EquityBands>>>();
+    shareable::<HandState>();
+}
+
+#[test]
+fn mccfr_trains_on_several_threads_with_integer_regrets() {
+    let config = GameConfig::new(6, Menus::minimal());
+    let game = AbstractGame::new(config, EquityBands::new([12, 5, 5, 5])).unwrap();
+    let iterations = if cfg!(debug_assertions) {
+        3_000
+    } else {
+        30_000
+    };
+    // One unit of regret is one chip. A run on several threads depends on timing, so
+    // this checks what holds for every such run, not one exact result.
+    let cfg = MccfrConfig::new(Sampling::External, 3)
+        .threads(4)
+        .compact(CHIPS_PER_BIG_BLIND as f64)
+        .linear(100, iterations / 2);
+    let mut solver = Mccfr::new(game.clone(), cfg);
+    solver.run(iterations);
+    assert_eq!(solver.iterations(), iterations);
+    assert!(solver.info_sets() as u128 <= game.info_sets());
+    assert!(solver.info_sets() as u128 > game.info_sets() / 2);
+    assert_eq!(solver.memory().regret_bytes, 4 * solver.regrets().len());
+
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let trained = solver.average_policy();
+    let mut rng = Rng::new(99);
+    let hands = 20_000;
+    let as_small_blind = sampled_value(&game, [&trained, &UniformPolicy], hands, &mut rng);
+    let as_big_blind = -sampled_value(&game, [&UniformPolicy, &trained], hands, &mut rng);
+    println!(
+        "4 threads, integer regrets, against random play: {as_small_blind:+.3} bb a hand as the \
+         small blind, {as_big_blind:+.3} as the big blind"
+    );
+    assert!(as_small_blind > 0.2 && as_big_blind > 0.2);
 }

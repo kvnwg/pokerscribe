@@ -2,14 +2,17 @@
 //! the speed and the memory, next to the counted size.
 //!
 //! ```text
-//! cargo run --release -p abstract_game --example train -- <menu> <stack bb> <bands> <iterations>
+//! cargo run --release -p abstract_game --example train -- <menu> <stack bb> <bands> <iterations> [threads] [float|int]
 //! cargo run --release -p abstract_game --example train -- small 100 10 200000
+//! cargo run --release -p abstract_game --example train -- standard 100 0 2000000 4 int
 //! ```
 //!
 //! `menu` is push-fold, minimal, small, standard or wide. `bands` is the number of
 //! hand-strength bands on each street after the flop ([`EquityBands`], with the 169
 //! starting hands kept apart before it); 0 puts every hand in one bucket after the flop,
-//! which costs nothing to compute and so shows the speed of the game alone.
+//! which costs nothing to compute and so shows the speed of the game alone. `threads`
+//! (1 if left out) is the `cfr` crate's thread count, and `int` stores regrets as 32-bit
+//! integers, one unit a chip.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,6 +20,7 @@ use std::time::Instant;
 
 use abstract_game::{
     preflop_class, AbstractGame, Bucketer, Card, EquityBands, GameConfig, Menus, Street,
+    CHIPS_PER_BIG_BLIND,
 };
 use cfr::{Mccfr, MccfrConfig, Sampling, Solver};
 
@@ -66,6 +70,12 @@ fn main() {
     let stack: u32 = arg(1, "100").parse().expect("stack in big blinds");
     let bands: u32 = arg(2, "10").parse().expect("bands per street");
     let iterations: u64 = arg(3, "100000").parse().expect("iterations");
+    let threads: usize = arg(4, "1").parse().expect("threads");
+    let integers = match arg(5, "float").as_str() {
+        "float" => false,
+        "int" => true,
+        other => panic!("regrets are float or int, not {other}"),
+    };
     let menus = match menu.as_str() {
         "push-fold" => Menus::push_fold(),
         "minimal" => Menus::minimal(),
@@ -74,7 +84,8 @@ fn main() {
         "wide" => Menus::wide(),
         other => panic!("unknown menu {other}"),
     };
-    let bucketer: Box<dyn Bucketer> = if bands == 0 {
+    // The solver's threads share the game, so the bucketer has to be `Sync`.
+    let bucketer: Box<dyn Bucketer + Send + Sync> = if bands == 0 {
         Box::new(StartingHandsOnly)
     } else {
         Box::new(EquityBands::new([169, bands, bands, bands]))
@@ -96,25 +107,36 @@ fn main() {
         regret_bytes as f64 / 1e6,
     );
 
-    let mut solver = Mccfr::new(game, MccfrConfig::new(Sampling::External, 1));
+    let mut settings = MccfrConfig::new(Sampling::External, 1).threads(threads);
+    if integers {
+        // Payoffs are in big blinds, so this makes one unit of regret one chip.
+        settings = settings.compact(CHIPS_PER_BIG_BLIND as f64);
+    }
+    let mut solver = Mccfr::new(game, settings);
     let start = Instant::now();
     solver.run(iterations);
     let seconds = start.elapsed().as_secs_f64();
-    let heap = IN_USE.load(Ordering::Relaxed) - before - tree_bytes;
     let reached = solver.info_sets();
     println!(
-        "{iterations} iterations in {seconds:.1} s: {:.0} iterations/s, {:.2} million nodes/s, \
-         {:.0} nodes per iteration",
+        "{iterations} iterations on {threads} thread(s), {} regrets, in {seconds:.1} s: \
+         {:.0} iterations/s, {:.2} million nodes/s, {:.0} nodes per iteration",
+        if integers { "integer" } else { "float" },
         iterations as f64 / seconds,
         solver.nodes_touched() as f64 / seconds / 1e6,
         solver.nodes_touched() as f64 / iterations as f64,
     );
+    // The solver's own account: its arrays grow by doubling, so the heap also holds
+    // pages that were reserved and never touched.
+    let memory = solver.memory();
     println!(
-        "{reached} information sets reached ({:.1}% of the count); solver heap {:.1} MB, \
-         {:.0} bytes per information set reached ({:.1} of them regrets)",
+        "{reached} information sets reached ({:.1}% of the count); solver memory {:.1} MB, \
+         {:.0} bytes per information set reached: {:.1} regrets, {:.1} strategy sums, \
+         {:.1} index",
         100.0 * reached as f64 / info_sets as f64,
-        heap as f64 / 1e6,
-        heap as f64 / reached as f64,
-        8.0 * solver.regrets().len() as f64 / reached as f64,
+        (memory.index_bytes + memory.regret_bytes + memory.strategy_bytes) as f64 / 1e6,
+        memory.bytes_per_info_set(),
+        memory.regret_bytes as f64 / reached as f64,
+        memory.strategy_bytes as f64 / reached as f64,
+        memory.index_bytes as f64 / reached as f64,
     );
 }

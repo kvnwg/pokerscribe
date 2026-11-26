@@ -197,7 +197,7 @@ and against a small game counted by hand.
 - Decision points: betting sequences after which a player has to act.
 - Information sets: every decision point once per bucket of its street.
 - Regrets: one per action at every information set. The memory column is at 8 bytes each (an
-  `f64`, what the `cfr` crate stores).
+  `f64`, the `cfr` crate's default; its integer regrets take half).
 
 Blinds 0.5 and 1, both stacks as given. From `cargo run --release -p abstract_game --example sizes`:
 
@@ -259,34 +259,45 @@ Reading the tables:
   times, while going from the default to the wide menu at 100 big blinds grows it 60 times.
 - The `cfr` crate needs more than the regret column says. It keeps a strategy sum next to
   every regret (the same again) and an index of the information sets. Measured with
-  `--example train` on five settings: 114 to 127 bytes per information set in all, of which
-  16 to 22 are regrets. So the default menu at 100 big blinds with 200 buckets a street needs
-  about 1 GB today, and the wide menu at 100 big blinds about 55 GB. Smaller regrets (Pluribus
-  used 4-byte integers) and a flat index in place of the hash table would bring that down; that
-  is work for the `cfr` crate.
+  `--example train`: 68 to 81 bytes per information set in all with float regrets, of which
+  21 to 22 are regrets, and 58 to 64 with integer regrets (`MccfrConfig::compact`, 4 bytes a
+  regret). So the default menu at 100 big blinds with 200 buckets a street needs about
+  0.5 GB, and the wide menu at 100 big blinds 25 to 30 GB.
 
 ## Training speed
 
-`cargo run --release -p abstract_game --example train -- <menu> <stack bb> <bands> <iterations>`
-trains with external-sampling MCCFR and reports speed and memory. One thread, on the 4-core
-cloud container this was built in:
+`cargo run --release -p abstract_game --example train -- <menu> <stack bb> <bands> <iterations> [threads] [float|int]`
+trains with external-sampling MCCFR and reports speed and memory. On the 4-core cloud
+container this was built in (a shared machine: the figures move by a tenth or so between runs):
 
-| Game | Buckets after the flop | Information sets | Iterations a second | Decision points visited a second | Memory per information set |
-| --- | --- | ---: | ---: | ---: | ---: |
-| push-or-fold, 10 bb | none (the hand ends before the flop) | 338 | 1,211,000 | 30.5 million | 114 bytes |
-| small, 100 bb | starting hands only | 7,112 | 77,900 | 16.4 million | 127 bytes |
-| standard, 100 bb | starting hands only | 50,876 | 41,600 | 14.0 million | 124 bytes |
-| small, 100 bb | 10 `EquityBands` a street | 52,868 | 13,600 | 2.0 million | 126 bytes |
-| standard, 100 bb | 10 `EquityBands` a street | 374,912 | 8,050 | 2.5 million | 120 bytes |
+| Game | Buckets after the flop | Threads, regrets | Information sets | Iterations a second | Game states visited a second | Memory per information set |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| push-or-fold, 10 bb | none (the hand ends before the flop) | 1, float | 338 | 1,116,000 | 28.1 million | 0.1 MB in all |
+| small, 100 bb | starting hands only | 1, float | 7,112 | 74,700 | 15.7 million | 81 bytes |
+| standard, 100 bb | starting hands only | 1, float | 50,876 | 40,900 | 13.8 million | 75 bytes |
+| standard, 100 bb | starting hands only | 1, integer | 50,876 | 38,200 | 13.2 million | 64 bytes |
+| standard, 100 bb | starting hands only | 4, float | 50,876 | 100,100 | 38.8 million | 75 bytes |
+| standard, 100 bb | starting hands only | 4, integer | 50,876 | 130,900 | 38.4 million | 63 bytes |
+| small, 100 bb | 10 `EquityBands` a street | 1, float | 52,868 | 13,700 | 2.0 million | 76 bytes |
+| standard, 100 bb | 10 `EquityBands` a street | 1, float | 374,912 | 9,100 | 2.8 million | 68 bytes |
+| standard, 100 bb | 10 `EquityBands` a street | 4, integer | 374,912 | 35,800 | 11.3 million | 58 bytes |
 
 Runs of 20 million iterations (push-or-fold), 2 million (starting hands only) and 200,000
-(`EquityBands`). Memory is the solver's heap divided by the information sets it has met.
+(`EquityBands`). Memory is the solver's own account (`Mccfr::memory`): regrets, strategy sums
+and the index. Integer regrets are stored one unit a chip (`compact(100.0)`).
 
-One iteration is one sampled traversal per player. "Starting hands only" puts every hand in
-one bucket after the flop, which costs nothing to compute, so it shows the speed of the game
-alone. With `EquityBands` most of the time goes into the bands themselves (30 microseconds or
-more a deal). A real bucketer that looks its answer up in a table should sit much nearer the
-"starting hands only" rows.
+- One iteration is one sampled traversal per player.
+- "Starting hands only" puts every hand in one bucket after the flop, which costs nothing to
+  compute, so it shows the speed of the game alone. With `EquityBands` most of the time goes
+  into the bands themselves (30 microseconds or more a deal). A real bucketer that looks its
+  answer up in a table should sit much nearer the "starting hands only" rows.
+- Four threads give 2.8 times the speed of one on the default menu with free buckets, and 4
+  times with `EquityBands`, where the threads spend their time in the bucketer and rarely
+  meet in the tables. A run on several threads depends on timing; one thread repeats exactly
+  for a seed.
+- To train, the `cfr` crate needs the game to be `Sync`, since its threads share it. The game
+  is `Sync` whenever its bucketer is. A boxed one has to say so
+  (`Box<dyn Bucketer + Send + Sync>`), and a shared one needs `Arc`, not `Rc`.
 
 ## Push-or-fold against the Python solver
 
@@ -378,7 +389,7 @@ comparison and the walk through every flop deal).
 | `tests/legal.rs`, `random_hands_are_legal_and_pay_what_nlhe_pays` | 30,000 random hands on 5 bigger games, from the chance node on: every offer legal, and the payoffs equal `nlhe`'s with its brute-force ranker and with `EvalRanker`, in big blinds, summing to zero |
 | `tests/legal.rs`, `menus_are_legal_at_any_real_state` | Real hands played with raises of any legal size (states the abstract game never reaches): about 2 million menu actions, all legal, none twice |
 | `tests/push_fold.rs` | The comparison above, the payoffs of the push-or-fold game by hand, and the fixture against the numbers the Python tests check |
-| `tests/game.rs` | Chance deals each unseen card with equal probability; one key per (betting, bucket) and one (betting, bucket) per key; a player's keys do not change with the other player's cards or with board cards not yet dealt, and renaming suits changes nothing; sizes, limits and errors; the mapping at the game level; a 6 big blind game with every street trains, repeats exactly for a seed and beats random play from both seats |
+| `tests/game.rs` | Chance deals each unseen card with equal probability; one key per (betting, bucket) and one (betting, bucket) per key; a player's keys do not change with the other player's cards or with board cards not yet dealt, and renaming suits changes nothing; sizes, limits and errors; the mapping at the game level; a 6 big blind game with every street trains, repeats exactly for a seed and beats random play from both seats; the same game trains on 4 threads with integer regrets; the game can be shared between threads |
 | `tests/no_alloc.rs` | No allocation in training once warm, and none in the game or the lossless bucketer |
 | `src/mapping.rs` | The mapping's properties and hand-worked values |
 | `src/menu.rs` | Sizes in chips for the default menu preflop and after the flop, the minimum-bet and all-in corners, push-or-fold |

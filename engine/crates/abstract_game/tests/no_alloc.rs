@@ -33,7 +33,7 @@ static GLOBAL: Counting = Counting;
 
 /// Warms the solver up until it stops finding new information sets, then counts the
 /// allocations of more iterations.
-fn allocations_once_warm<B: Bucketer>(game: AbstractGame<B>, warm_up: u64) -> u64 {
+fn allocations_once_warm<B: Bucketer + Sync>(game: AbstractGame<B>, warm_up: u64) -> u64 {
     let total = game.info_sets();
     let mut solver = Mccfr::new(game, MccfrConfig::new(Sampling::External, 6));
     solver.run(warm_up);
