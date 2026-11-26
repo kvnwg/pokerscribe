@@ -188,3 +188,25 @@ def test_last_hands_start_doesnt_carry_into_the_next_hand():
     st.players[SEATS.index("Mike")].bet = Field.manual(2.0)
     info = t.update(st)
     assert info.valid and info.hero_invested == 0 and st.to_call.value == 2
+
+
+def test_before_the_flop_with_no_pot_printed():
+    """Clients whose pot holds only the earlier rounds print nothing in the middle before the
+    flop. The tracker waited for a pot, so on a table that doesn't print the stakes the
+    blinds stayed unknown until the flop. Nothing in the middle and the bets in front add up:
+    the middle is empty."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))  # between hands
+    st = capture(dict(FULL, John=995, Mike=990, George=990))
+    for name, bet in (("John", 5.0), ("Mike", 10.0), ("George", 10.0)):
+        st.players[SEATS.index(name)].bet = Field.manual(bet)
+    info = t.update(st)
+    assert info.valid and st.blinds.value == (5, 10) and st.to_call.value == 10
+    assert st.pot.value == 0 and st.pot_includes_bets is False
+    # a misread stack: the bets no longer add up, nothing is filled in
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    st = capture(dict(FULL, John=995, Mike=900, George=990))
+    for name, bet in (("John", 5.0), ("Mike", 10.0), ("George", 10.0)):
+        st.players[SEATS.index(name)].bet = Field.manual(bet)
+    assert not t.update(st).valid and not st.blinds.known and not st.pot.known

@@ -36,6 +36,10 @@ POT_RE = re.compile(r"\b(total\s*)?pot\b", re.I)  # "Total pot", and "Totalpot" 
 STATUS_RE = re.compile(r"(sitting\s*out|sit\s*out|empty\s*seat|open\s*seat|seat\s*open|disconnected|reserved|join)", re.I)
 # "# 357,618,379", "Hand #123456789", "Hand ID: 12345678": a new number means a new hand
 HAND_ID_RE = re.compile(r"(?:\bhand\b[^#\d]{0,6})?#\s*(\d[\d,.\s]{4,}\d)|\bhand\s*(?:id|no\.?|number)?\s*:?\s*(\d{6,})", re.I)
+# your hand's strength written by your seat ("High Card", "Two Pair"): never a name
+HAND_RANK_RE = re.compile(
+    r"(?i)^\s*(high\s*card|one\s*pair|two\s*pairs?|three\s*of\s*a\s*kind|four\s*of\s*a\s*kind|full\s*house"
+    r"|straight\s*flush|royal\s*flush|pair\s*of\b|(pair|trips|straight|flush|quads)\s*$)")
 SIZING_RE = re.compile(r"^\s*(min|max|pot|\d/\d\s*pot|\d+(\.\d+)?\s*x|\d+\s*%)\s*$", re.I)
 
 
@@ -96,6 +100,7 @@ class LayoutResult:
     hand_id: Optional[str] = None  # the hand number shown by the client, digits only
     acting_seat: Optional[int] = None  # index into seats: timer bar or glow ring on it
     acting_conf: float = 0.0
+    pictures: List[Tuple[float, float, float]] = field(default_factory=list)  # round player pictures (x, y, r)
     warnings: List[str] = field(default_factory=list)
 
 
@@ -127,7 +132,10 @@ def split_cards(readings: List[CardReading], width: int, height: int) -> Tuple[L
         return max(gaps) < 1.6 * med_h
 
     board: List[CardReading] = []
+    # board cards are all the same size: pieces of a card cut by something drawn over it
+    # (43, 15 and 71 pixels wide) are not a board
     candidates = [row for row in rows if 3 <= len(row) <= 5 and spread_ok(row)
+                  and max(r.box[2] for r in row) <= 1.35 * min(r.box[2] for r in row)
                   and 0.18 * height <= np.mean([r.center[1] for r in row]) <= 0.75 * height]
     if candidates:
         board = min(candidates, key=lambda row: abs(np.mean([r.center[1] for r in row]) - 0.45 * height))
@@ -170,7 +178,19 @@ def analyse(image: np.ndarray, readings: List[CardReading], boxes: List[TextBox]
     med_text_h = float(np.median([b.h for b in boxes])) if boxes else 14.0
     used: set = set()
 
+    res.pictures = _find_pictures(image, med_text_h)
+    discs, badges = [], []
+    for c in _button_discs(image, card_rects, med_text_h):
+        (badges if _picture_disc(c, res.pictures) else discs).append(c)
+    boxes = [_without_button(b, discs) for b in boxes]
     _find_hand_id(res, boxes, used)
+    for b in boxes:
+        # A level, a countdown or "Seat" drawn on a player's picture, or in a badge on its
+        # rim, is never a name, a stack or a bet.
+        if _on_picture(b, res.pictures, med_text_h) or any(
+                x - 0.3 * b.h <= b.cx <= x + w + 0.3 * b.h and y - 0.3 * b.h <= b.cy <= y + h + 0.3 * b.h
+                for _, (x, y, w, h) in badges):
+            used.add(id(b))
     _find_action_buttons(res, boxes, used, W, H, med_text_h)
     _find_pot(res, boxes, used, W, H)
     _find_blinds(res, boxes, used)
@@ -181,6 +201,35 @@ def analyse(image: np.ndarray, readings: List[CardReading], boxes: List[TextBox]
     _find_card_backs(res, image, boxes)
     _find_acting(res, image, boxes, med_text_h)
     return res
+
+
+def _picture_disc(c, pictures) -> bool:
+    """A bright disc centred inside a player's round picture or on its rim: the picture's own
+    white rim, or a badge (a level) drawn over the rim. The dealer button sits beside the
+    picture, its centre further out."""
+    x, y, w, h = c[1]
+    return any(math.hypot(x + w / 2 - px, y + h / 2 - py) < pr + 0.25 * w for px, py, pr in pictures)
+
+
+def _without_button(b: TextBox, discs) -> TextBox:
+    """The dealer button touching an amount is read with it ("$ 200D", then "$ 2000"): drop
+    the character the button's disc covers."""
+    t = b.text.strip()
+    if len(t) < 2 or not re.search(r"\d", t):
+        return b
+    for _, (x, y, w, h) in discs:
+        dcx, dcy = x + w / 2.0, y + h / 2.0
+        if abs(dcy - b.cy) >= 0.6 * b.h:
+            continue
+        at_end = b.right - 1.3 * b.h <= dcx <= b.right + 0.3 * b.h
+        at_start = b.x - 0.3 * b.h <= dcx <= b.x + 1.3 * b.h
+        if at_end and at_start:  # a short box ("D19"): the end the disc is nearer
+            at_end = b.right - dcx < dcx - b.x
+        if at_end:
+            return TextBox(t[:-1].rstrip(), b.confidence, b.x, b.y, max(1, b.w - w), b.h)
+        if at_start:
+            return TextBox(t[1:].lstrip(), b.confidence, b.x + w, b.y, max(1, b.w - w), b.h)
+    return b
 
 
 def _find_hand_id(res: LayoutResult, boxes, used) -> None:
@@ -207,7 +256,9 @@ def _find_action_buttons(res: LayoutResult, boxes, used, W, H, text_h) -> None:
         # ("Call" at the lower left, "Fold" at the lower right), but far apart: split there.
         group: List[TextBox] = [mates[0]]
         for a, o in zip(mates, mates[1:]):
-            if o.x - a.right > 2.5 * max(a.w, o.w, 4 * text_h):
+            # buttons across the bottom edge of a phone can be far apart
+            reach = 0.5 * W if min(a.cy, o.cy) > 0.88 * H else 2.5 * max(a.w, o.w, 4 * text_h)
+            if o.x - a.right > reach:
                 if b in group:
                     break
                 group = [o]
@@ -215,11 +266,26 @@ def _find_action_buttons(res: LayoutResult, boxes, used, W, H, text_h) -> None:
                 group.append(o)
         if b in group and len(group) > len(row):
             row = group
+    # Some clients stack the buttons one above the other at the right edge.
+    for b in low:
+        col = sorted((o for o in low if abs(o.cx - b.cx) < 0.5 * max(b.w, o.w, 2 * text_h)), key=lambda o: o.y)
+        group = [col[0]]
+        for a, o in zip(col, col[1:]):
+            if o.y - a.bottom > 3.0 * max(text_h, a.h, o.h):
+                if b in group:
+                    break
+                group = [o]
+            else:
+                group.append(o)
+        if b in group and len(group) >= 2 and len(group) > len(row):
+            row = group
     if len(row) < 2:
         # a single button counts only in the corner where clients put them: a lone action
-        # word elsewhere is a seat's last-action tag
-        corner = [b for b in low if b.cx > 0.55 * W and b.cy > 0.8 * H]
-        row = corner[:1] if len(corner) == 1 else []
+        # word elsewhere is a seat's last-action tag. Not while pre-action boxes show (it
+        # isn't your turn then), and not a word under a name ("All in" is a seat's status).
+        corner = [b for b in low if b.cx > 0.55 * W and b.cy > 0.8 * H
+                  and not _under_name_or_picture(b, boxes, res.pictures, text_h)]
+        row = corner[:1] if len(corner) == 1 and not pre else []
     if row:
         actions = []
         for b in sorted(row, key=lambda b: b.x):
@@ -240,6 +306,8 @@ def _find_action_buttons(res: LayoutResult, boxes, used, W, H, text_h) -> None:
             x0 = min(b.x for b in row) - 4 * text_h
             for b in boxes:
                 if b.cy >= y0 and b.cx >= x0 and (parse_amount(b.text) or SIZING_RE.match(b.text)):
+                    if parse_amount(b.text) and _under_name_or_picture(b, boxes, res.pictures, text_h):
+                        continue  # your own stack (phones put the buttons right under it)
                     used.add(id(b))
     elif pre:
         res.hero_to_act = False
@@ -247,6 +315,18 @@ def _find_action_buttons(res: LayoutResult, boxes, used, W, H, text_h) -> None:
     for b in boxes:
         if SIZING_RE.match(b.text) and b.cy > 0.7 * H:
             used.add(id(b))
+
+
+def _under_name_or_picture(b: TextBox, boxes, pictures, text_h: float) -> bool:
+    """Right under a name or a round picture: a seat's stack."""
+    for o in boxes:
+        if o is b or parse_amount(o.text) or not re.search(r"[A-Za-z]", o.text):
+            continue
+        if ACTION_RE.match(o.text) or SIZING_RE.match(o.text) or PRE_ACTION_RE.search(o.text):
+            continue
+        if 0 <= b.y - o.bottom <= 1.2 * max(b.h, o.h) and abs(o.cx - b.cx) < 0.6 * max(o.w, b.w):
+            return True
+    return any(abs(b.cx - x) < r and -0.3 * text_h <= b.y - (y + r) <= 1.6 * text_h for x, y, r in pictures)
 
 
 def _find_pot(res: LayoutResult, boxes, used, W, H) -> None:
@@ -264,6 +344,13 @@ def _find_pot(res: LayoutResult, boxes, used, W, H) -> None:
             if right:
                 partner = min(right, key=lambda o: o.x)
                 amount = parse_amount(partner.text)
+            else:
+                # "Pot Amt." with the amount on the line under it
+                under = [o for o in boxes if id(o) not in used and o is not b and 0 <= o.y - b.bottom < 1.5 * b.h
+                         and abs(o.cx - b.cx) < 0.6 * max(b.w, o.w) and parse_amount(o.text)]
+                if under:
+                    partner = min(under, key=lambda o: o.y)
+                    amount = parse_amount(partner.text)
         if amount is None:
             continue
         dist = math.hypot(b.cx - res.center[0], b.cy - res.center[1])
@@ -342,6 +429,21 @@ def _find_seats(res: LayoutResult, boxes, used, text_h) -> None:
                     if any(lab is a for a in all_in):
                         score += 1.0 + (0 if below else 2.0)  # a name above "All in" comes first
                     pairs.append((score, lab, amt_box, amt))
+    # A name above a round picture with the stack under it (phone tables): the picture sits
+    # between them, further apart than a name and its stack usually are.
+    for x, y, r in res.pictures:
+        def near(b, x=x, r=r):
+            return abs(b.cx - x) < max(r, 0.6 * b.w)
+        above = [lab for lab in labels if near(lab) and -0.3 * text_h <= (y - r) - lab.bottom <= 1.6 * text_h]
+        under = [(b, a) for b, a in amounts + [(b, None) for b in all_in]
+                 if near(b) and -0.3 * text_h <= b.y - (y + r) <= 1.6 * text_h]
+        if not above or not under:
+            continue
+        lab = min(above, key=lambda o: (y - r) - o.bottom)
+        amt_box, amt = min(under, key=lambda o: o[0].y)
+        if any(o is not lab and near(o) and o.y >= y + r - 0.3 * text_h and o.bottom <= amt_box.y + 2 for o in labels):
+            continue  # the name is under the picture: the usual name-over-stack pairing does it
+        pairs.append((-1.0, lab, amt_box, amt))
     pairs.sort(key=lambda p: p[0])
     taken: set = set()
     for _, lab, amt_box, amt in pairs:
@@ -368,7 +470,7 @@ def _find_seats(res: LayoutResult, boxes, used, text_h) -> None:
         if id(lab) in taken or STATUS_RE.search(lab.text) or ACTION_RE.match(lab.text) or len(lab.text.strip()) < 2:
             continue
         under = [b for b in boxes if id(b) not in used and id(b) not in taken and b is not lab
-                 and re.search(r"\d", b.text) and 0 <= b.y - lab.bottom <= 1.2 * max(lab.h, b.h)
+                 and re.search(r"\d", b.text) and _number_like(b.text) and 0 <= b.y - lab.bottom <= 1.2 * max(lab.h, b.h)
                  and abs(b.cx - lab.cx) < 0.6 * max(lab.w, b.w)]
         if not under:
             continue
@@ -376,6 +478,19 @@ def _find_seats(res: LayoutResult, boxes, used, text_h) -> None:
         taken.update({id(lab), id(b)})
         res.seats.append(Seat(label=lab, stack_box=b, stack=None, stack_conf=0.0, name=lab.text))
     for s in res.seats:
+        if HAND_RANK_RE.match(s.label.text):
+            # the hand's strength sits where a name would (beside your picture): the name is
+            # the text nearest it, under or over the picture
+            names = [lab for lab in labels if id(lab) not in taken and not HAND_RANK_RE.match(lab.text)
+                     and not STATUS_RE.search(lab.text) and not ACTION_RE.match(lab.text)
+                     and math.hypot(lab.cx - s.label.cx, lab.cy - s.label.cy) < 5 * text_h]
+            if names:
+                name = min(names, key=lambda o: math.hypot(o.cx - s.label.cx, o.cy - s.label.cy))
+                s.name = name.text
+                taken.add(id(name))
+                used.add(id(name))
+            else:
+                s.name = ""
         used.add(id(s.label))
         used.add(id(s.stack_box))
     # action badges near a nameplate ("Bet 60" above the name)
@@ -395,6 +510,15 @@ def _find_seats(res: LayoutResult, boxes, used, text_h) -> None:
             used.add(id(b))
 
 
+def _number_like(text: str) -> bool:
+    """A misread amount ("$25¡", "1,2O0"), not a percentage, a count or a ratio ("+100%",
+    "300512 / 512000")."""
+    t = text.strip()
+    if not t or re.search(r"[%+/:]", t) or not re.search(r"\d", t):
+        return False
+    return sum(ch.isalpha() for ch in t) <= 0.5 * len(t)
+
+
 def _assign_hero_and_order(res: LayoutResult, W, H) -> None:
     if not res.seats:
         return
@@ -410,11 +534,20 @@ def _assign_hero_and_order(res: LayoutResult, W, H) -> None:
         near = [s for s in res.seats if math.hypot(s.center[0] - hx, s.center[1] - hy) < 3.0 * card_h]
         if near:
             hero = min(near, key=lambda s: math.hypot(s.center[0] - hx, s.center[1] - hy))
-    if hero is None:
-        bottom = [s for s in res.seats if 0.3 * W <= s.center[0] <= 0.7 * W]
-        if bottom:
-            hero = max(bottom, key=lambda s: s.center[1])
-            res.warnings.append("Hero seat guessed from layout (no hero cards near a nameplate).")
+    bottom = [s for s in res.seats if 0.3 * W <= s.center[0] <= 0.7 * W]
+    # clients put your seat at the bottom middle: the seat nearest that spot (another seat
+    # can sit lower, off to one side)
+    mid = min(bottom, key=lambda s: abs(s.center[0] - W / 2) + 0.5 * (H - s.center[1])) if bottom else None
+    if (hero is not None and mid is not None and mid is not hero and mid.center[1] > 0.5 * H
+            and abs(mid.center[0] - W / 2) + 0.1 * W < abs(hero.center[0] - W / 2)):
+        # the face-up cards lie beside a seat off to the side, with a seat in the bottom
+        # middle: an opponent's cards shown at showdown (after you folded), not yours
+        res.other_cards = res.other_cards + res.hero_cards
+        res.hero_cards = []
+        hero = None
+    if hero is None and mid is not None:
+        hero = mid
+        res.warnings.append("Hero seat guessed from layout (no hero cards near a nameplate).")
     if hero is None:
         res.warnings.append("Could not tell which seat is the hero.")
         res.seats.sort(key=lambda s: s.angle)
@@ -438,6 +571,8 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
             continue
         if res.pot_box is not None and _next_to(b, res.pot_box):
             continue  # the pot's own number, read apart from its label
+        if _beside_seat_text(b, res.seats):
+            continue  # a level or rank on the nameplate, next to the name or the stack
         best, best_d = None, None
         for s in res.seats:
             sx, sy = s.center
@@ -463,6 +598,19 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
         used.add(id(b))
 
 
+def _beside_seat_text(b: TextBox, seats: List[Seat]) -> bool:
+    """On the same line as a seat's name or stack and next to it: part of the nameplate
+    (a player level, a rank), never a bet. Bets lie apart, toward the middle."""
+    for s in seats:
+        for t in (s.label, s.stack_box):
+            if t is None or t is b:
+                continue
+            h = max(b.h, t.h)
+            if abs(b.cy - t.cy) < 0.6 * h and max(b.x - t.right, t.x - b.right) < 3.0 * h:
+                return True
+    return False
+
+
 # A bet lies between its seat and the middle, at most this share of the way. Further in, by the
 # board, is the collected pot (chips from earlier rounds): never a seat's bet.
 BET_REACH = 0.65
@@ -484,7 +632,9 @@ def _find_button(res: LayoutResult, image: np.ndarray, boxes, card_rects, text_h
         if b.text.strip() in ("D", "DEALER", "Dealer", "BTN") and b.w < 4 * b.h:
             pad = int(0.3 * b.h)
             candidates.append((0.9, (b.x - pad, b.y - pad, b.w + 2 * pad, b.h + 2 * pad)))
-    candidates.extend(_button_discs(image, card_rects, text_h))
+    # the white rim of a player's round picture is a bright disc too, and so is a level
+    # badge on the rim: not the button
+    candidates.extend(c for c in _button_discs(image, card_rects, text_h) if not _picture_disc(c, res.pictures))
     if not candidates:
         return
     score, rect = max(candidates, key=lambda c: c[0])
@@ -564,16 +714,25 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         big = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] >= 0.01 * H * W]
         if big:
             colourful &= ~np.isin(labels, big)
-    for b in boxes:  # text badges ("Bet 60") often overlap the cards; ignore their area
-        colourful[max(0, b.y - 3): b.bottom + 3, max(0, b.x - 3): b.right + 3] = False
+    text_h = float(np.median([b.h for b in boxes])) if boxes else 12.0
     # Split by hue so card backs are not merged with an action badge or chips of
     # another colour that overlap them.
     masks = []
     for centre in range(0, 180, 15):
         d = np.minimum(np.abs(hue - centre), 180 - np.abs(hue - centre))
-        m = (colourful & (d <= 10)).astype(np.uint8) * 255
+        m = colourful & (d <= 10)
+        if not m.any():
+            continue
+        # the table's rim and other long shapes: a name or stack written across them
+        # would cut them into card-sized pieces
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8), connectivity=8)
+        long_parts = [i for i in range(1, n) if max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) > 12 * text_h]
+        if long_parts:
+            m &= ~np.isin(labels, long_parts)
+        for b in boxes:  # text badges ("Bet 60") often overlap the cards; ignore their area
+            m[max(0, b.y - 3): b.bottom + 3, max(0, b.x - 3): b.right + 3] = False
         if m.any():
-            masks.append(cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)))
+            masks.append(cv2.morphologyEx(m.astype(np.uint8) * 255, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8)))
     found_any = False
     for s in res.seats:
         if s.is_hero:
@@ -598,6 +757,20 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
             fill = cv2.contourArea(cv2.convexHull(c)) / float(cw * ch)
             if fill < 0.75:
                 continue
+            # card backs are rectangles (turned a little, perhaps): hair or shoulders in a
+            # player's picture are not
+            rw, rh = cv2.minAreaRect(c)[1]
+            if cv2.contourArea(c) < 0.8 * rw * rh:
+                continue
+            ax0, ay0 = rx0 + cx, ry0 + cy
+            if any(math.hypot(ax0 + cw / 2 - px, ay0 + ch / 2 - py) < pr for px, py, pr in res.pictures):
+                continue  # part of a player's picture
+            if any(ax0 - 2 <= b.x and b.right <= ax0 + cw + 2 and ay0 - 2 <= b.y and b.bottom <= ay0 + ch + 2
+                   for b in boxes):
+                continue  # a coloured badge with a number in it (a level), not cards
+            if any(t is not None and abs(ay0 + ch / 2 - t.cy) <= 0.5 * t.h and ch <= 1.3 * t.h
+                   for t in (s.label, s.stack_box)):
+                continue  # as tall as the text, on the name's or the stack's line: a badge
             # chips are round; card backs are rectangles
             circ = 4 * math.pi * cv2.contourArea(c) / (cv2.arcLength(c, True) ** 2 + 1e-6)
             if circ > 0.84 and 0.8 < aspect < 1.25:
@@ -606,11 +779,161 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         if best:
             s.has_cards, s.cards_conf = True, best
             found_any = True
+    if not found_any:
+        found_any = _plain_backs(res, image, boxes)
     if found_any:
         # this client shows card backs, so a seat without them has folded
         for s in res.seats:
             if not s.is_hero and s.has_cards is None:
                 s.has_cards, s.cards_conf = False, 0.75
+
+
+def _plain_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox]) -> bool:
+    """Card backs without colour (dark grey, white) beside round player pictures: a solid
+    patch, card-sized for the picture, that differs from what surrounds the seat. Used only
+    when no coloured backs were found anywhere on the table."""
+    if not res.pictures or not boxes:
+        return False
+    H, W = image.shape[:2]
+    text_h = float(np.median([b.h for b in boxes]))
+    img = image.astype(np.int16)
+    cards = [r.box for r in res.hero_cards + res.board]
+    found_any = False
+    for s in res.seats:
+        if s.is_hero or s.has_cards is not None:
+            continue
+        pic = _seat_picture(res, s, text_h)
+        if pic is None:
+            continue
+        px, py, pr = pic
+        x0, x1 = int(max(0, px - 3.2 * pr)), int(min(W, px + 3.2 * pr))
+        y0, y1 = int(max(0, py - 1.6 * pr)), int(min(H, py + 1.6 * pr))
+        roi = img[y0:y1, x0:x1]
+        if roi.shape[0] < 8 or roi.shape[1] < 8:
+            continue
+        border = np.concatenate([roi[0], roi[-1], roi[:, 0], roi[:, -1]])
+        diff = np.abs(roi - np.median(border, axis=0)).sum(axis=-1) > 45
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        for x, y, r in res.pictures:  # the pictures themselves, and their rims
+            diff &= np.hypot(xx - x, yy - y) > r + 3
+        for bx, by, bw, bh in [(b.x, b.y, b.w, b.h) for b in boxes] + cards:
+            diff[max(0, by - y0 - 3): max(0, by + bh - y0 + 3), max(0, bx - x0 - 3): max(0, bx + bw - x0 + 3)] = False
+        k = max(3, int(0.12 * pr)) | 1  # open: drops thin things (a timer ring) touching the backs
+        diff = cv2.morphologyEx(diff.astype(np.uint8), cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(diff, connectivity=8)
+        rh, rw = diff.shape
+        for i in range(1, n):
+            cx, cy, cw, ch, area = (int(v) for v in stats[i])
+            if cx == 0 or cy == 0 or cx + cw >= rw or cy + ch >= rh:
+                continue  # runs out of the area: the felt, its rim
+            if not (0.5 * pr <= ch <= 1.8 * pr and 0.35 * pr <= cw <= 2.6 * pr and 0.45 <= cw / ch <= 2.6):
+                continue
+            if area < 0.75 * cw * ch:
+                continue  # card backs are solid
+            c = cv2.findContours((labels[cy:cy + ch, cx:cx + cw] == i).astype(np.uint8), cv2.RETR_EXTERNAL,
+                                 cv2.CHAIN_APPROX_SIMPLE)[0][0]
+            circ = 4 * math.pi * cv2.contourArea(c) / (cv2.arcLength(c, True) ** 2 + 1e-6)
+            if circ > 0.84 and 0.8 < cw / ch < 1.25:
+                continue  # round: the dealer button or chips
+            s.has_cards, s.cards_conf = True, 0.75
+            found_any = True
+            break
+        if s.has_cards is None and _outlined_back(res, image, boxes, cards, pic, text_h):
+            s.has_cards, s.cards_conf = True, 0.75
+            found_any = True
+    return found_any
+
+
+def _outlined_back(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], cards, pic, text_h: float) -> bool:
+    """A card-shaped outline beside the picture: the edge of a card back that lies where the
+    felt changes colour, so it doesn't stand out from one surrounding colour."""
+    H, W = image.shape[:2]
+    px, py, pr = pic
+    x0, x1 = int(max(0, px - 3.2 * pr)), int(min(W, px + 3.2 * pr))
+    y0, y1 = int(max(0, py - 1.6 * pr)), int(min(H, py + 1.6 * pr))
+    edges = cv2.Canny(cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY), 25, 70)
+    for c in cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[0]:
+        bx, by, bw, bh = cv2.boundingRect(c)
+        if not (1.15 * text_h <= bh <= 5 * text_h and 0.5 <= bw / bh <= 0.9):
+            continue
+        if cv2.contourArea(c) < 0.6 * bw * bh:
+            continue
+        if len(cv2.approxPolyDP(c, 0.04 * cv2.arcLength(c, True), True)) != 4:
+            continue
+        gx, gy = x0 + bx, y0 + by
+        if any(math.hypot(gx + bw / 2 - x, gy + bh / 2 - y) < r + 0.3 * text_h for x, y, r in res.pictures):
+            continue
+        rects = [(t.x, t.y, t.w, t.h) for t in boxes] + list(cards)
+        if any(rx < gx + bw and gx < rx + rw and ry < gy + bh and gy < ry + rh for rx, ry, rw, rh in rects):
+            continue
+        return True
+    return False
+
+
+# ------------------------------------------------------------- player pictures
+PICTURE_SUPPORT = 0.9  # share of a circle's outline that must be an edge in the picture
+_ANGLES = np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False)
+
+
+def _circle_support(edges: np.ndarray, x: float, y: float, r: float) -> float:
+    """The share of the circle's outline lying on an edge (within 2 pixels)."""
+    H, W = edges.shape
+    hit = np.zeros(len(_ANGLES), bool)
+    cos, sin = np.cos(_ANGLES), np.sin(_ANGLES)
+    for dr in (-2, -1, 0, 1, 2):
+        px = np.round(x + (r + dr) * cos).astype(int)
+        py = np.round(y + (r + dr) * sin).astype(int)
+        ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+        hit[ok] |= edges[py[ok], px[ok]] > 0
+    return float(hit.mean())
+
+
+def _on_picture(b: TextBox, pictures, text_h: float) -> bool:
+    """The text's middle, or at least half of it, lies on a round picture (a level badge on
+    its edge counts; a name just above or below it does not)."""
+    for x, y, r in pictures:
+        reach = r + 0.25 * text_h
+        if math.hypot(b.cx - x, b.cy - y) < r:
+            return True  # its middle is on the picture
+        if math.hypot(b.cx - x, b.cy - y) > reach + 0.5 * math.hypot(b.w, b.h):
+            continue
+        xs = b.x + (np.arange(5) + 0.5) / 5.0 * b.w
+        ys = b.y + (np.arange(5) + 0.5) / 5.0 * b.h
+        inside = np.hypot(xs[None, :] - x, ys[:, None] - y) <= reach
+        if inside.mean() >= 0.5:
+            return True
+    return False
+
+
+def _find_pictures(image: np.ndarray, text_h: float) -> List[Tuple[float, float, float]]:
+    """Round player pictures (avatars), as (x, y, radius): circles a few text heights across
+    whose whole outline is an edge. Folded players' greyed pictures count too. The round
+    ends of buttons and the corners of plates are only partly circles, so they don't."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    lo, hi = int(max(8, 1.1 * text_h)), int(max(16, 4.5 * text_h))
+    found = cv2.HoughCircles(cv2.medianBlur(gray, 3), cv2.HOUGH_GRADIENT, dp=1, minDist=2 * lo, param1=100,
+                             param2=24, minRadius=lo, maxRadius=hi)
+    if found is None:
+        return []
+    edges = cv2.Canny(gray, 25, 70)
+    out: List[Tuple[float, float, float, float]] = []
+    for x, y, r in found[0][:40]:
+        best = (_circle_support(edges, x, y, r), float(x), float(y), float(r))
+        for step in (2.0, 1.0):  # Hough's circle is a pixel or two off: settle it on the outline
+            s0, x0, y0, r0 = best
+            for dx in (-step, 0.0, step):
+                for dy in (-step, 0.0, step):
+                    for dr in (-step, 0.0, step):
+                        s = _circle_support(edges, x0 + dx, y0 + dy, r0 + dr)
+                        if s > best[0]:
+                            best = (s, x0 + dx, y0 + dy, r0 + dr)
+        if best[0] >= PICTURE_SUPPORT:
+            out.append(best)
+    keep: List[Tuple[float, float, float]] = []
+    for s, x, y, r in sorted(out, reverse=True):
+        if all(math.hypot(x - kx, y - ky) > 0.8 * max(r, kr) for kx, ky, kr in keep):
+            keep.append((x, y, r))
+    return keep
 
 
 # ------------------------------------------------------------- whose turn
@@ -643,6 +966,48 @@ def _plate(image: np.ndarray, box: Tuple[int, int, int, int], text_h: float) -> 
     return left, top, right - left, bottom - top
 
 
+def _seat_picture(res: LayoutResult, seat: Seat, text_h: float) -> Optional[Tuple[float, float, float]]:
+    """The round picture by a seat's name and stack (above, between or beside them)."""
+    x, y, w, h = seat.box
+    best, best_d = None, None
+    for px, py, pr in res.pictures:
+        dx = max(x - px, 0.0, px - (x + w))
+        dy = max(y - py, 0.0, py - (y + h))
+        d = math.hypot(dx, dy)
+        if d <= pr + 1.5 * text_h and (best is None or d < best_d):
+            best, best_d = (px, py, pr), d
+    return best
+
+
+def _thin_parts(vivid: np.ndarray) -> np.ndarray:
+    """The coloured lines and curves of a mask, without its solid shapes (card backs, chips,
+    badges fill most of their box; a ring around a picture fills little of its box)."""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(vivid.astype(np.uint8), connectivity=8)
+    solid = [i for i in range(1, n)
+             if stats[i, cv2.CC_STAT_AREA] > 0.45 * stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT]]
+    return vivid & ~np.isin(labels, solid) if solid else vivid
+
+
+def _ring_cover(vivid: np.ndarray, pic: Tuple[float, float, float], text_h: float) -> float:
+    """The share of the way round a picture that a thin coloured ring covers. Card backs or
+    chips beside the picture are not thin: they still show further out."""
+    H, W = vivid.shape
+    x, y, r = pic
+    cos, sin = np.cos(_ANGLES), np.sin(_ANGLES)
+    near = np.zeros(len(_ANGLES), bool)
+    for dr in np.arange(1.0, max(2.0, 0.6 * text_h), 1.0):
+        px = np.round(x + (r + dr) * cos).astype(int)
+        py = np.round(y + (r + dr) * sin).astype(int)
+        ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+        near[ok] |= vivid[py[ok], px[ok]]
+    px = np.round(x + (r + 1.2 * text_h) * cos).astype(int)
+    py = np.round(y + (r + 1.2 * text_h) * sin).astype(int)
+    ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+    far = np.zeros(len(_ANGLES), bool)
+    far[ok] = vivid[py[ok], px[ok]]
+    return float((near & ~far).mean())
+
+
 def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], text_h: float) -> None:
     """The seat whose turn it is: a coloured timer bar under its plate, or a glow ring
     around it. Only a seat that clearly stands out from every other counts: at most one
@@ -661,6 +1026,22 @@ def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], tex
         vivid &= ~(on_felt & (np.abs(hsv[..., 2].astype(np.int16) - felt_v) < 40))
     for b in boxes:  # coloured text (stacks drawn in yellow, say) is not a highlight
         vivid[max(0, b.y - 2): b.bottom + 2, max(0, b.x - 2): b.right + 2] = False
+    for x, y, r in res.pictures:  # nor is a player's picture, whatever its colours
+        x0, y0 = max(0, int(x - r - 1)), max(0, int(y - r - 1))
+        yy, xx = np.mgrid[y0:min(H, int(y + r + 2)), x0:min(W, int(x + r + 2))]
+        vivid[yy, xx] &= np.hypot(xx - x, yy - y) > r + 0.5
+    around = vivid.copy()  # for the glow and bar beside plates
+    for r in res.hero_cards + res.board + res.other_cards:  # red suits on a card
+        x, y, w, h = r.box
+        around[max(0, y): y + h, max(0, x): x + w] = False
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(around.astype(np.uint8), connectivity=8)
+    span = np.maximum(stats[:, cv2.CC_STAT_WIDTH], stats[:, cv2.CC_STAT_HEIGHT])
+    solid = stats[:, cv2.CC_STAT_AREA] > 0.45 * stats[:, cv2.CC_STAT_WIDTH] * stats[:, cv2.CC_STAT_HEIGHT]
+    long_parts = [i for i in range(1, n) if span[i] > 12 * text_h]  # the table's rim
+    blobs = [i for i in range(1, n) if solid[i] and span[i] <= 2 * text_h]  # a coin, a chip, a badge
+    if long_parts:
+        around &= ~np.isin(labels, long_parts)
+    glow = around & ~np.isin(labels, blobs) if blobs else around
     pad = max(3, int(round(0.3 * text_h)))
     below = int(round(1.4 * text_h))
     scores = []
@@ -668,11 +1049,11 @@ def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], tex
         px, py, pw, ph = _plate(image, s.box, text_h)
         x0, y0, x1, y1 = px, py, px + pw, py + ph
         # a glow ring: both sides of the plate light up
-        lft = vivid[y0:y1, max(0, x0 - pad): x0]
-        rgt = vivid[y0:y1, x1: min(W, x1 + pad)]
+        lft = glow[y0:y1, max(0, x0 - pad): x0]
+        rgt = glow[y0:y1, x1: min(W, x1 + pad)]
         ring = min(float(lft.mean()) if lft.size else 0.0, float(rgt.mean()) if rgt.size else 0.0)
         # a timer bar: a thin coloured line under the plate (its length is the time left)
-        strip = vivid[y1: min(H, y1 + below), x0:x1]
+        strip = around[y1: min(H, y1 + below), x0:x1]
         bar = 0.0
         if strip.size:
             rows = strip.sum(axis=1)
@@ -680,6 +1061,14 @@ def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], tex
             if lit.any() and lit.sum() <= 0.8 * text_h:
                 bar = float(rows.max()) / max(1, pw)
         scores.append(max(min(1.0, 2.0 * ring), min(1.0, 4.0 * bar)))
+    # round pictures: a thin coloured ring around the acting player's picture (its length is
+    # the time left)
+    if res.pictures:
+        thin = _thin_parts(vivid)
+        for k, s in enumerate(res.seats):
+            pic = _seat_picture(res, s, text_h)
+            if pic is not None:
+                scores[k] = max(scores[k], min(1.0, 2.0 * _ring_cover(thin, pic, text_h)))
     order = sorted(range(len(scores)), key=lambda i: -scores[i])
     best, second = scores[order[0]], scores[order[1]]
     if best >= 0.25 and second <= 0.35 * best:

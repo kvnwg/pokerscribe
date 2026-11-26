@@ -101,6 +101,8 @@ def parse_amount(text: str) -> Optional[Amount]:
         return None
     amount, start, end = found[0]
     rest = (stripped[:start] + stripped[end:]).strip(" :.,-")
+    if len(rest) == 1 and rest in CURRENCY and stripped.endswith(rest):
+        rest = ""  # "12,400$", "20 €": the currency after the number
     if rest and not re.fullmatch(r"(?i)(bb|chips?)", rest):
         return None
     return amount

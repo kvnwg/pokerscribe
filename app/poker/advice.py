@@ -635,21 +635,25 @@ def _vs_committed_raise(s: _Spot, raiser: Player, raiser_pos: Optional[str], nam
 
 
 def _posted_bb(s: _Spot) -> Optional[float]:
-    """The big blind when the stakes weren't read: what the big blind put in front of them
-    (even a faint read), or else the smallest bet on the table. Only to tell whether someone
-    raised: without it, a raise to 99 could look like nobody raised."""
-    bets = []
+    """The big blind when the stakes weren't read: the smallest bet in front of an opponent
+    (everyone still in has put in at least the big blind, the small blind aside), or twice
+    the small blind's chips (even faint reads). Not the big blind's chips alone: they may be
+    a re-raise, and then a re-raise would look like nobody raised. Only to tell whether
+    someone raised: without it, a raise to 99 could look like nobody raised."""
+    found = []
     for p in s.state.players:
         v = p.bet.value if p.bet.known else p.bet.guess
         try:
             v = float(v) if v is not None else None
         except (TypeError, ValueError):
             v = None
-        if v and v > 0:
-            if p.position.known and p.position.value == "BB":
-                return v
-            bets.append(v)
-    return min(bets) if bets else None
+        if not v or v <= 0:
+            continue
+        if p.position.known and p.position.value in ("SB", "BTN/SB"):
+            found.append(2 * v)
+        elif not p.is_hero:
+            found.append(v)
+    return min(found) if found else None
 
 
 def _preflop(s: _Spot) -> Advice:

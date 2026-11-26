@@ -44,6 +44,7 @@ class TrackInfo:
     to_call: Optional[float] = None
     blinds: Optional[Tuple[float, float]] = None
     pot_includes_bets: Optional[bool] = None
+    empty_middle: bool = False  # before the flop, no pot printed: every chip is in front of a player
     note: str = ""
 
 
@@ -105,8 +106,15 @@ class HandTracker:
         pot = float(state.pot.value) if state.pot.known else None
         shown_bets = [float(p.bet.value) for p in state.players if p.bet.known and p.bet.value]
         board_len = len(state.board)
+        empty_middle = False
+        if pot is None and board_len == 0 and shown_bets and state.pot.value is None and state.pot.guess is None:
+            # Before the flop on clients that print the pot only from the flop on: nothing in
+            # the middle, every chip put in is still in front of a player. Only believed when
+            # the stacks add up to exactly those bets.
+            pot, empty_middle = 0.0, True
 
-        found = self._find_start(current, pot, sum(shown_bets)) if pot is not None and HERO in seen else None
+        found = (self._find_start(current, pot, sum(shown_bets), empty_middle)
+                 if pot is not None and HERO in seen else None)
         if found is None:
             info.note = ("Watching for the start of a hand." if self._start_at is None
                          else "The chips that left the stacks don't add up to the pot.")
@@ -121,6 +129,7 @@ class HandTracker:
             # nothing was captured between the start of the hand and this read
             fresh = at - self._dropped == len(self._history) - 1
             self._fill(info, state, seen, contrib_by_seat, includes, board_len, fresh)
+            info.empty_middle = empty_middle and info.valid
 
         # remember these stacks: they may be where the next hand starts
         if seen:
@@ -135,10 +144,12 @@ class HandTracker:
             self._apply(state, info)
         return info
 
-    def _find_start(self, current: Dict[Key, float], pot: float, shown_bets: float):
+    def _find_start(self, current: Dict[Key, float], pot: float, shown_bets: float, empty_middle: bool = False):
         """The most recent snapshot from which the chips that left the stacks equal the
         pot: (its position, chips per seat, whether the pot includes this round's bets)."""
         targets = [(pot, True)] + ([(pot + shown_bets, False)] if shown_bets > 0 else [])
+        if empty_middle:
+            targets = [(shown_bets, False)]  # (an unchanged set of stacks would add up to 0)
         for idx in range(len(self._history) - 1, -1, -1):
             found = self._adds_up(idx, current, targets)
             if found is None:
@@ -260,6 +271,9 @@ class HandTracker:
     def _apply(self, state: GameState, info: TrackInfo) -> None:
         if info.pot_includes_bets:
             state.pot_includes_bets = True  # the pot on screen already holds every bet
+        if info.empty_middle and not state.pot.known:
+            state.pot = Field.derived(0.0, CONFIDENCE)  # the bets in front are all there is
+            state.pot_includes_bets = False
         if not state.to_call.known and info.to_call is not None:
             state.to_call = Field.derived(info.to_call, CONFIDENCE)
         # each player's bet this round, worked out from the stacks where none is printed

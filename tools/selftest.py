@@ -44,7 +44,7 @@ from app.recognition.hand import HandMemory  # noqa: E402
 from app.recognition.recognizer import TableRecognizer  # noqa: E402
 from app.recognition.tracker import HandTracker  # noqa: E402
 from app.state.model import Action, Field, GameState, Player  # noqa: E402
-from app.tests.demo_table import Layout, SeatView, TableView, layouts, money, render  # noqa: E402
+from app.tests.demo_table import Layout, SeatView, TableView, amount_text, layouts, render  # noqa: E402
 from app.vision.card_recognizer import CardRecognizer  # noqa: E402
 from app.vision.ocr import FallbackOcr  # noqa: E402
 from tools.simulate import (BB, POSITIONS, SB, TABLES, Hand, Seat, act, bot_decide, check_advice,  # noqa: E402
@@ -149,21 +149,24 @@ def view_of(h: Hand, acting: Optional[int], hand_no: int, lay: Layout, phase: st
 def hero_buttons(h: Hand, lay: Layout) -> List[str]:
     s = h.seats[0]
     to_call = h.current - s.bet
-    cur = lay.currency
     long = lay.button_labels == "long"
     total = s.stack + s.bet
+
+    def money(x: float) -> str:
+        return amount_text(x, lay)
+
     if to_call > 0:
         if to_call >= s.stack:
-            return ["Fold", f"All in {money(s.stack, cur)}" if long else f"Call {money(s.stack, cur)}"]
-        out = ["Fold", f"Call {money(to_call, cur)}"]
+            return ["Fold", f"All in {money(s.stack)}" if long else f"Call {money(s.stack)}"]
+        out = ["Fold", f"Call {money(to_call)}"]
         min_to = min(total, h.current + h.min_raise)
-        out.append(f"Raise to {money(min_to, cur)}" if long else "Raise")
+        out.append(f"Raise to {money(min_to)}" if long else "Raise")
         return out
     out = ["Check"]
     if h.current > 0:
-        out.append(f"Raise to {money(min(total, h.current + h.min_raise), cur)}" if long else "Raise")
+        out.append(f"Raise to {money(min(total, h.current + h.min_raise))}" if long else "Raise")
     else:
-        out.append(f"Bet {money(min(total, BB), cur)}" if long else "Bet")
+        out.append(f"Bet {money(min(total, BB))}" if long else "Bet")
     return out
 
 
@@ -205,9 +208,10 @@ def reference_advice(h: Hand, tags: bool = False):
 
 # ----------------------------------------------------------------- checking
 class Report:
-    def __init__(self, name: str, out: Optional[str]):
+    def __init__(self, name: str, out: Optional[str], unit: float = 1.0):
         self.name = name
         self.out = out
+        self.unit = unit  # amounts on screen are the game's times this
         self.c: Counter = Counter()
         self.examples: Dict[str, List[dict]] = defaultdict(list)
         self.saved = 0
@@ -252,9 +256,19 @@ def close(a: float, b: float) -> bool:
     return abs(a - b) <= max(0.51, 0.01 * abs(b))
 
 
+def scaled(adv, unit: float):
+    """The instruction in the game's chips (the table draws every amount times `unit`)."""
+    if unit == 1.0 or adv.amount is None:
+        return adv
+    out = copy.copy(adv)
+    out.amount = adv.amount / unit
+    return out
+
+
 def check_frame(rep: Report, img, meta, h: Hand, view: TableView, res, info, adv, hero_turn: bool) -> None:
     st: GameState = res.state
     rep.c["frames"] += 1
+    u = rep.unit
     plates = meta["plates"]
     seat_of = match_seats(st, plates)
     found = set(seat_of.values())
@@ -268,11 +282,11 @@ def check_frame(rep: Report, img, meta, h: Hand, view: TableView, res, info, adv
         if i is None:
             continue
         s = h.seats[i]
-        if p.stack.known and not close(float(p.stack.value), s.stack):
+        if p.stack.known and not close(float(p.stack.value) / u, s.stack):
             rep.bad("stack wrong", img, f"{s.name}: read {p.stack.value} ({p.stack.source}), true {s.stack:g}")
         elif not p.stack.known:
             rep.c["stack unknown"] += 1
-        if view.phase_play and p.bet.known and not close(float(p.bet.value), s.bet):
+        if view.phase_play and p.bet.known and not close(float(p.bet.value) / u, s.bet):
             rep.bad("bet wrong", img, f"{s.name}: read {p.bet.value} ({p.bet.source}), true {s.bet:g}")
         if view.phase_play and i != 0 and p.in_hand.known and bool(p.in_hand.value) == s.folded:
             rep.bad("in hand wrong", img, f"{s.name}: read in hand={p.in_hand.value}, folded={s.folded}")
@@ -287,7 +301,7 @@ def check_frame(rep: Report, img, meta, h: Hand, view: TableView, res, info, adv
         if len(st.board) != len(view.board):
             rep.bad("board count wrong", img, f"read {len(st.board)} cards, true {len(view.board)}")
         pot = pot_for_odds(st)
-        if pot is not None and not close(pot, h.pot):
+        if pot is not None and not close(pot / u, h.pot):
             rep.bad("pot wrong", img, f"read {pot:g} (pot {st.pot.value}, includes bets {st.pot_includes_bets}), "
                     f"true {h.pot:g}")
     # whose turn: the seat with the timer bar or glow
@@ -308,7 +322,7 @@ def check_frame(rep: Report, img, meta, h: Hand, view: TableView, res, info, adv
         if not (st.hero_to_act.known and st.hero_to_act.value):
             rep.bad("your turn missed", img, f"hero_to_act={st.hero_to_act.value}")
         true_call = min(max(0.0, h.current - h.seats[0].bet), h.seats[0].stack)
-        if st.to_call.known and not close(float(st.to_call.value), true_call):
+        if st.to_call.known and not close(float(st.to_call.value) / u, true_call):
             rep.bad("to call wrong", img, f"read {st.to_call.value} ({st.to_call.source}), true {true_call:g}")
         elif not st.to_call.known:
             rep.c["to call unknown"] += 1
@@ -362,7 +376,7 @@ class Run:
     def __init__(self, lay: Layout, seed: int, out: Optional[str], drop: float):
         self.lay = lay
         self.table = Table(seed)
-        self.rep = Report(lay.name, out)
+        self.rep = Report(lay.name, out, lay.unit)
         self.learned = tempfile.mkdtemp(prefix="selftest-learned-")
         self.scribe = Scribe(self.learned)
         self.drop = drop
@@ -410,6 +424,7 @@ class Run:
                         self.rep.bad("no instruction on your turn", img, f"{adv.headline}: {adv.reason}")
                         adv = ref
                     else:
+                        adv = scaled(adv, self.lay.unit)
                         judge_decision(self.rep, img, h, adv, ref)
                     kind, to = hero_move(h, adv)
                 else:

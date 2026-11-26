@@ -226,8 +226,10 @@ class TableRecognizer:
                     big = cv2.resize(crop, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
                     found = sorted(self.ocr.read(big), key=lambda t: t.x)
                     line = ("".join(t.text for t in found), min(t.confidence for t in found)) if found else None
-                if not line or (uses_symbol and not re.match(r"^\s*[$€£]", line[0])):
-                    continue  # this read lost the "$": don't count it
+                needs_symbol = uses_symbol and (suspicious or re.match(r"^\s*[$€£]", b.text))
+                if not line or (needs_symbol and not re.match(r"^\s*[$€£]", line[0])):
+                    continue  # this read lost the "$": don't count it (bets some clients
+                    # print without it, next to stacks with it, are read as they are)
                 amount = parse_amount(line[0])
                 if amount is not None:
                     reads.append((amount.value, line[0], line[1]))
