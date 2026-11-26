@@ -22,7 +22,7 @@ struct Entry {
 const FULL: &[u64] = &[10, 100, 1_000, 10_000];
 const SAMPLED: &[u64] = &[10_000, 100_000, 1_000_000, 10_000_000];
 
-fn entries<G: Game + Copy + 'static>(game: G) -> Vec<Entry> {
+fn entries<G: Game + Copy + Sync + 'static>(game: G) -> Vec<Entry> {
     let es = MccfrConfig::new(Sampling::External, 1);
     let os = MccfrConfig::new(Sampling::OUTCOME, 1);
     let mut v = Vec::new();
@@ -54,7 +54,7 @@ fn entries<G: Game + Copy + 'static>(game: G) -> Vec<Entry> {
     v
 }
 
-fn report<G: Game + Copy + 'static>(label: &str, game: G, filter: Option<&str>) {
+fn report<G: Game + Copy + Sync + 'static>(label: &str, game: G, filter: Option<&str>) {
     println!("\n{label}");
     for mut e in entries(game) {
         if filter.is_some_and(|f| f != e.name) {

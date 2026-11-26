@@ -159,3 +159,46 @@ impl Parser<'_> {
         }
     }
 }
+
+/// Everything a Monte Carlo run is, as raw bits in key order: what must be
+/// equal for two runs to be the same run.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RunState {
+    pub iterations: u64,
+    pub stats: cfr::MccfrStats,
+    pub keys: Vec<u64>,
+    pub regrets: Vec<u64>,
+    pub strategy_sums: Vec<u64>,
+}
+
+pub fn run_state<G: Game + Sync>(solver: &cfr::Mccfr<G>) -> RunState {
+    RunState {
+        iterations: solver.iterations(),
+        stats: solver.stats(),
+        keys: solver.table().keys().to_vec(),
+        regrets: solver.regrets().iter().map(|x| x.to_bits()).collect(),
+        strategy_sums: solver.strategy_sums().iter().map(|x| x.to_bits()).collect(),
+    }
+}
+
+/// A folder of its own for a test's files, removed when dropped.
+pub struct TempDir(pub std::path::PathBuf);
+
+impl TempDir {
+    pub fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("cfr-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+
+    pub fn file(&self, name: &str) -> std::path::PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
