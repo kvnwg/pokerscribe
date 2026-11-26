@@ -53,6 +53,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `engine/`: the Rust core (Phase 3 on), a Cargo workspace with crates in `engine/crates/*`. Speed
   critical code (rules engine, hand evaluator, CFR, subgame solver, blueprint) goes here. Python
   stays for the app, analysis and experiment scripts, not for speed-critical loops.
+- `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
+  keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
+  built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
