@@ -1,0 +1,52 @@
+name: Rust slow tests
+
+# Runs the engine's slow tests, the ones marked #[ignore] (cargo test --release -- --ignored),
+# once a night and on demand: Actions tab, "Rust slow tests", "Run workflow".
+# The everyday tests run in rust.yml.
+
+on:
+  schedule:
+    - cron: "23 10 * * *" # every day at 10:23 UTC, the middle of the night in Vancouver
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  slow:
+    name: cargo test --release -- --ignored
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve dependencies
+        id: deps
+        run: |
+          rustc --version
+          cargo --version
+          cargo generate-lockfile
+          echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Keep the path and key the same as in rust.yml: this reads the cache that rust.yml
+      # saves on main (the slow tests are built from the same code).
+      - name: Restore the cargo cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/target
+          key: cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-
+
+      - name: cargo test --release -- --ignored
+        run: cargo test --release -- --ignored

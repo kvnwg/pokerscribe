@@ -9,10 +9,17 @@ uoftcprg/
 *.parquet
 .DS_Store
 
+# per-hand data from experiment runs (rebuilt exactly by the scripts in docs/research/runs)
+docs/research/runs/*/*.json
+
 # TexasSolver (AGPL) and its raw output stay outside the repo (data/answer_keys/README.md)
 console_solver
 TexasSolver*/
 
-# Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md)
+# Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md), and the GTO Wizard
+# runner's note of which hand is open (tools/gtowizard/README.md; no secret in that one)
 *.jsonl.state.json
 *.jsonl.state.json.tmp
+*.jsonl.results.json.tmp
+# ...but the results GTO Wizard returned for a log are small and are kept with the runs
+!docs/research/runs/*/*.jsonl.results.json

@@ -1,0 +1,8 @@
+{"bet_size": 0.5} on mixed (even), seed 404: 1500 hands, 24 differ; CPU s: resampled 17, redeal 15, classes 8
+  raw                +4.27 ±  4.56 bb/100
+  resampled raw      +1.40 ±  3.07 bb/100
+  resampled luck     +2.34 ±  2.61 bb/100
+  redeal raw         +0.84 ±  2.32 bb/100
+  redeal luck        +0.10 ±  2.08 bb/100
+  redeal exact luck   +0.84 ±  2.32 bb/100
+  resampled exact luck   +1.40 ±  3.07 bb/100

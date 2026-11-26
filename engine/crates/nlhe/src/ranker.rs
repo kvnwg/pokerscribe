@@ -1,8 +1,11 @@
 //! Showdown ranking.
 //!
-//! The engine never ranks hands itself: it asks a [`HandRanker`]. The fast evaluator lives
-//! in the eval crate; [`BruteForceRanker`] here is slow on purpose and simple enough to
-//! check by reading. It is what the tests use.
+//! The engine never ranks hands itself: it asks a [`HandRanker`]. Two are provided:
+//!
+//! - [`BruteForceRanker`] is slow on purpose and simple enough to check by reading. It is
+//!   the reference the tests use.
+//! - [`EvalRanker`] (feature `eval`, on by default) uses the eval crate's table evaluator.
+//!   It is the one to play and solve with. The tests check that the two always agree.
 
 use crate::cards::{rank_of, suit_of, Card};
 
@@ -116,5 +119,30 @@ impl HandRanker for BruteForceRanker {
             }
         }
         best
+    }
+}
+
+/// Ranks with the eval crate's table evaluator: about 6 nanoseconds a hand, against about
+/// 4 microseconds for [`BruteForceRanker`] (`cargo run --release -p nlhe --example rankers`).
+///
+/// The value is the eval crate's hand rank, 1 (7-5-4-3-2 offsuit) to 7,462 (royal flush).
+/// It orders hands exactly as [`BruteForceRanker`] does, but the numbers themselves are
+/// different, so never compare a value from one ranker with a value from the other.
+///
+/// Panics if a card is not in `0..52`. The seven cards must be different (the engine only
+/// passes cards from a checked [`crate::Deal`]).
+#[cfg(feature = "eval")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EvalRanker;
+
+#[cfg(feature = "eval")]
+impl HandRanker for EvalRanker {
+    #[inline]
+    fn rank7(&self, cards: &[Card; 7]) -> u32 {
+        // Both crates number the cards the same way: rank * 4 + suit.
+        let hand = cards.iter().fold(eval::Hand::new(), |hand, &c| {
+            hand.add(eval::Card::from_index(c).expect("a card is in 0..52"))
+        });
+        hand.eval7().value() as u32
     }
 }

@@ -1,0 +1,68 @@
+bet_half_606.json: 116 hands differ of 3000, 195s, inconsistent: []
+   gap_plain                -3.35 ±  1.41 bb/100 (-2.37 SE)
+   gap_redeal               -6.78 ±  2.08 bb/100 (-3.25 SE)
+bet_half_707.json: 130 hands differ of 3000, 199s, inconsistent: []
+   gap_plain                -2.26 ±  3.72 bb/100 (-0.61 SE)
+   gap_redeal               -3.37 ±  5.29 bb/100 (-0.64 SE)
+bet_half_808.json: 142 hands differ of 3000, 220s, inconsistent: []
+   gap_plain               -17.42 ±  7.96 bb/100 (-2.19 SE)
+   gap_redeal              -20.43 ±  8.02 bb/100 (-2.55 SE)
+bet_half_909.json: 125 hands differ of 3000, 220s, inconsistent: []
+   gap_plain                -3.20 ±  3.55 bb/100 (-0.90 SE)
+   gap_redeal              -13.46 ±  5.85 bb/100 (-2.30 SE)
+pooled over files (differing hands only):
+   gap_plain              mean  -1.534 ±  0.557 (-2.76 SE)  n=513
+   gap_plain_base         mean  +1.381 ±  0.953 (+1.45 SE)  n=513
+   gap_plain_other        mean  -0.153 ±  0.837 (-0.18 SE)  n=513
+   gap_redeal             mean  -2.575 ±  0.658 (-3.91 SE)  n=513
+   gap_redeal_base        mean  +1.866 ±  1.183 (+1.58 SE)  n=513
+   gap_redeal_other       mean  -0.709 ±  1.046 (-0.68 SE)  n=513
+   rank_plain             mean  +0.054 ±  0.037 (+1.46 SE)  n=513
+   rank_plain_base        mean  -0.043 ±  0.035 (-1.22 SE)  n=513
+   rank_plain_other       mean  -0.021 ±  0.036 (-0.59 SE)  n=513
+   rank_redeal            mean  +0.086 ±  0.056 (+1.54 SE)  n=513
+   rank_redeal_base       mean  -0.032 ±  0.055 (-0.59 SE)  n=513
+   rank_redeal_other      mean  +0.007 ±  0.056 (+0.12 SE)  n=513
+|diff| > 20: orig +21/-8 of 513 (4.1% / 1.6%); plain +74/-54 of 2565 (2.9% / 2.1%); redeal +49/-74 of 2565 (1.9% / 2.9%)
+|diff| > 40: orig +11/-2 of 513 (2.1% / 0.4%); plain +34/-24 of 2565 (1.3% / 0.9%); redeal +24/-43 of 2565 (0.9% / 1.7%)
+|diff| > 60: orig +9/-0 of 513 (1.8% / 0.0%); plain +24/-9 of 2565 (0.9% / 0.4%); redeal +15/-18 of 2565 (0.6% / 0.7%)
+bet_half_41.json: 130 hands differ of 3000, 223s, inconsistent: []
+   gap_plain                +0.54 ±  3.33 bb/100 (+0.16 SE)
+   gap_redeal               +1.89 ±  3.71 bb/100 (+0.51 SE)
+bet_half_42.json: 120 hands differ of 3000, 229s, inconsistent: []
+   gap_plain                +0.39 ±  1.39 bb/100 (+0.28 SE)
+   gap_redeal               -4.60 ±  2.87 bb/100 (-1.61 SE)
+bet_half_43.json: 124 hands differ of 3000, 229s, inconsistent: []
+   gap_plain                +3.48 ±  3.57 bb/100 (+0.97 SE)
+   gap_redeal               +1.21 ±  4.98 bb/100 (+0.24 SE)
+bet_half_44.json: 125 hands differ of 3000, 221s, inconsistent: []
+   gap_plain                -8.22 ±  3.28 bb/100 (-2.51 SE)
+   gap_redeal               -8.64 ±  3.89 bb/100 (-2.22 SE)
+bet_half_45.json: 124 hands differ of 3000, 215s, inconsistent: []
+   gap_plain                -4.32 ±  4.47 bb/100 (-0.97 SE)
+   gap_redeal               -1.60 ±  4.35 bb/100 (-0.37 SE)
+bet_half_46.json: 131 hands differ of 3000, 228s, inconsistent: []
+   gap_plain                +4.62 ±  2.36 bb/100 (+1.96 SE)
+   gap_redeal               -4.94 ±  3.72 bb/100 (-1.33 SE)
+bet_half_47.json: 130 hands differ of 3000, 230s, inconsistent: []
+   gap_plain                -1.46 ±  1.54 bb/100 (-0.95 SE)
+   gap_redeal               -5.24 ±  2.69 bb/100 (-1.95 SE)
+bet_half_48.json: 136 hands differ of 3000, 233s, inconsistent: []
+   gap_plain                +1.99 ±  4.44 bb/100 (+0.45 SE)
+   gap_redeal               +2.76 ±  5.34 bb/100 (+0.52 SE)
+pooled over files (differing hands only):
+   gap_plain              mean  -0.087 ±  0.270 (-0.32 SE)  n=1020
+   gap_plain_base         mean  +0.252 ±  0.734 (+0.34 SE)  n=1020
+   gap_plain_other        mean  +0.165 ±  0.608 (+0.27 SE)  n=1020
+   gap_redeal             mean  -0.563 ±  0.335 (-1.68 SE)  n=1020
+   gap_redeal_base        mean  +1.128 ±  0.870 (+1.30 SE)  n=1020
+   gap_redeal_other       mean  +0.565 ±  0.712 (+0.79 SE)  n=1020
+   rank_plain             mean  -0.003 ±  0.025 (-0.14 SE)  n=1020
+   rank_plain_base        mean  -0.004 ±  0.025 (-0.18 SE)  n=1020
+   rank_plain_other       mean  -0.009 ±  0.026 (-0.36 SE)  n=1020
+   rank_redeal            mean  +0.019 ±  0.039 (+0.49 SE)  n=1020
+   rank_redeal_base       mean  -0.007 ±  0.039 (-0.19 SE)  n=1020
+   rank_redeal_other      mean  +0.016 ±  0.040 (+0.39 SE)  n=1020
+|diff| > 20: orig +25/-21 of 1020 (2.5% / 2.1%); plain +104/-111 of 5100 (2.0% / 2.2%); redeal +76/-131 of 5100 (1.5% / 2.6%)
+|diff| > 40: orig +13/-15 of 1020 (1.3% / 1.5%); plain +52/-65 of 5100 (1.0% / 1.3%); redeal +26/-59 of 5100 (0.5% / 1.2%)
+|diff| > 60: orig +4/-3 of 1020 (0.4% / 0.3%); plain +22/-13 of 5100 (0.4% / 0.3%); redeal +10/-18 of 5100 (0.2% / 0.4%)

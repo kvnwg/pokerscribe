@@ -1,0 +1,3 @@
+switchers base   +37.1 (± 25.4)  other   +47.3 (± 25.1)  difference  +10.2 ±  5.4  luck-adjusted  +10.2 ±  5.4 (checked down only  +10.2 ±  5.4) bb/100  [57/3000 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   +7.0 ±  3.3 (raw   +7.0 ±  3.3)
+ALL       difference  +10.2 ±  5.4  luck-adjusted  +10.2 ±  5.4  replayed 6 times   +7.0 ±  3.3 bb/100 over 3000 hands, duplicate (238s)

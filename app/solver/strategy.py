@@ -25,16 +25,19 @@ class RiverStrategy:
     Rows are probabilities: non-negative, adding up to 1.
 
     iterations, elapsed_ms: filled in by the solver. exploitability: its own check, as a
-    share of the pot, when it worked one out."""
+    share of the pot, when it worked one out. backend: which solver made it, "python"
+    (app/solver/cfr.py) or "rust" (the program subgame-solve, through rust_backend.py)."""
 
     def __init__(self, spot: RiverSpot, probs: Mapping[str, np.ndarray], tree: Optional[GameTree] = None,
-                 iterations: int = 0, elapsed_ms: float = 0.0, exploitability: Optional[float] = None):
+                 iterations: int = 0, elapsed_ms: float = 0.0, exploitability: Optional[float] = None,
+                 backend: str = "python"):
         self.spot = spot
         self.tree = tree if tree is not None else GameTree(spot)
         self.probs: Dict[str, np.ndarray] = {k: np.asarray(v, dtype=float) for k, v in probs.items()}
         self.iterations = iterations
         self.elapsed_ms = elapsed_ms
         self.exploitability = exploitability
+        self.backend = backend
         self.validate()
 
     def validate(self, tol: float = 1e-6) -> None:

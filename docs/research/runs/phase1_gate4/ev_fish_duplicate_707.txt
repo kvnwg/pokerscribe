@@ -1,0 +1,3 @@
+fish247   base   +30.5 (± 13.1)  other   +37.9 (± 13.4)  difference   +7.5 ±  3.7  luck-adjusted   +7.5 ±  3.7 (checked down only   +7.5 ±  3.7) bb/100  [163/3000 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   +4.7 ±  1.8 (raw   +4.9 ±  1.8)
+ALL       difference   +7.5 ±  3.7  luck-adjusted   +7.5 ±  3.7  replayed 6 times   +4.7 ±  1.8 bb/100 over 3000 hands, duplicate (482s)
