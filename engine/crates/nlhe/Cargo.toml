@@ -1,0 +1,8 @@
+[package]
+name = "nlhe"
+version = "0.1.0"
+edition = "2021"
+description = "Exact No-Limit Hold'em rules engine for 2 to 6 players"
+publish = false
+
+[dependencies]
