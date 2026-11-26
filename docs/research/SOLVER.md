@@ -10,10 +10,15 @@ Status, 26 Nov 2026:
   heads-up equilibrium.
 - **p95 under 400 ms: done.** 313 ms for the whole decision, with no benchmark spot more
   than 1% of the pot from an equilibrium.
+- **Ranges from the betting so far: done, a first version.** The solver no longer gets the
+  same top 25% of hands for everyone: both ranges are worked out from who bet how much on
+  each round, the seats, and what the app has learned about the opponent.
+- **Facing a raise: done.** A raise of the hero's bet is solved too (fold, call or all in).
 - **Beats B0 by 2.5 SE: not started.** It waits for Phase 1. The advice switch
   `river_solver` is off.
 
-Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold".
+Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold" and "Phase
+2: river ranges from the betting, and facing a raise".
 
 ## The package, `app/solver/`
 
@@ -30,7 +35,12 @@ Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold".
 | `exploitability.py` | Exact best responses, the value of a strategy, and `exploitability`. |
 | `timing.py` | `time_decisions`, nearest-rank p50 and p95, and `benchmark_spots`. |
 | `labels.py` | The saved format for solver-labelled decisions (JSON Lines). |
+| `ranges.py` | `river_ranges`: both players' ranges at the start of the river, from the betting so far. |
 | `bridge.py` | From the advice's view of the table to a spot and a node, and back to one action. |
+
+Outside the package: `app/poker/history.py` keeps the betting of the hand being played
+(`BettingRecord`, `Line`). `app/poker/profiles.py` feeds it every read and puts the line on
+the river state.
 
 Scripts:
 
@@ -39,6 +49,7 @@ Scripts:
 .venv/bin/python tools/label_river.py --synthetic 100 --out river_labels.jsonl
 .venv/bin/python tools/build_preflop_equity.py --verify      # rebuild the equity table
 .venv/bin/python docs/research/runs/phase2_solver.py         # every table in experiments.md
+.venv/bin/python docs/research/runs/phase2_ranges.py         # how well the ranges predict real cards
 ```
 
 ## Conventions
@@ -50,6 +61,8 @@ Scripts:
 - Bet sizes are shares of the pot. Raise sizes are shares of the pot after calling. A raise
   is at least the bet it answers. Sizes at or over the effective stack become all in, and
   equal amounts are offered once. `max_raises` counts raises after the first bet.
+  `BetSizes.reraises` gives a raise of a raise its own sizes (`()` with all in: a raise
+  can only be answered by going all in).
 - Ranges:
   - combos that use a board card are removed;
   - combos that use the same card twice are removed;
@@ -116,16 +129,64 @@ hand and the exploitability in big blinds.
 - It solves in about 20 ms.
 - It isn't used by the advice. The `push_chart` option still reads its hand-typed table.
 
+## Ranges from the betting so far (`ranges.py`)
+
+The solver's answer is only as good as the ranges it is given.
+
+**What is recorded.** `BettingRecord` (in `app/poker/history.py`) sees every read while
+watching and keeps, per betting round, the pot the round began with and each different set
+of bets. On the river, with one opponent left, it gives a `Line`:
+
+- before the flop: how many big blinds each put in, and who made the last raise;
+- flop and turn: the last bet as a share of the pot (0 = checked through), and who made it:
+  you, your opponent, or a player who folded later;
+- the river's own bets and raises so far, in order.
+
+A round that wasn't read stays unknown. Its size is then guessed from the size of the pot
+(`fill_in`): the likeliest kind of pot before the flop and number of bets after it that
+explain it. Who bet in a guessed round stays unknown.
+
+**How a range is built** (`river_ranges`), one round at a time, as weights for all 1326
+combos:
+
+1. Before the flop, each player's part decides the hands: opened, called a raise, limped,
+   re-raised, called a re-raise. The hero's hands are the preflop charts' for that part.
+   An opponent's are the best so-many percent of hands for that part, joined with the
+   chart's, where "so many" comes from how many hands they play and raise: what the app
+   has counted for that player (`profiles.rates`), or the typical numbers of their style.
+2. On the flop and the turn, every hand is scored on the board as it was then (the made
+   hand, with draws counted like the pairs they play like), and placed within the player's
+   own range so far. Then:
+   - a bet keeps the top of the range (less of it for a bigger bet), draws, and some of
+     the weakest hands as bluffs. The flop bet of the player who raised before the flop
+     comes from many more hands;
+   - a call keeps what is above the folding line, with fewer of the very best hands;
+   - a check keeps everything but thins out the hands that would have bet, much more for
+     the player who could have bet last.
+   The opponent's style shifts these the way `exploits.py` already does for the rules.
+3. Hands with under 3% of the top weight are dropped, and a range keeps at most 700 combos.
+
+The hero's own combo is always in the hero's range.
+
+**How good it is.** `docs/research/runs/phase2_ranges.py` deals simulated hands and looks
+up the cards the bots really hold in each guess. Numbers in `experiments.md`. The settings
+are standard poker reasoning and were not fitted to the bots.
+
+**Not done:** rates per seat, sizing tells, what a check-raise says beyond its size, and
+ranges for hands with three or more players on the river.
+
 ## Next
 
 1. After Phase 1: compare `river_solver` on against B0 (rule 1). Nothing else may turn it
-   on.
-2. Better ranges for the bridge (Phase 3). The solver's answer is only as good as the
-   ranges it is given, and both are the "medium" preset today.
-3. Facing a raise, and bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo).
-4. Try `solve_push_fold` in place of the `push_chart` table, as its own experiment.
-5. If wider ranges or bigger trees are needed: a showdown pass that sorts by hand value in
-   place of the full table would cut the cost per iteration.
+   on. Run it with `--profiles`: without them the simulator keeps no record of the betting
+   and the ranges are only guessed from the pot.
+2. Make the solver repeat exactly in the simulator (a fixed number of iterations, not a
+   time limit), so paired comparisons are paired.
+3. More time for big pots, less for small ones.
+4. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo).
+5. Try `solve_push_fold` in place of the `push_chart` table, as its own experiment.
+6. A showdown pass that sorts by hand value in place of the full table would cut the cost
+   per iteration, if bigger ranges or trees are needed.
 
 ## In the advice
 
@@ -133,18 +194,28 @@ hand and the exploitability in big blinds.
 builds the spot through `bridge.river_decision`:
 
 - The spot starts at the beginning of the river.
-- The opponent's real bet is added to their bet sizes, so the hero's decision is a node of
-  the tree, and their bet isn't rounded to the nearest size.
-- Ranges are a placeholder until Phase 3: the "medium" preset for both players, plus the
-  hero's own hand.
-- The most likely action becomes the instruction, and the mix goes in the small print.
+- Ranges come from the betting so far (above).
+- The bets and raises already made are in the tree at their real sizes, and they are the
+  only sizes offered where they were made. The question is what to do now that this bet
+  happened. Offering other sizes there lets the solution put every betting hand on a size
+  nobody chose, and then it has nothing to say about the real one.
+- Facing a raise, the hero may fold, call or go all in.
+- The most likely action in the solver's mix becomes the instruction. The small print
+  gives the mix and what the hands were judged from.
 
 The rules decide instead in any of these cases:
 
 - the solver raises an error, or takes longer than its budget;
+- its answer is more than 1% of the pot from an equilibrium (a slow machine);
+- next to none of the opponent's range makes this bet in the solution (under 0.2%), so the
+  solution has no answer to it;
 - the hand isn't heads-up;
-- the hero faces a raise;
 - a number it needs is unknown, or the stacks weren't read reliably.
+
+One more safeguard: when the hero's own hand all but never reaches this spot in the
+solution (it was played differently earlier than the solver would have), the solver's mix
+for it was never worked out. The instruction is then the best action for that hand against
+the opponent's solved strategy.
 
 Turning it on by default needs the B0 bar like any option (README.md, rule 1).
 

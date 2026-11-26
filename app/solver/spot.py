@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Iterable, List, Mapping, Sequence, Tuple, Union
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -100,27 +100,41 @@ class BetSizes:
     bets: an opening bet, as shares of the pot (0.5 = half the pot).
     raises: a raise, as shares of the pot after calling (1.0 = raise the size of the pot).
     allin: going all in is always one of the choices.
+    reraises: the sizes for a raise of a raise, when they differ from `raises` (None: the
+    same; () with allin: a raise can only be answered by going all in).
     Sizes at or above the stack become all in; equal amounts are offered once.
     """
 
     bets: Tuple[float, ...] = (0.5, 1.0)
     raises: Tuple[float, ...] = (1.0,)
     allin: bool = True
+    reraises: Optional[Tuple[float, ...]] = None
 
     def __post_init__(self):
-        for name in ("bets", "raises"):
+        for name in ("bets", "raises", "reraises"):
+            if getattr(self, name) is None:
+                continue
             vals = tuple(sorted({float(x) for x in getattr(self, name)}))
             if any(not math.isfinite(x) or x <= 0 for x in vals):
                 raise ValueError(f"Bet sizes must be positive shares of the pot: {vals}")
             object.__setattr__(self, name, vals)
         object.__setattr__(self, "allin", bool(self.allin))
 
+    def raise_sizes(self, raises_so_far: int) -> Tuple[float, ...]:
+        """The sizes for the next raise, after this many raises of the first bet."""
+        return self.raises if raises_so_far == 0 or self.reraises is None else self.reraises
+
     def to_dict(self) -> dict:
-        return {"bets": list(self.bets), "raises": list(self.raises), "allin": self.allin}
+        d = {"bets": list(self.bets), "raises": list(self.raises), "allin": self.allin}
+        if self.reraises is not None:
+            d["reraises"] = list(self.reraises)
+        return d
 
     @staticmethod
     def from_dict(d: Mapping) -> "BetSizes":
-        return BetSizes(tuple(d.get("bets", ())), tuple(d.get("raises", ())), bool(d.get("allin", False)))
+        again = d.get("reraises")
+        return BetSizes(tuple(d.get("bets", ())), tuple(d.get("raises", ())), bool(d.get("allin", False)),
+                        tuple(again) if again is not None else None)
 
 
 @dataclass(frozen=True)

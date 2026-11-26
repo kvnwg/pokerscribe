@@ -140,7 +140,7 @@ class GameTree:
             if raises < spot.max_raises and theirs < stack - 1e-9:
                 after_call = spot.pot + 2 * theirs
                 least = theirs + (theirs - mine)  # a raise is at least the bet it answers
-                wanted = [max(least, theirs + f * after_call) for f in sizes.raises]
+                wanted = [max(least, theirs + f * after_call) for f in sizes.raise_sizes(raises)]
                 for amount in _amounts(wanted, stack, sizes.allin, floor=theirs):
                     new = list(put)
                     new[player] = amount

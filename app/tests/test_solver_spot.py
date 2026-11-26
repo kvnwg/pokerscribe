@@ -101,6 +101,24 @@ def test_raises_are_at_least_the_bet_they_answer():
     assert t["b50"].actions == ("f", "c", "r100")  # 50 + 0.1 x 200 = 70 is under a min raise to 100
 
 
+def test_a_raise_of_a_raise_can_have_its_own_sizes():
+    # two raises allowed; after the first one the only raise is all in
+    only_allin = BetSizes((0.5,), (1.0,), True, reraises=())
+    t = GameTree(spot(oop_sizes=only_allin, ip_sizes=only_allin, max_raises=2))
+    assert t["b50"].actions == ("f", "c", "r250", "r1000")
+    assert t["b50 r250"].actions == ("f", "c", "r1000")
+    assert t["b50 r250 r1000"].actions == ("f", "c")
+    # the same sizes again when none are given
+    same = GameTree(spot(max_raises=2))
+    assert same["b50 r250"].actions == ("f", "c", "r850", "r1000")  # 250 + 1.0 x (100 + 2 x 250) = 850
+    # saved and read back, with or without them
+    for sizes in (only_allin, BetSizes((0.5,), (1.0,), False, reraises=(0.5, 2.0)), BetSizes()):
+        assert BetSizes.from_dict(sizes.to_dict()) == sizes
+    assert "reraises" not in BetSizes().to_dict()
+    with pytest.raises(ValueError):
+        BetSizes(reraises=(0.5, -1))
+
+
 def test_no_stacks_means_check_down():
     t = GameTree(spot(stacks=(0, 500)))
     assert t.root.actions == ("x",) and t["x"].actions == ("x",)
