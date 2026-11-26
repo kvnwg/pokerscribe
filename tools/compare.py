@@ -4,6 +4,7 @@
     python tools/compare.py '{}' 2000 --base '{"texture_sizing": true}'
     python tools/compare.py '{"bully": true}' 1000 --stacks uneven
     python tools/compare.py '{"ev_sizing": true}' 3000 --method classic   # as before 26 Nov 2026
+    python tools/compare.py '{"bet_size": 0.5}' 2000 --players 2           # heads-up
 
 Each hand is dealt from a seed, and the bots' choices come from a seed too, so both
 variants see the same cards and the same opponents. The hand is played with the base
@@ -17,7 +18,10 @@ Two ways to deal (--method):
   duplicate (default)  each deck is played six times with the players rotated one seat
                        each time, so the app and every bot hold each seat's cards from
                        that seat's position once; each bot decision has its own seed, so
-                       when the variants part ways the bots still draw the same numbers
+                       when the variants part ways the bots still draw the same numbers.
+                       Heads-up (--players 2) each deal is played twice with the seats
+                       swapped: the app holds the button's cards once and the big blind's
+                       once, against the same bot
   classic              one hand per deck and one random stream for the bots (every result
                        in experiments.md before Phase 1 was made this way)
   keyed                one hand per deck, a seed per bot decision (to measure the two parts
@@ -31,8 +35,10 @@ cards after which nobody can bet again is taken out (tools/luck.py; --full-luck 
 every board card after the split). The "replayed 6 times" figure is the estimate to use: in
 Phase 1 gate run 4 its standard error was 0.42 of the classic one (geometric mean over 8
 comparisons) for 1.17 times the CPU (docs/research/experiments.md). Standard errors count
-the six hands of a deck as one unit. Variants are overrides of app.poker.advice.TUNING,
-given as JSON. --jobs 4 splits the hands over four processes with identical results.
+the six hands of a deck (two heads-up) as one unit. Variants are overrides of
+app.poker.advice.TUNING, given as JSON. --jobs 4 splits the hands over four processes with
+identical results. --players 2 plays heads-up (tools/simulate.py): the app against one bot
+of each table at a time.
 """
 from __future__ import annotations
 
@@ -62,17 +68,19 @@ def new_stats(variant=None, shadow=None) -> dict:
             "examples": [], "variant": variant, "shadow": shadow}
 
 
-def deal(k: int, method: str) -> tuple:
-    """Hand k's deck number and rotation."""
-    return divmod(k, 6) if method == "duplicate" else (k, 0)
+def deal(k: int, method: str, players: int = 6) -> tuple:
+    """Hand k's deck number and rotation (duplicate: one hand per seat of each deck)."""
+    return divmod(k, players) if method == "duplicate" else (k, 0)
 
 
 def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0, stacks: str = "even",
            profiles: bool = False, method: str = "classic", adjust: bool = True, adjust_all: bool = False,
            start: int = 0, resample: int = 1, use_hidden: bool = False, lean: bool = False,
-           redeal: bool = False, exact_luck: bool = False):
+           redeal: bool = False, exact_luck: bool = False, players: int = 6):
     """With profiles, the app learns the bots' styles from the hands as in watch mode. They are
     learned from the base variant's hands; a replayed hand starts from the same profiles.
+    players: 6 (six-max) or 2 (heads-up, tools/simulate.py); with duplicate, each deck is
+    played once per seat.
 
     Returns (base stats, other stats, per-hand differences, hands replayed, extra). extra has
     "decks" (each hand's deck, the unit for standard errors), and if adjust "adjusted" (the
@@ -106,6 +114,7 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
     exact_luck: the luck adjustment only corrects board cards after which nobody can bet
     again, where the checked-down value is exact (tools/luck.no_more_betting)."""
     assert method in METHODS, method
+    assert players in sim.PLAYERS, players
     assert resample <= 1 or (method != "classic" and not profiles), "resample needs keyed bots and no profiles"
     assert not use_hidden or (method != "classic" and not profiles), "hidden needs keyed bots and no profiles"
     sa, sb = new_stats(base, other), new_stats(other)
@@ -119,12 +128,12 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
     sa["profiles"] = prof
     for k in range(start, start + n):
         sim.clear_advice_cache()
-        d, r = deal(k, method)
-        styles, names = sim.seating(table, seed, d)
+        d, r = deal(k, method, players)
+        styles, names = sim.seating(table, seed, d, players)
         hand_seed = seed * 100003 + d
         keyed = method in ("duplicate", "keyed")
         before = copy.deepcopy(prof) if prof is not None else None
-        net_a = sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, sa, stacks, names, prof, k + 1,
+        net_a = sim.play_hand(styles, d % players, hand_seed, 0, depth_bb, sa, stacks, names, prof, k + 1,
                               rotate=r, keyed=keyed)[0] / sim.BB
         rec_a = sa["last"]
         fa = luck.features(rec_a) if adjust_all else None
@@ -136,7 +145,7 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
         need_luck = adjust and not (lean and b_seat is not None)
         if sa["diverged"]:
             replayed += 1
-            net_b = sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, sb, stacks, names, before, k + 1,
+            net_b = sim.play_hand(styles, d % players, hand_seed, 0, depth_bb, sb, stacks, names, before, k + 1,
                                   rotate=r, keyed=keyed)[0] / sim.BB
             if need_luck:
                 fd = [b - a for a, b in zip(luck.features(rec_a, after=after, exact_only=exact_luck),
@@ -156,7 +165,7 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
                     recs = []
                     for v in (base, other):
                         st = new_stats(v)
-                        sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, st, stacks, names, None, k + 1,
+                        sim.play_hand(styles, d % players, hand_seed, 0, depth_bb, st, stacks, names, None, k + 1,
                                       rotate=r, keyed=keyed, split_at=j, resample=salt,
                                       hole_override=draws[salt - 1] if draws else None)
                         recs.append(st["last"])
@@ -197,27 +206,28 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
 
 
 def _paired_star(args):
-    *rest, start, resample, use_hidden, lean, redeal, exact_luck = args
+    *rest, start, resample, use_hidden, lean, redeal, exact_luck, players = args
     return paired(*rest, start=start, resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal,
-                  exact_luck=exact_luck)
+                  exact_luck=exact_luck, players=players)
 
 
 def run_paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0,
                stacks: str = "even", profiles: bool = False, method: str = "classic", adjust: bool = True,
                adjust_all: bool = False, jobs: int = 1, resample: int = 1, use_hidden: bool = False,
-               lean: bool = False, redeal: bool = False, exact_luck: bool = False):
+               lean: bool = False, redeal: bool = False, exact_luck: bool = False, players: int = 6):
     """paired() split over `jobs` processes by whole decks and merged; the result is the same
     hand for hand. With profiles the hands depend on the ones before, so it runs in one."""
-    if jobs <= 1 or profiles or n < 12:
+    if jobs <= 1 or profiles or n < 2 * players:
         return paired(base, other, n, table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all,
-                      resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal, exact_luck=exact_luck)
+                      resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal, exact_luck=exact_luck,
+                      players=players)
     from concurrent.futures import ProcessPoolExecutor
 
     chunk = -(-n // jobs)
-    chunk += (-chunk) % 6  # whole decks
+    chunk += (-chunk) % players  # whole decks
     starts = list(range(0, n, chunk))
     args = [(base, other, min(chunk, n - st), table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all, st,
-             resample, use_hidden, lean, redeal, exact_luck) for st in starts]
+             resample, use_hidden, lean, redeal, exact_luck, players) for st in starts]
     with ProcessPoolExecutor(max_workers=jobs) as ex:
         parts = list(ex.map(_paired_star, args))
     sa, sb, diffs, replayed, extra = parts[0]
@@ -272,7 +282,8 @@ def main():
     ap.add_argument("--stacks", default="even", choices=["even"] + sorted(sim.STACKS))
     ap.add_argument("--profiles", action="store_true", help="the app learns the bots' styles as it plays")
     ap.add_argument("--method", default="duplicate", choices=METHODS,
-                    help="duplicate: six seat rotations per deck, a seed per bot decision; classic: as before Phase 1")
+                    help="duplicate: a seat rotation per player for each deck, a seed per bot decision; classic: "
+                         "as before Phase 1")
     ap.add_argument("--no-luck", action="store_true", help="skip the luck-adjusted difference")
     ap.add_argument("--adjust-all", action="store_true",
                     help="also luck-adjust every hand, for luck-adjusted win rates of each variant")
@@ -294,6 +305,9 @@ def main():
     ap.add_argument("--full-luck", action="store_true",
                     help="luck-adjust every board card after the split; by default only those after which nobody "
                          "can bet again")
+    ap.add_argument("--players", type=int, default=6, choices=sim.PLAYERS,
+                    help="6: six-max; 2: heads-up against one of the table's bots at a time (each deal played twice "
+                         "with the seats swapped)")
     a = ap.parse_args()
     if a.resample is None:
         a.resample = 1 if (a.method == "classic" or a.profiles) else 6
@@ -301,9 +315,9 @@ def main():
     use_hidden = a.hidden and keyed and adjust_ok(a)
     a.redeal = keyed and a.resample > 1 and not a.no_redeal
     a.exact_luck = not a.full_luck
-    if a.method == "duplicate" and a.hands % 6:
-        a.hands += 6 - a.hands % 6  # whole decks
-        print(f"(rounded up to {a.hands} hands: six per deck)")
+    if a.method == "duplicate" and a.hands % a.players:
+        a.hands += a.players - a.hands % a.players  # whole decks
+        print(f"(rounded up to {a.hands} hands: {'six' if a.players == 6 else 'two'} per deck)")
     base, other = json.loads(a.base), json.loads(a.other)
     adjust = not a.no_luck
     total, total_adj, total_units, total_res, total_hid = [], [], [], [], []
@@ -314,7 +328,7 @@ def main():
         sa, sb, diffs, replayed, extra = run_paired(base, other, a.hands, table, a.seed, 500.0 if a.deep else 100.0,
                                                     a.stacks, a.profiles, a.method, adjust, a.adjust_all, a.jobs,
                                                     a.resample, use_hidden, a.lean and use_hidden, a.redeal,
-                                                    a.exact_luck)
+                                                    a.exact_luck, a.players)
         units = extra["decks"] if a.method == "duplicate" else None
         wa, ea = summary(sa["hands"], units)
         wb, eb = summary(sb["hands"], units)

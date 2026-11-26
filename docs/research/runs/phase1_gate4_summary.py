@@ -4,6 +4,8 @@ those scripts' headers. The defaults are run 4's.
     python docs/research/runs/phase1_gate4_summary.py docs/research/runs/phase1_gate4
     python docs/research/runs/phase1_gate4_summary.py docs/research/runs/phase1_gate5 \
         --new-seeds 808,909 --old-seeds 303,404,606,707,808,909 --min-share 0.01
+    python docs/research/runs/phase1_gate4_summary.py docs/research/runs/phase1_heads_up_gate \
+        --new-seeds 1111,1212 --old-seeds 1111,1212,1313,1414 --min-share 0.01 --strict   # heads-up
 """
 import argparse
 import json
@@ -62,6 +64,7 @@ def main():
     ap.add_argument("--old-seeds", default="303,404,606,707")
     ap.add_argument("--min-share", type=float, default=0.0,
                     help="judge only comparisons in which at least this share of the new way's hands differ")
+    ap.add_argument("--strict", action="store_true", help="also say whether every judged r is at most 0.5")
     a = ap.parse_args()
     out = a.out
     new_seeds = tuple(int(x) for x in a.new_seeds.split(","))
@@ -113,6 +116,8 @@ def main():
         ok = gm <= 0.5 and max(ratios) <= 0.75 and t <= 1.25
         print(f"\nGeometric mean of r: {gm:.2f}; largest r: {max(ratios):.2f}; CPU per hand, new / old: {t:.2f}. "
               f"Gate {'PASSES' if ok else 'FAILS'} (needs at most 0.5, 0.75 and 1.25).")
+        if a.strict:
+            print(f"Every judged r at most 0.5 (the brief read strictly): {'yes' if max(ratios) <= 0.5 else 'no'}.")
 
 
 if __name__ == "__main__":
