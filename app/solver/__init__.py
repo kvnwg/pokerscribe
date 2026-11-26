@@ -15,6 +15,8 @@
 - labels.py: the saved format for solver-labelled river decisions
 - ranges.py: river_ranges, both players' ranges from the betting so far (app/poker/history.py)
 - bridge.py: from the advice's view of the table to a spot, and back to one action
+- rust_backend.py: the same solve through the Rust program subgame-solve, when it is built
+  (import it as app.solver.rust_backend; the advice uses it only behind a switch)
 
 See docs/research/SOLVER.md.
 """

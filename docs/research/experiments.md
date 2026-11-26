@@ -1292,6 +1292,122 @@ Raw minus redealt: -0.2 ± 1.2 bb/100.
 - Also seen on the way: half-pot value bets lose to B0's two thirds of the pot by about 3.5
   bb/100 on mixed. B0 isn't tuned any more, so nothing changes.
 
+## Rust engine link: the `rust_solver` switch and the cost of the call (26 Nov 2026)
+
+Not a strategy experiment: nothing the advice does has changed. The Python app and the Rust
+engine are now connected in two places. See `SOLVER.md`, "The Rust backend", and
+`engine/crates/py/README.md`.
+
+- **New switch `rust_solver`: off.** It only chooses who solves a river spot that
+  `river_solver` (also off) already sends to the solver: the Rust program `subgame-solve`
+  through `app/solver/rust_backend.py`, or the Python solver as before. When the program
+  is missing or fails, the Python solver answers.
+- **`baseline_tuning.json`**: `"rust_solver": false` was added (only added to, nothing
+  edited). The test that the defaults match the file still holds.
+- **Paired runs checked that nothing changes** (`tools/compare.py`, table mixed, seed
+  101, no program built, so the Python solver answers). Log:
+  `runs/rust_solver_switch_check.log`.
+  - `{"rust_solver": true}` against the baseline, 150 hands: 0 hands differ.
+  - `{"river_solver": true, "rust_solver": true}` against `{"river_solver": true}`
+    (`--base`), 1,000 hands: 0 hands differ. So with the program missing, the Rust switch
+    leaves the river solver's play exactly as it was. (The simulator runs the solver
+    with fixed work, so this repeats.)
+  - Also in the log, because they were run: each of those two solver variants against
+    the baseline over 150 hands. Both give the same line, +11.7 ± 8.3 bb/100 from 3
+    hands that differ. That is 1.4 standard errors on 150 hands. It was run to see the
+    two lines agree and says nothing about `river_solver` against B0 (for that, see
+    "Phase 2: the river solver against B0").
+  - Those runs used the comparison tool as it was before the Phase 1 tools arrived
+    (`--method classic` today). Run again with the tool as it is now (duplicate decks,
+    hands that differ replayed 6 times): 0 of 150 and 0 of 1,002 hands differ.
+- **Not compared against B0**, and not to be turned on: `river_solver` itself has not
+  passed the B0 bar. The backend was written and tested against a stand-in that follows
+  the program's command line and file formats. `subgame-solve` reached the repo the same
+  day, and the backend works with it as written (below).
+
+### Bet sizes the SPOT format can't say
+
+The SPOT format's bet sizes are `bets`, `raises` and `allin`. The river solver's sizes
+got three more options today (`reraises`, `allin_within`, `exact`), which the format
+doesn't describe and the advice uses on every spot. The backend says them with the
+format's three keys wherever that gives exactly the same tree, and sends everything else
+to the Python solver without a call.
+
+Counted on the advice's own spots: every heads-up river decision of the app's seat in
+6,000 simulated hands (table mixed, seed 77), collected as `runs/phase2_budget.py`
+collects them.
+
+| | Spots |
+| --- | --- |
+| Heads-up river decisions | 394 |
+| Written as a SPOT, same tree | 302 (77%) |
+| Can't be written, the Python solver's | 92 (23%) |
+
+All 92 have stacks of 12.6 to 17.7 pots. There, all in is within six pots as a raise of
+the pot-sized bet but not as a raise of the half-pot bet (the line is at 12.5 and 19
+pots), and one list of raise sizes can't say both. No decision in the sample faced a
+raise. The fix belongs on the Rust side: `subgame-solve` reading the three options, then
+`EXTENDED_SIZES = True` in `rust_backend.py`.
+
+### Against the real program
+
+`runs/rust_solver_real.py` (log `runs/rust_solver_real.log`): the same 394 river spots,
+each solved by the Python solver and by `subgame-solve` through the backend, by the
+clock and with the advice's settings. Then every decision through `advise()` with
+`rust_solver` off and on, both switches on in the measuring script only.
+
+| | Python solver | `subgame-solve` |
+| --- | --- | --- |
+| Answered | 394 | 302, none failed (92 can't be written) |
+| The solve call, p50 / p95 / max | 287 / 290 / 303 ms | 56 / 154 / 228 ms |
+| Of that, solving / everything else, p50 | 287 ms / none | 44 ms / 15 ms |
+| From an equilibrium, % of the pot, p50 / p95 / max | 0.10 / 0.35 / 0.74 | 0.06 / 0.40 / 0.50 |
+| Answers over 1% of the pot | 0 | 0 |
+| The whole decision through `advise()`, p50 / p95 / max | 294 / 299 / 441 ms | 79 / 297 / 311 ms |
+| Decisions the solver answered | 388 of 394 | 389 of 394 |
+
+- What the backend had taken on trust held: the target is in percent of the pot,
+  `--time-ms` limits the solving, and a size over the stack becomes all in (every one of
+  the 302 answers came back for exactly the spot's tree).
+- The program's own exploitability is the Python checker's: the largest difference is
+  0.00003% of the pot.
+- The median decision drops from 294 ms to 79 ms. The p95 stays at 297 ms because the 92
+  spots that can't be written are still the Python solver's.
+- The advice would act the same on both answers in 289 of 297 spots where both have one
+  for the hero's hand. The other 8 are close mixes (call 58%, fold 42% against 50%, 50%;
+  all 8 are in the log). Through `advise()`: the same instruction on 384 of 394.
+- One paired run in the simulator, with the program built:
+  `tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed
+  --base '{"river_solver": true}'` (seed 101): 1 of 1,000 hands differs, -0.1 ± 0.1
+  bb/100, and a second run gives the same line. With the comparison tool as it is now
+  (duplicate decks, replays): 1 of 1,002 hands differs, -0.9 ± 0.9 bb/100 replayed 6
+  times. This compares the two solvers on the same spots, not either of them with B0.
+  Log: `runs/rust_solver_switch_check.log`.
+
+### What the call costs
+
+Each decision that goes to the Rust program pays for starting it, writing the spot and
+reading the answer back. `tools/rust_solver_overhead.py --advice-hands 6000
+--advice-spots 400`, 5 calls a spot, in a Linux cloud container (Intel Xeon at 2.10 GHz,
+4 cores). Run twice: with the real program (`--binary`; overhead is the whole call less
+the solving time the program reports) and with a stand-in that does no solving
+(`tools/replay_solve.rs`). Log: `runs/rust_solver_overhead.log`.
+
+| Spots | Combos, both ranges | Real program: p50 | p95 | max | Stand-in: p50 | p95 | max |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| narrow ranges, 40 | 219 to 340 | 8.6 ms | 12.2 ms | 29.5 ms | 5.7 ms | 7.2 ms | 17.3 ms |
+| medium ranges, 40 | 462 to 685 | 13.3 ms | 17.8 ms | 33.1 ms | 10.2 ms | 16.4 ms | 37.7 ms |
+| wide ranges, 40 | 909 to 1,145 | 19.3 ms | 26.6 ms | 35.1 ms | 13.4 ms | 20.7 ms | 35.9 ms |
+| the advice's spots, 302 | 110 to 1,401 (median 833) | 16.8 ms | 26.4 ms | 36.0 ms | 11.7 ms | 19.7 ms | 28.4 ms |
+
+- On the advice's spots: about 17 ms a call that is not solving, 26 ms at p95, which is
+  6.6% of the 400 ms decision budget.
+- Starting the program is 1.5 ms of it. Reading the answer in Python is the largest part
+  (7 to 9 ms at the median on the advice's spots).
+- The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets
+  260 ms. The largest overhead measured in any run is 37.7 ms.
+- Not in these numbers: a Mac.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

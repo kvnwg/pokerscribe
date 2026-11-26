@@ -189,6 +189,10 @@ TUNING = {
     # its time budget; otherwise, and on every other street, the rules above decide
     "river_solver": False,
     "river_solver_fixed_work": False,  # (no clock, a fixed amount of work: the simulator uses it to stay repeatable)
+    # with river_solver on: solve with the Rust program subgame-solve when it is built
+    # (app/solver/rust_backend.py), and with the Python solver as before when it isn't or
+    # it fails. Changes nothing while river_solver is off.
+    "rust_solver": False,
 }
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
@@ -939,7 +943,8 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     """TUNING["river_solver"]: the river solver's action for your hand, heads-up. None
     (the rules decide) when the spot isn't one it handles, the numbers it needs aren't
     known or reliable, it fails, it doesn't answer in time, its answer is too rough, or
-    it has no answer for a bet it didn't expect."""
+    it has no answer for a bet it didn't expect. TUNING["rust_solver"] picks who solves:
+    the Rust program, or the Python solver."""
     import time
 
     from app import solver
@@ -966,7 +971,13 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     fixed = bool(TUNING["river_solver_fixed_work"])  # the simulator: the same answer on every run
     start = time.perf_counter()
     try:
-        strategy = solver.solve_river(decision.spot, **solver.decision_settings(decision.spot, s.bb, fixed))
+        settings = solver.decision_settings(decision.spot, s.bb, fixed)
+        if TUNING["rust_solver"]:
+            from app.solver import rust_backend
+
+            strategy = rust_backend.solve_river(decision.spot, **settings)
+        else:
+            strategy = solver.solve_river(decision.spot, **settings)
         elapsed_ms = 1000.0 * (time.perf_counter() - start)
         if strategy is None or (elapsed_ms > budget and not fixed):
             return None
