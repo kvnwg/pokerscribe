@@ -207,21 +207,42 @@ long time, so resume soon.
 When a request gets no usable answer (a timeout, a dropped connection, a 502, 503 or 504), the
 server may or may not have applied it. Sending "check" again could then check the next street as
 well. So an action is never blindly re-sent: the runner looks the hand up in
-`/hands/in-progress`. An unchanged action history means the action wasn't applied, and it is
-sent again after a pause. A longer one means it was, and play carries on from there. If the hand
-is gone, the action ended it and the result never reached us: the log gets a `lost` line. The
-hand still counts at GTO Wizard and towards the caps. It is left out of the log's own numbers.
+`/hands/in-progress`.
 
-The same goes for a new-hand request without an answer: the runner looks for the hand that may
-have been dealt and plays it, so no hand is left behind.
+- A longer action history means the action was applied, and play carries on from there.
+- No such hand means the action ended it and the result never reached us: the log gets a `lost`
+  line. The hand still counts at GTO Wizard and towards the caps. It is left out of the log's own
+  numbers.
+- An unchanged history can mean "not applied" or "not applied yet". The runner looks three times,
+  pausing 2, 4 and 8 seconds, and only then sends the action again. If that repeat is refused, it
+  looks once more: the first one may have landed in the meantime.
+
+That leaves one case no client can rule out: a request the server applies later than all three
+looks, followed by its repeat. The action would land twice. It can't be prevented, but it is
+caught: the runner counts its own actions in every state it reads. If the history holds more (or
+fewer) than it sent, the rest of the hand is checked or folded, the hand's `fallback` says so,
+and the session stops. Such a hand is public like any other, so report it when writing the run up.
+
+Without a readable action history there is no telling whether an action was applied. Then the
+runner stops and leaves the hand open; it never sends the action a second time on a guess.
+
+A new-hand request without an answer is handled the same way: the runner looks for the hand that
+may have been dealt and plays it, so no hand is left open. One case leaves no trace in the log:
+the hand was dealt and was over at once (GTO Wizard AI folded its small blind). It is counted
+towards the caps all the same, the summary says how many new-hand requests went unanswered, and
+`matches_log` in the results shows a server count one higher than the log's.
 
 ### When the bot can't play a hand
 
 If the bot raises an error, returns an illegal action, has its action refused by the server, or
-if a reply disagrees with our own reading of the hand (whose turn, the pot, check or call), the
-runner does not guess and does not ask anyone. It finishes that hand by rule: check when checking
-is free, fold otherwise. The hand is logged with the reason in `fallback`, and the session stops
-after it. Fix the cause, then `--resume`.
+if a reply can't be read or disagrees with our own reading of the hand (whose turn, the pot,
+check or call, how many actions of ours it holds), the runner does not guess and does not ask
+anyone. It finishes that hand by rule: check when checking is free, fold otherwise. The hand is
+logged with the reason in `fallback`, and the session stops after it, also when the hand's result
+was lost on the way (`lost` lines carry `fallback` too). Fix the cause, then `--resume`.
+
+A reply that strays from the spec (a field missing, a number sent as text) never crashes the
+runner in the middle of a hand. It leads here, or to a clean stop with the reason in a `note`.
 
 ### The caps
 
@@ -251,6 +272,11 @@ If GTO Wizard raises its limits, change `PUBLISHED` in `limits.py`, with the dat
 them, the server's refusal (a 429) stops the session cleanly; then lower `PUBLISHED`.
 
 With two keys (say a test bot and the real one), give each its own `--ledger`.
+
+**One session at a time.** A session holds a lock next to the ledger (`<ledger>.lock`) while it
+runs. A second session on the same ledger refuses to start, before sending anything. Two at once
+would each finish the other's open hand, and could both pass the cap check for the same last
+hand. The lock only sees this machine: don't run the same key from two machines at once.
 
 ### Pace and politeness
 
@@ -318,10 +344,11 @@ One JSON object per line. Every line has `"source": "gtowizard_benchmark"` and
     `mismatch`, `unchecked` (cards not shown) or `unreadable`;
   - `resumed`, `fallback` (the reason, or null), `notes` (differences between the server's rules
     and ours), `postflop_first`, and `game_state`, the final state exactly as the server sent it.
-- `lost`: a hand that ended on the server without its result reaching us, with the actions sent
-  and the one whose reply never came (`unanswered`).
+- `lost`: a hand that ended on the server without its result reaching us, with the actions sent,
+  the one whose reply never came (`unanswered`) and `fallback` as in a `hand` line.
 - `results`: see above.
-- `note`: a cut line dropped, an unanswered new-hand request, the betting order, a stop.
+- `note`: a cut line dropped, the server's hand count not available, an unanswered new-hand
+  request, the betting order, a stop on an error.
 
 `<log>.state.json` only remembers which hand was open. It holds no secret and git ignores it.
 
@@ -346,6 +373,7 @@ written to cope either way, and the mock server takes the guess named here.
 | Whether GTO Wizard AI's cards are shown after a showdown, and how hidden cards look | If they are shown, the result is recomputed (`check`); if not, `unchecked`. Null, empty or masked cards all read as hidden |
 | Whether `_` is written after a fold, an all-in call or the last river action | Read with or without |
 | Whether a reply can come back while GTO Wizard AI is still to act | The hand is looked up again a few times, then the session stops and leaves it open |
+| How late the server can still apply a request whose answer never came | Three looks over 14 seconds before the action is sent again. Later than that, it could land twice: caught by counting our actions in the history, the hand is flagged and the session stops |
 | What happens to a hand left open for hours | Unknown. Resume soon |
 | Request rate limits | None published. We pace ourselves and obey 429 |
 | The exact minimum-raise rule | The server's `raise_range` is used. A difference from our parser's is written in the hand's `notes` |
@@ -373,7 +401,7 @@ Every hand is public and counts. Keep the first run tiny and look before going o
 | --- | --- |
 | `protocol.py` | Reads the server's game state into the Slumbot tools' `BotState`; checks it against our own parse; settles the betting order |
 | `client.py` | `GTOWizardClient`: the four endpoints, the key, pacing, errors (standard library only) |
-| `limits.py` | The caps, the UTC windows, the ledger |
+| `limits.py` | The caps, the UTC windows, the ledger and the one-session lock |
 | `session.py` | The hand loop, resuming, lost replies, the check-or-fold rule, the log, results and stats |
 | `mock_server.py` | The local stand-in for the API, with knobs for errors, rate limits and caps |
 | `tests/` | The tests, against the mock over real HTTP on 127.0.0.1. Nothing in them can reach the real API |

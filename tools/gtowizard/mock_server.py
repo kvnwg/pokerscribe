@@ -19,7 +19,8 @@ It is NOT GTO Wizard AI:
 
 Knobs let the tests bend it the way the real server might differ or fail: ``postflop_first``,
 ``trailing_rounds``, ``user_listed_first``, ``mutate`` (edit any outgoing state), ``rate_limit``,
-``caps``, ``max_open_hands``, and ``fail()`` for errors before or after a request is applied.
+``caps``, ``max_open_hands``, and ``fail()`` for errors before or after a request is applied, or
+with the request applied late (after the client has already looked).
 
 Rules come from ``tools.slumbot.protocol`` (the same game), so the mock can't catch a rules
 mistake that the client's parser shares. Only a real run can.
@@ -81,12 +82,17 @@ def random_policy(rng: random.Random) -> Callable[[ActionHistory], str]:
     return act
 
 
+class _Page(str):
+    """A reply body sent as it is, not as JSON."""
+
+
 @dataclass
 class Fault:
     """An error to return for the next matching request(s)."""
 
     status: int = 503
     after: bool = False  # True: apply the request first, then fail (the reply is "lost")
+    late: int = 0  # fail now, and apply the request only after this many GET /hands/in-progress
     drop: bool = False  # close the connection without any reply
     method: Optional[str] = None
     path: Optional[str] = None  # a substring of the path
@@ -94,6 +100,7 @@ class Fault:
     skip: int = 0  # let this many matching requests through first
     retry_after: Optional[float] = None
     detail: str = "Service Unavailable"
+    text: Optional[str] = None  # a body that isn't JSON (a gateway's error page), in place of ``detail``
     headers: Optional[Dict[str, str]] = None
 
     def matches(self, method: str, path: str) -> bool:
@@ -151,6 +158,7 @@ class MockBenchmark:
         self.trailing_rounds = trailing_rounds
         self.user_listed_first = user_listed_first
         self.mutate = mutate
+        self._late: List[list] = []
         self.bot_name, self.organization = bot_name, organization
         self.faults: List[Fault] = []
         self.deals: List[Tuple[List[str], List[str], List[str]]] = []  # forced (user, gto, board)
@@ -182,12 +190,26 @@ class MockBenchmark:
             query = dict(urllib.parse.parse_qsl(parts.query))
             self.requests.append((method, path))
             fault = next((f for f in self.faults if f.matches(method, path)), None)
+            lowered = {k.lower(): v for k, v in headers.items()}
             if fault is not None:
                 fault.times -= 1
+                if fault.late > 0:
+                    self._late.append([fault.late, method, path, query, lowered, body])
+                    return self._fault(fault)
                 if not fault.after:
                     return self._fault(fault)
-            result = self._route(method, path, query, {k.lower(): v for k, v in headers.items()}, body)
+            result = self._route(method, path, query, lowered, body)
+            if (method, path) == ("GET", "/hands/in-progress"):
+                self._land_late()
             return self._fault(fault) if fault is not None else result
+
+    def _land_late(self) -> None:
+        """Requests held back by a ``late`` fault get one look closer to being applied."""
+        for held in list(self._late):
+            held[0] -= 1
+            if held[0] <= 0:
+                self._late.remove(held)
+                self._route(*held[1:])
 
     @staticmethod
     def _fault(f: Fault):
@@ -196,7 +218,7 @@ class MockBenchmark:
         hdrs = dict(f.headers or {})
         if f.retry_after is not None:
             hdrs["Retry-After"] = f"{f.retry_after:g}"
-        return f.status, hdrs, {"detail": f.detail}
+        return f.status, hdrs, _Page(f.text) if f.text is not None else {"detail": f.detail}
 
     def _route(self, method, path, query, headers, body):
         seg = [s for s in path.split("/") if s]
@@ -438,9 +460,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         status, headers, payload = result
-        data = json.dumps(payload).encode()
+        page = isinstance(payload, _Page)
+        data = payload.encode() if page else json.dumps(payload).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "text/html" if page else "application/json")
         self.send_header("Content-Length", str(len(data)))
         for k, v in headers.items():
             self.send_header(k, v)

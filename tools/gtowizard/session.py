@@ -27,7 +27,10 @@ The log is one JSON object per line:
   results, not towards the log's own statistics.
 - ``results``: what ``GET /results`` returned, for everything under the key and for this log's
   time window. The latest one is also written to ``<log>.results.json``.
-- ``note``: anything else worth knowing.
+- ``note``: anything else worth knowing (a cut line dropped, a new-hand request without an
+  answer, the betting order, a stop).
+
+One session at a time: a session holds a lock next to the ledger while it runs (``LedgerLock``).
 
 Resuming: the server keeps unfinished hands (``GET /hands/in-progress``). Every session starts by
 finishing those, so a hand cut off by a crash is played to the end by the bot (``"resumed": true``),
@@ -44,9 +47,9 @@ from ..slumbot.bots import Bot
 from ..slumbot.protocol import BIG_BLIND, SEAT_NAMES, SMALL_BLIND, STACK
 from ..slumbot.session import HandLog, check_result, hands_in, rate, read_log
 from .client import GTOWizardClient, GTOWizardError, NotFound, RateLimited, Rejected, Unsure
-from .limits import (WINDOWS, CapReached, HandBudget, Ledger, default_ledger_path,
+from .limits import (WINDOWS, CapReached, HandBudget, Ledger, LedgerLock, default_ledger_path,
                      use_server_counts, utcnow)
-from .protocol import OPPONENT, USER, ProtocolError, Reader, request_for, safe_action
+from .protocol import OPPONENT, USER, ProtocolError, Reader, number, request_for, safe_action
 
 SOURCE = "gtowizard_benchmark"
 USE = "benchmark_only"
@@ -60,7 +63,8 @@ TERMS = """GTO Wizard's terms for the benchmark (https://benchmark.gtowizard.com
 Every hand counts from the first one; there are no practice hands."""
 
 MAX_PROBLEMS_IN_A_ROW = 3  # lost hands or unanswered new-hand requests before the session stops
-SEND_ATTEMPTS = 6  # times one action is offered to the server while it keeps not applying it
+SEND_ATTEMPTS = 4  # times one action is offered to the server while it keeps not applying it
+LOOKS = 3  # looks at the hand, with growing pauses, before an unanswered action is sent again
 TURN_POLLS = 5  # looks at a hand that is waiting for GTO Wizard AI before giving up
 Z95 = 1.96  # the leaderboard ranks by the lower end of the 95% interval
 
@@ -73,37 +77,84 @@ def _iso(t: _dt.datetime) -> str:
     return t.astimezone(_dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def _line(kind: str, when: _dt.datetime, **fields) -> dict:
+    """A log line. Every one carries the source and the benchmark-only mark, notes included."""
+    return {"type": kind, "source": SOURCE, "use": USE, "time": _iso(when), **fields}
+
+
 def _find(hands: List[dict], hand_id: int) -> Optional[dict]:
-    return next((h for h in hands if h.get("hand_id") == hand_id), None)
+    return next((h for h in hands if isinstance(h, dict) and str(h.get("hand_id")) == str(hand_id)),
+                None)
+
+
+def _state(resp) -> dict:
+    """The reply's game state, or an empty one if the reply isn't shaped as expected."""
+    gs = resp.get("game_state") if isinstance(resp, dict) else None
+    return gs if isinstance(gs, dict) else {}
+
+
+def _tokens(resp) -> Optional[List[str]]:
+    """The reply's action history, or None when it has none that can be read."""
+    history = _state(resp).get("action_history")
+    return [str(t) for t in history] if isinstance(history, (list, tuple)) else None
+
+
+def _hand_id(resp) -> int:
+    try:
+        return int(resp["hand_id"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ProtocolError(f"a hand without a usable hand_id: {str(resp)[:200]!r}") from e
 
 
 # --- one hand -------------------------------------------------------------------------------------
 
 def _send(client: GTOWizardClient, hand_id: int, before: dict, action: str,
           amount: Optional[int]) -> dict:
-    """Send one action and return the next state, without ever applying it twice.
+    """Send one action and return the next state, doing all we can not to apply it twice.
 
-    When no usable answer comes back, the server may or may not have applied the action. The
-    hand's entry in ``/hands/in-progress`` tells: an unchanged action history means it did not
-    (send again, after a pause), a longer one means it did (carry on from there), and no entry
-    means the action ended the hand and the result is gone (``HandLost``).
+    When no usable answer comes back, the server may or may not have applied the action, or may
+    still be about to. The hand's entry in ``/hands/in-progress`` tells: a changed action history
+    means it was applied (carry on from there), and no entry means it ended the hand and the
+    result is gone (``HandLost``). Only when the history is still unchanged after ``LOOKS`` looks
+    with growing pauses is the action sent again. If that repeat is refused, the first one may
+    have gone through in the meantime, so the hand is looked up once more before giving up.
+
+    A request that the server applies even later than that would land twice. ``play_hand`` counts
+    our actions in every state it reads, so that case is at least caught and flagged.
     """
-    sent_at = list(before["game_state"]["action_history"])
+    sent_at = _tokens(before)
     problem: Optional[Exception] = None
-    for attempt in range(SEND_ATTEMPTS):
+    for _attempt in range(SEND_ATTEMPTS):
         try:
             return client.act(hand_id, action, amount)
         except NotFound as e:
             raise HandLost(f"the server no longer knows hand {hand_id}: {e}") from e
+        except Rejected:
+            if problem is None:
+                raise  # a plain refusal of an action sent once
+            now = _find(client.in_progress(), hand_id)
+            if now is None:
+                raise HandLost(f"hand {hand_id} ended on the server, but the reply with its result "
+                               f"never arrived ({problem})")
+            if sent_at is not None and _tokens(now) not in (None, sent_at):
+                return now
+            raise
         except Unsure as e:
             problem = e
-        client.wait(attempt)
-        now = _find(client.in_progress(), hand_id)
-        if now is None:
-            raise HandLost(f"hand {hand_id} ended on the server, but the reply with its result "
-                           f"never arrived ({problem})")
-        if list(now["game_state"]["action_history"]) != sent_at:
-            return now
+        for look in range(LOOKS):
+            client.wait(look)
+            now = _find(client.in_progress(), hand_id)
+            if now is None:
+                raise HandLost(f"hand {hand_id} ended on the server, but the reply with its result "
+                               f"never arrived ({problem})")
+            seen = _tokens(now)
+            if sent_at is None or seen is None:
+                raise GTOWizardError(
+                    f"hand {hand_id}: no answer to {action!r}, and without a readable action "
+                    f"history there is no telling whether it was applied; stopping rather than "
+                    f"sending it again ({problem})")
+            if seen != sent_at:
+                return now
     raise problem
 
 
@@ -114,7 +165,7 @@ def _wait_for_turn(client: GTOWizardClient, hand_id: int) -> dict:
         now = _find(client.in_progress(), hand_id)
         if now is None:
             raise HandLost(f"hand {hand_id} was waiting for GTO Wizard AI and is no longer in progress")
-        if now["game_state"].get("player_to_act") == USER:
+        if _state(now).get("player_to_act") == USER:
             return now
     raise GTOWizardError(f"hand {hand_id} is still not ours to act on after {TURN_POLLS} looks; "
                          "it stays open on the server, resume later")
@@ -128,16 +179,17 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
     illegal action, the server refuses its action, or a reply can't be trusted), the rest of the
     hand is checked or folded and the record says why in ``fallback``.
     """
-    hand_id = int(resp["hand_id"])
+    hand_id = _hand_id(resp)
     me: Optional[int] = None
     decisions: List[dict] = []
     notes: List[str] = []
     fallback: Optional[str] = None
     state = view = sending = None
     started = False
+    ours: Optional[int] = None  # how many actions of ours the history should hold
     try:
         while True:
-            gs = resp.get("game_state") or {}
+            gs = _state(resp)
             try:
                 view = reader.read(resp, me)
             except ProtocolError as e:
@@ -148,6 +200,16 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
                 notes.extend(s for s in view.soft if s not in notes)
                 if view.hard and fallback is None and not view.over:
                     fallback = "; ".join(view.hard)
+                held = view.our_actions()
+                if ours is None:
+                    ours = held
+                elif held is not None and held != ours:
+                    # One of ours applied twice (a late request and its repeat), or dropped.
+                    fallback = fallback or (
+                        f"the history holds {held} actions of ours where {ours} were sent; the "
+                        "server applied one twice or dropped one, so part of this hand was not "
+                        "the bot's choice")
+                    ours = held
             if gs.get("is_hand_over"):
                 break
             if gs.get("player_to_act") != USER:
@@ -175,7 +237,7 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
                      "incr": action + ("" if amount is None else str(amount))}
             if fallback is not None:
                 entry["fallback"] = True
-            sending, before = entry, list(gs.get("action_history") or [])
+            sending, before, state_before = entry, _tokens(resp), gs
             try:
                 resp = _send(client, hand_id, resp, action, amount)
             except Rejected as e:
@@ -183,24 +245,29 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
                     raise  # even a check or a fold was refused: stop, the hand stays open
                 fallback = f"the server refused {entry['incr']} from {bot.name}: {e}"
                 continue
-            after = resp.get("game_state") or {}
-            if not after.get("is_hand_over") and list(after.get("action_history") or []) == before:
+            unchanged = _tokens(resp) == before if before is not None else _state(resp) == state_before
+            if not _state(resp).get("is_hand_over") and unchanged:
                 raise GTOWizardError(f"hand {hand_id}: the server answered {entry['incr']!r} with an "
                                      "unchanged hand; stopping rather than sending it again")
             sending = None
             decisions.append(entry)
+            if ours is not None:
+                ours += 1
     except HandLost as e:
         # ``unanswered`` is the action whose reply never came; if the hand is gone, it was applied.
-        return {"type": "lost", "source": SOURCE, "use": USE, "hand_id": hand_id, "time": _iso(now()),
-                "bot": bot.name, "reason": client.scrub(e), "resumed": resumed,
-                "decisions": decisions, "unanswered": sending["incr"] if sending else None,
-                "action_history": list((resp.get("game_state") or {}).get("action_history") or [])}
+        return _line("lost", now(), hand_id=hand_id, bot=bot.name, reason=client.scrub(e),
+                     resumed=resumed, decisions=decisions,
+                     unanswered=sending["incr"] if sending else None,
+                     fallback=None if fallback is None else client.scrub(fallback),
+                     action_history=_tokens(resp))
 
-    gs = resp.get("game_state") or {}
-    if gs.get("winnings") is None:
-        return {"type": "lost", "source": SOURCE, "use": USE, "hand_id": hand_id, "time": _iso(now()),
-                "bot": bot.name, "reason": "the hand is over but the reply has no winnings",
-                "resumed": resumed, "decisions": decisions, "game_state": gs}
+    gs = _state(resp)
+    winnings = view.winnings if view is not None else number(gs.get("winnings"))
+    if winnings is None:
+        return _line("lost", now(), hand_id=hand_id, bot=bot.name, resumed=resumed,
+                     reason="the hand is over but the reply has no readable winnings",
+                     decisions=decisions, unanswered=None,
+                     fallback=None if fallback is None else client.scrub(fallback), game_state=gs)
     history = view.history if view is not None else None
     rec = {
         "type": "hand", "source": SOURCE, "use": USE, "hand": hand_number, "hand_id": hand_id,
@@ -209,7 +276,7 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
         "hole_cards": view.hole_cards if view is not None else None,
         "gto_hole_cards": view.opponent_cards if view is not None else None,
         "board": view.board if view is not None else None,
-        "action_history": list(gs.get("action_history") or []),
+        "action_history": _tokens(resp),
         "action": history.action if history else None,
         "streets": history.by_street(me, OPPONENT) if history else None,
         "history": history.to_dict() if history else None,
@@ -217,15 +284,15 @@ def play_hand(client: GTOWizardClient, bot: Bot, resp: dict, hand_number: int, r
         "decisions": decisions,
         "showdown": history.showdown if history else None,
         "pot": history.pot if history else None,
-        "winnings": float(gs["winnings"]),
-        "aivat_score": None if gs.get("aivat_score") is None else float(gs["aivat_score"]),
+        "winnings": winnings,
+        "aivat_score": view.aivat_score if view is not None else number(gs.get("aivat_score")),
         "gto_folded": bool(gs.get("has_gto_wizard_folded")),
         "resumed": resumed,
         "fallback": None if fallback is None else client.scrub(fallback),
         "notes": notes,
         "game_state": gs,
     }
-    if resp.get("mock"):
+    if isinstance(resp, dict) and resp.get("mock"):
         rec["mock"] = True
     if history is not None and history.over and not view.hard:
         rec.update(check_result(history, me, view.hole_cards, view.opponent_cards, view.board,
@@ -253,7 +320,7 @@ def tidy_results(stats: Optional[dict]) -> Optional[dict]:
     """
     if not stats:
         return None
-    win, se = stats.get("aivat_score_bb_per_100"), stats.get("aivat_std_bb_per_100")
+    win, se = number(stats.get("aivat_score_bb_per_100")), number(stats.get("aivat_std_bb_per_100"))
     interval = None if win is None or se is None else [win - Z95 * se, win + Z95 * se]
     return {"hands": stats.get("total_hands"), "aivat_bb_per_100": win,
             "aivat_standard_error_bb_per_100": se, "aivat_ci95_bb_per_100": interval,
@@ -275,8 +342,8 @@ def save_results(client: GTOWizardClient, log_path: str,
     """
     records = read_log(log_path)
     n = len(hands_in(records))
-    snap = {"type": "results", "source": SOURCE, "use": USE, "notice": NOTICE, "time": _iso(now()),
-            "api": client.url, "game": client.game, "all_time": tidy_results(client.results())}
+    snap = _line("results", now(), notice=NOTICE, api=client.url, game=client.game,
+                 all_time=tidy_results(client.results()))
     sessions = [r for r in records if r.get("type") == "session" and r.get("time")]
     if sessions:
         start = _dt.datetime.fromisoformat(sessions[0]["time"])
@@ -311,19 +378,27 @@ def summary(records: List[dict]) -> dict:
     out["fallbacks"] = sum(1 for h in hands if h.get("fallback"))
     out["resumed"] = sum(1 for h in hands if h.get("resumed"))
     out["lost"] = sum(1 for r in records if r.get("type") == "lost")
+    out["unanswered_new_hands"] = sum(1 for r in records if r.get("event") == "new_hand_unanswered")
     out["mock"] = any(h.get("mock") for h in hands)
     out["results"] = next((r for r in reversed(records) if r.get("type") == "results"), None)
     out["stopped"] = None
     return out
 
 
+def _fmt(x, spec: str) -> str:
+    return format(x, spec) if isinstance(x, (int, float)) and not isinstance(x, bool) else "n/a"
+
+
 def _api_line(label: str, t: Optional[dict]) -> str:
+    """One line of the server's figures. A field the server left out or null reads "n/a"."""
     if not t or t.get("aivat_bb_per_100") is None:
         return f"    {label}: nothing yet"
-    lo, hi = t["aivat_ci95_bb_per_100"]
-    return (f"    {label}: {t['hands']:,} hands, AIVAT {t['aivat_bb_per_100']:+.2f} bb/100, "
-            f"standard error {t['aivat_standard_error_bb_per_100']:.2f}, 95% interval "
-            f"{lo:+.2f} to {hi:+.2f}; raw {t['raw_bb_per_100']:+.2f} bb/100")
+    lo, hi = t.get("aivat_ci95_bb_per_100") or (None, None)
+    return (f"    {label}: {_fmt(t.get('hands'), ',')} hands, "
+            f"AIVAT {_fmt(t.get('aivat_bb_per_100'), '+.2f')} bb/100, "
+            f"standard error {_fmt(t.get('aivat_standard_error_bb_per_100'), '.2f')}, "
+            f"95% interval {_fmt(lo, '+.2f')} to {_fmt(hi, '+.2f')}; "
+            f"raw {_fmt(t.get('raw_bb_per_100'), '+.2f')} bb/100")
 
 
 def format_summary(s: dict) -> str:
@@ -337,22 +412,25 @@ def format_summary(s: dict) -> str:
         lines.append(f"  as {name}:    raw {s[name]['raw']}; AIVAT {s[name]['aivat'] or 'n/a'}")
     lines.append(f"  showdowns: {s['showdowns']}; result checks: "
                  + ", ".join(f"{v} {k}" for k, v in s["checks"].items()))
-    extras = [f"{s[k]} {text}" for k, text in (("fallbacks", "finished by check or fold"),
+    extras = [f"{s[k]} {text}" for k, text in (("fallbacks", "not played to the end by the bot"),
                                                ("resumed", "resumed after a stop"),
                                                ("lost", "lost (ended on the server, result not seen)"))
               if s[k]]
     if extras:
         lines.append("  hands " + "; ".join(extras))
+    if s.get("unanswered_new_hands"):
+        lines.append(f"  {s['unanswered_new_hands']} new-hand request(s) got no answer. If the server "
+                     "dealt a hand that ended at once, it is in GTO Wizard's count and not in this log")
     r = s["results"]
     if r:
-        lines.append(f"  GTO Wizard's own figures (GET /results, {r['time']}):")
+        lines.append(f"  GTO Wizard's own figures (GET /results, {r.get('time')}):")
         lines.append(_api_line("all hands under this key", r.get("all_time")))
         w = r.get("this_log")
         if w:
-            lines.append(_api_line(f"since {w['start_date']}", w))
-            if not w["matches_log"]:
+            lines.append(_api_line(f"since {w.get('start_date')}", w))
+            if not w.get("matches_log"):
                 lines.append(f"    that window holds {w.get('hands')} hands at the server and "
-                             f"{w['hands_in_log']} in this log, so it is not this log's result alone")
+                             f"{w.get('hands_in_log')} in this log, so it is not this log's result alone")
     if s.get("stopped"):
         lines.append(f"  stopped early ({s['stopped']['reason']}): {s['stopped']['detail']}")
     return "\n".join(lines)
@@ -368,17 +446,33 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
 
     ``summary["stopped"]`` is None when the target was reached, else ``{"reason", "detail"}`` with
     reason ``cap`` (our own count says a cap is reached), ``rate_limited`` (the server says so),
-    ``fallback`` (a hand had to be checked or folded to the end), ``problems``, ``interrupted``
-    or ``error``.
+    ``fallback`` (the bot could not play a hand to the end), ``problems``, ``interrupted`` or
+    ``error``.
+
+    Only one session runs at a time on one ledger: a second one is refused before any request.
     """
     if not accept_terms:
         raise SystemExit(TERMS + "\nPass --accept-terms (accept_terms=True) to play.")
     budget = budget or HandBudget(Ledger(default_ledger_path()), now=now)
+    lock = LedgerLock(budget.ledger.path)
+    if not lock.acquire():
+        raise SystemExit(f"another session is running on this machine (it holds {lock.path}). Two "
+                         "at once would play each other's open hands and could pass a cap together. "
+                         "Wait for it to end, then run again.")
+    try:
+        return _run(client, bot, log_path, target_hands, resume, budget, echo, progress_every, now)
+    finally:
+        lock.release()
+
+
+def _run(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: int, resume: bool,
+         budget: HandBudget, echo: Callable[[str], None], progress_every: int,
+         now: Callable[[], _dt.datetime]) -> dict:
     log = HandLog(log_path)
     dropped = log.repair()
     if dropped:
-        log.append({"type": "note", "time": _iso(now()), "event": "cut_line",
-                    "detail": f"dropped {dropped} bytes of a record half-written by a crash"})
+        log.append(_line("note", now(), event="cut_line",
+                         detail=f"dropped {dropped} bytes of a record half-written by a crash"))
     records = read_log(log_path)
     hands = hands_in(records)
     if hands and not resume:
@@ -399,26 +493,24 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
         stamp = now()
         uncounted = use_server_counts(budget, client, stamp, open_hands=len(pending))
         if uncounted:
-            log.append({"type": "note", "time": _iso(stamp), "event": "no_server_count",
-                        "detail": uncounted})
+            log.append(_line("note", stamp, event="no_server_count", detail=uncounted))
             echo("NOTE: " + uncounted)
         for p in pending:
-            budget.ledger.add(int(p["hand_id"]), stamp, note="found in progress")
+            budget.ledger.add(_hand_id(p), stamp, note="found in progress")
         left_open = log.load_state().get("open_hand")
         logged = {r.get("hand_id") for r in records if r.get("type") in ("hand", "lost")}
         if left_open is not None and left_open not in logged and _find(pending, left_open) is None:
-            log.append({"type": "lost", "source": SOURCE, "use": USE, "hand_id": left_open,
-                        "time": _iso(now()), "bot": bot.name, "resumed": False, "decisions": [],
-                        "reason": "the last run stopped after this hand ended on the server and "
-                                  "before it was logged"})
+            log.append(_line("lost", now(), hand_id=left_open, bot=bot.name, resumed=False,
+                             decisions=[], unanswered=None, fallback=None,
+                             reason="the last run stopped after this hand ended on the server and "
+                                    "before it was logged"))
         used, left = budget.used(stamp), budget.left(stamp)
-        log.append({"type": "session", "source": SOURCE, "use": USE, "notice": NOTICE,
-                    "time": _iso(stamp), "event": "resume" if records else "start", "bot": bot.name,
-                    "bot_version": bot.version, "target_hands": target_hands,
-                    "hands_so_far": len(hands), "api": client.url, "game": client.game,
-                    "small_blind": SMALL_BLIND, "big_blind": BIG_BLIND, "stack": STACK,
-                    "min_interval_s": client.min_interval, "open_hands_found": len(pending),
-                    "caps": {w: budget.caps.of(w) for w in WINDOWS}, "used": used, "left": left})
+        log.append(_line("session", stamp, notice=NOTICE, event="resume" if records else "start",
+                         bot=bot.name, bot_version=bot.version, target_hands=target_hands,
+                         hands_so_far=len(hands), api=client.url, game=client.game,
+                         small_blind=SMALL_BLIND, big_blind=BIG_BLIND, stack=STACK,
+                         min_interval_s=client.min_interval, open_hands_found=len(pending),
+                         caps={w: budget.caps.of(w) for w in WINDOWS}, used=used, left=left))
         echo("hands left before a cap: " + ", ".join(f"{left[w]:,} this {w}" for w in WINDOWS)
              + (f"; finishing {len(pending)} hand(s) left open first" if pending else ""))
 
@@ -437,18 +529,25 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
                     stopped = ("rate_limited", client.scrub(e))
                     break
                 except Unsure as e:
-                    # The server may have dealt a hand. Count it, then look for it.
+                    # The server may have dealt a hand. Count it, then look for it. If it was dealt
+                    # and ended at once (GTO Wizard AI folded its small blind), nothing shows it
+                    # here: the note below and the hand counts in the results are the only trace.
                     budget.ledger.add(None, now(), note="no answer to a new hand request")
-                    log.append({"type": "note", "time": _iso(now()), "event": "new_hand_unanswered",
-                                "detail": client.scrub(e)})
+                    log.append(_line("note", now(), event="new_hand_unanswered",
+                                     detail=client.scrub(e)))
                     problems += 1
                     if problems >= MAX_PROBLEMS_IN_A_ROW:
                         raise
                     client.wait(problems - 1)
                     pending = client.in_progress()
                     continue
-                budget.ledger.add(int(resp["hand_id"]), now())
-            log.save_state({"open_hand": int(resp["hand_id"]), "hands": n})
+                try:
+                    dealt = _hand_id(resp)
+                except ProtocolError:  # a hand was dealt all the same: count it before stopping
+                    budget.ledger.add(None, now(), note="a new hand without a usable id")
+                    raise
+                budget.ledger.add(dealt, now())
+            log.save_state({"open_hand": _hand_id(resp), "hands": n})
             switched_before = reader.switched
             rec = play_hand(client, bot, resp, n + 1, reader, resumed=resumed, now=now)
             log.append(rec)
@@ -456,12 +555,16 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
             if reader.switched and not switched_before:
                 detail = ("the small blind acts first after the flop at this server, not the big "
                           "blind as in standard heads-up rules; hands are read that way from here on")
-                log.append({"type": "note", "time": _iso(now()), "event": "betting_order",
-                            "detail": detail})
+                log.append(_line("note", now(), event="betting_order", detail=detail))
                 echo("NOTE: " + detail)
             if rec["type"] == "lost":
                 problems += 1
                 echo(f"hand {rec['hand_id']} lost: {rec['reason']}")
+                if rec.get("fallback"):
+                    stopped = ("fallback", f"the bot could not play hand id {rec['hand_id']} "
+                                           f"({rec['fallback']}), and the hand then ended without "
+                                           f"its result being seen ({rec['reason']})")
+                    break
                 if problems >= MAX_PROBLEMS_IN_A_ROW:
                     stopped = ("problems", f"{problems} hands in a row went wrong; the last: "
                                            f"{rec['reason']}")
@@ -474,8 +577,8 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
                 echo(f"hand {n}: the server says {rec['winnings']:g}, our recomputation says "
                      f"{rec['computed_winnings']} ({rec['action']})")
             if rec["fallback"]:
-                stopped = ("fallback", f"hand {n} (id {rec['hand_id']}) was checked or folded to "
-                                       f"the end: {rec['fallback']}")
+                stopped = ("fallback", f"the bot did not play hand {n} (id {rec['hand_id']}) to the "
+                                       f"end: {rec['fallback']}")
                 break
             if progress_every and n % progress_every == 0:
                 scores = [h["aivat_score"] for h in hands if h.get("aivat_score") is not None]
@@ -486,7 +589,7 @@ def run_session(client: GTOWizardClient, bot: Bot, log_path: str, target_hands: 
                                   "the bot finishes it")
     except (GTOWizardError, ProtocolError) as e:
         stopped = ("error", client.scrub(e))
-        log.append({"type": "note", "time": _iso(now()), "event": "stopped", "detail": stopped[1]})
+        log.append(_line("note", now(), event="stopped", detail=stopped[1]))
 
     if hands and (stopped is None or stopped[0] != "error"):
         try:
