@@ -131,12 +131,26 @@ def split_cards(readings: List[CardReading], width: int, height: int) -> Tuple[L
         gaps = [b.box[0] - (a.box[0] + a.box[2]) for a, b in zip(row, row[1:])]
         return max(gaps) < 1.6 * med_h
 
+    def runs(row):
+        """The row cut where a wide gap opens or the card size changes. At showdown a player
+        beside the middle shows their cards on the board's line, smaller and apart from it:
+        seven cards in a row were no board at all, and the board cards were then taken for that
+        player's (a folded player at the top was read as still in)."""
+        out = [[row[0]]]
+        for a, b in zip(row, row[1:]):
+            gap = b.box[0] - (a.box[0] + a.box[2])
+            if gap < 1.6 * med_h and 0.85 <= b.box[3] / max(1, a.box[3]) <= 1.18:
+                out[-1].append(b)
+            else:
+                out.append([b])
+        return out
+
     board: List[CardReading] = []
     # board cards are all the same size: pieces of a card cut by something drawn over it
     # (43, 15 and 71 pixels wide) are not a board
-    candidates = [row for row in rows if 3 <= len(row) <= 5 and spread_ok(row)
-                  and max(r.box[2] for r in row) <= 1.35 * min(r.box[2] for r in row)
-                  and 0.18 * height <= np.mean([r.center[1] for r in row]) <= 0.75 * height]
+    candidates = [run for row in rows for run in runs(row) if 3 <= len(run) <= 5 and spread_ok(run)
+                  and max(r.box[2] for r in run) <= 1.35 * min(r.box[2] for r in run)
+                  and 0.18 * height <= np.mean([r.center[1] for r in run]) <= 0.75 * height]
     if candidates:
         board = min(candidates, key=lambda row: abs(np.mean([r.center[1] for r in row]) - 0.45 * height))
     rest = [r for r in readings if r not in board]

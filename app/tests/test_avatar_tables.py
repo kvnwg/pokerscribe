@@ -365,6 +365,19 @@ def test_face_up_cards_at_showdown_are_still_in_the_hand(rec):
 
 
 @needs_ocr
+def test_cards_shown_on_the_boards_line_are_not_the_board(rec):
+    """Showdown (self-test round 6): the player at the left side shows his cards on the board's
+    line, smaller. Seven cards in a row were no board at all, and the board cards were then
+    given to the nearest player: the folded player at the top was read as still in."""
+    board = ("Qd", "8s", "Ad", "Ac", "Jc")
+    view = table(folded=(0, 3, 4, 5), hero_cards=(), board=board, collected=390, button=1,
+                 shown={2: ("5h", "5c"), 1: ("9c", "Ah")})
+    res, seats = read(rec, view, "avatars")
+    assert len(res.layout.board) == 5 and len(res.layout.other_cards) == 4
+    assert [seats[i].has_cards for i in (1, 2, 3, 4, 5)] == [True, True, False, False, False]
+
+
+@needs_ocr
 def test_the_dealer_button_between_hands_is_not_card_backs(rec):
     """Between hands nobody has cards. The dealer button beside a picture, a solid disc
     differing from the felt, passed for plain grey card backs: that player looked in."""
