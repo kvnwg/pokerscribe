@@ -1,0 +1,29 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r01",
+  "street": "river",
+  "title": "Trivial: OOP holds only top set, IP holds only high-card air",
+  "tags": ["trivial", "dry"],
+  "board": ["Ks", "7d", "2c", "4h", "9s"],
+  "pot": 100,
+  "stacks": [100, 100],
+  "spr": 1.0,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.5], "raises": [], "allin": true},
+    "ip": {"bets": [0.5], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "KK",
+    "ip": "QJs,T8s,65s,63s"
+  },
+  "ranges": {
+    "oop": {"KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0},
+    "ip": {"QsJs": 1.0, "QhJh": 1.0, "QdJd": 1.0, "QcJc": 1.0, "Ts8s": 1.0, "Th8h": 1.0, "Td8d": 1.0, "Tc8c": 1.0, "6s5s": 1.0, "6h5h": 1.0, "6d5d": 1.0, "6c5c": 1.0, "6s3s": 1.0, "6h3h": 1.0, "6d3d": 1.0, "6c3c": 1.0}
+  },
+  "expected": [
+    {"nodes": "^x$", "actor": "ip", "action": "x", "min": 0.98, "why": "a bet with zero equity is only ever called or raised"},
+    {"nodes": "^b[0-9.]+$", "actor": "ip", "action": "f", "min": 0.98, "why": "calling with zero equity loses the call"}
+  ]
+}

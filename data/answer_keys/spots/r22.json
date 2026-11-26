@@ -1,0 +1,25 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r22",
+  "street": "river",
+  "title": "Dry KJ832, OOP polar lead with two sizes",
+  "tags": ["dry", "polar", "condensed"],
+  "board": ["Jc", "8d", "3s", "Ks", "2h"],
+  "pot": 100,
+  "stacks": [300, 300],
+  "spr": 3.0,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.75, 1.5], "raises": [], "allin": true},
+    "ip": {"bets": [0.5], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "KK,JJ,88,33,AK,KJs,K8s,QTs,T9s,A5s,A4s,54s,65s",
+    "ip": "QQ-99,KQ,KTs,AJs,QJs,JTs,J9s,98s"
+  },
+  "ranges": {
+    "oop": {"KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JhJd": 1.0, "8s8h": 1.0, "8s8c": 1.0, "8h8c": 1.0, "3h3d": 1.0, "3h3c": 1.0, "3d3c": 1.0, "AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "AsKh": 1.0, "AsKd": 1.0, "AsKc": 1.0, "AhKd": 1.0, "AhKc": 1.0, "AdKh": 1.0, "AdKc": 1.0, "AcKh": 1.0, "AcKd": 1.0, "KhJh": 1.0, "KdJd": 1.0, "Kh8h": 1.0, "Kc8c": 1.0, "QsTs": 1.0, "QhTh": 1.0, "QdTd": 1.0, "QcTc": 1.0, "Ts9s": 1.0, "Th9h": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "As5s": 1.0, "Ah5h": 1.0, "Ad5d": 1.0, "Ac5c": 1.0, "As4s": 1.0, "Ah4h": 1.0, "Ad4d": 1.0, "Ac4c": 1.0, "5s4s": 1.0, "5h4h": 1.0, "5d4d": 1.0, "5c4c": 1.0, "6s5s": 1.0, "6h5h": 1.0, "6d5d": 1.0, "6c5c": 1.0},
+    "ip": {"9s9h": 1.0, "9s9d": 1.0, "9s9c": 1.0, "9h9d": 1.0, "9h9c": 1.0, "9d9c": 1.0, "TsTh": 1.0, "TsTd": 1.0, "TsTc": 1.0, "ThTd": 1.0, "ThTc": 1.0, "TdTc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JhJd": 1.0, "QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0, "KhQh": 1.0, "KdQd": 1.0, "KcQc": 1.0, "KhQs": 1.0, "KhQd": 1.0, "KhQc": 1.0, "KdQs": 1.0, "KdQh": 1.0, "KdQc": 1.0, "KcQs": 1.0, "KcQh": 1.0, "KcQd": 1.0, "KhTh": 1.0, "KdTd": 1.0, "KcTc": 1.0, "AsJs": 1.0, "AhJh": 1.0, "AdJd": 1.0, "QsJs": 1.0, "QhJh": 1.0, "QdJd": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "Js9s": 1.0, "Jh9h": 1.0, "Jd9d": 1.0, "9s8s": 1.0, "9h8h": 1.0, "9c8c": 1.0}
+  }
+}

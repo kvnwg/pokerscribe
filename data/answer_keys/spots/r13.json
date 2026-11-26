@@ -1,0 +1,25 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r13",
+  "street": "river",
+  "title": "Wet JT982 three hearts, polar IP with two sizes",
+  "tags": ["wet", "polar", "condensed"],
+  "board": ["Jh", "Th", "8c", "9h", "2s"],
+  "pot": 100,
+  "stacks": [200, 200],
+  "spr": 2.0,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.33], "raises": [], "allin": true},
+    "ip": {"bets": [0.5, 1.0], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "AA-QQ,AJo,KJo,ATo,KTs,A9s,K9s,T9s,98s,J8s",
+    "ip": "KQ,QJs,Q9s,77,T7s,AKs,A5s,K5s,76s,65s,54s,22:0.5"
+  },
+  "ranges": {
+    "oop": {"QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0, "KsKh": 1.0, "KsKd": 1.0, "KsKc": 1.0, "KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "AsAh": 1.0, "AsAd": 1.0, "AsAc": 1.0, "AhAd": 1.0, "AhAc": 1.0, "AdAc": 1.0, "AsJd": 1.0, "AsJc": 1.0, "AhJs": 1.0, "AhJd": 1.0, "AhJc": 1.0, "AdJs": 1.0, "AdJc": 1.0, "AcJs": 1.0, "AcJd": 1.0, "KsJd": 1.0, "KsJc": 1.0, "KhJs": 1.0, "KhJd": 1.0, "KhJc": 1.0, "KdJs": 1.0, "KdJc": 1.0, "KcJs": 1.0, "KcJd": 1.0, "AsTd": 1.0, "AsTc": 1.0, "AhTs": 1.0, "AhTd": 1.0, "AhTc": 1.0, "AdTs": 1.0, "AdTc": 1.0, "AcTs": 1.0, "AcTd": 1.0, "KsTs": 1.0, "KdTd": 1.0, "KcTc": 1.0, "As9s": 1.0, "Ad9d": 1.0, "Ac9c": 1.0, "Ks9s": 1.0, "Kd9d": 1.0, "Kc9c": 1.0, "Ts9s": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "9s8s": 1.0, "9d8d": 1.0, "Js8s": 1.0, "Jd8d": 1.0},
+    "ip": {"KsQs": 1.0, "KhQh": 1.0, "KdQd": 1.0, "KcQc": 1.0, "KsQh": 1.0, "KsQd": 1.0, "KsQc": 1.0, "KhQs": 1.0, "KhQd": 1.0, "KhQc": 1.0, "KdQs": 1.0, "KdQh": 1.0, "KdQc": 1.0, "KcQs": 1.0, "KcQh": 1.0, "KcQd": 1.0, "QsJs": 1.0, "QdJd": 1.0, "QcJc": 1.0, "Qs9s": 1.0, "Qd9d": 1.0, "Qc9c": 1.0, "7s7h": 1.0, "7s7d": 1.0, "7s7c": 1.0, "7h7d": 1.0, "7h7c": 1.0, "7d7c": 1.0, "Ts7s": 1.0, "Td7d": 1.0, "Tc7c": 1.0, "AsKs": 1.0, "AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "As5s": 1.0, "Ah5h": 1.0, "Ad5d": 1.0, "Ac5c": 1.0, "Ks5s": 1.0, "Kh5h": 1.0, "Kd5d": 1.0, "Kc5c": 1.0, "7s6s": 1.0, "7h6h": 1.0, "7d6d": 1.0, "7c6c": 1.0, "6s5s": 1.0, "6h5h": 1.0, "6d5d": 1.0, "6c5c": 1.0, "5s4s": 1.0, "5h4h": 1.0, "5d4d": 1.0, "5c4c": 1.0, "2h2d": 0.5, "2h2c": 0.5, "2d2c": 0.5}
+  }
+}

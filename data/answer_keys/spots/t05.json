@@ -1,0 +1,29 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "t05",
+  "street": "turn",
+  "title": "Turn: dry KJ83, SPR 0.5",
+  "tags": ["dry", "polar", "condensed", "low-spr"],
+  "board": ["Jc", "8d", "3s", "Ks"],
+  "pot": 100,
+  "stacks": [50, 50],
+  "spr": 0.5,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.2], "raises": [], "allin": true},
+    "ip": {"bets": [0.2], "raises": [], "allin": true}
+  },
+  "river_sizes": {
+    "oop": {"bets": [0.2], "raises": [], "allin": true},
+    "ip": {"bets": [0.2], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "QQ-99,KTs,KQo,KJo,QJs,JTs,J9s,A8s,98s,T8s",
+    "ip": "AK,KK,JJ,88:0.5,KJs,QTs,T9s,A5s,A4s,76s"
+  },
+  "ranges": {
+    "oop": {"9s9h": 1.0, "9s9d": 1.0, "9s9c": 1.0, "9h9d": 1.0, "9h9c": 1.0, "9d9c": 1.0, "TsTh": 1.0, "TsTd": 1.0, "TsTc": 1.0, "ThTd": 1.0, "ThTc": 1.0, "TdTc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JhJd": 1.0, "QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0, "KhTh": 1.0, "KdTd": 1.0, "KcTc": 1.0, "KhQs": 1.0, "KhQd": 1.0, "KhQc": 1.0, "KdQs": 1.0, "KdQh": 1.0, "KdQc": 1.0, "KcQs": 1.0, "KcQh": 1.0, "KcQd": 1.0, "KhJs": 1.0, "KhJd": 1.0, "KdJs": 1.0, "KdJh": 1.0, "KcJs": 1.0, "KcJh": 1.0, "KcJd": 1.0, "QsJs": 1.0, "QhJh": 1.0, "QdJd": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "Js9s": 1.0, "Jh9h": 1.0, "Jd9d": 1.0, "As8s": 1.0, "Ah8h": 1.0, "Ac8c": 1.0, "9s8s": 1.0, "9h8h": 1.0, "9c8c": 1.0, "Ts8s": 1.0, "Th8h": 1.0, "Tc8c": 1.0},
+    "ip": {"AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "AsKh": 1.0, "AsKd": 1.0, "AsKc": 1.0, "AhKd": 1.0, "AhKc": 1.0, "AdKh": 1.0, "AdKc": 1.0, "AcKh": 1.0, "AcKd": 1.0, "KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JhJd": 1.0, "8s8h": 0.5, "8s8c": 0.5, "8h8c": 0.5, "KhJh": 1.0, "KdJd": 1.0, "QsTs": 1.0, "QhTh": 1.0, "QdTd": 1.0, "QcTc": 1.0, "Ts9s": 1.0, "Th9h": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "As5s": 1.0, "Ah5h": 1.0, "Ad5d": 1.0, "Ac5c": 1.0, "As4s": 1.0, "Ah4h": 1.0, "Ad4d": 1.0, "Ac4c": 1.0, "7s6s": 1.0, "7h6h": 1.0, "7d6d": 1.0, "7c6c": 1.0}
+  }
+}

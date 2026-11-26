@@ -1,0 +1,29 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "t08",
+  "street": "turn",
+  "title": "Turn: wet 8754 two diamonds",
+  "tags": ["wet", "polar", "condensed"],
+  "board": ["8d", "7d", "5s", "4c"],
+  "pot": 100,
+  "stacks": [200, 200],
+  "spr": 2.0,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.33], "raises": [], "allin": true},
+    "ip": {"bets": [0.33], "raises": [], "allin": true}
+  },
+  "river_sizes": {
+    "oop": {"bets": [0.5], "raises": [], "allin": true},
+    "ip": {"bets": [0.5], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "AA-88,A8s,A7s,K8s,Q8s,J8s,T8s,98s,87s",
+    "ip": "63s,96s,T9s,65s,AKs,KQs,QJs,22,44,55"
+  },
+  "ranges": {
+    "oop": {"8s8h": 1.0, "8s8c": 1.0, "8h8c": 1.0, "9s9h": 1.0, "9s9d": 1.0, "9s9c": 1.0, "9h9d": 1.0, "9h9c": 1.0, "9d9c": 1.0, "TsTh": 1.0, "TsTd": 1.0, "TsTc": 1.0, "ThTd": 1.0, "ThTc": 1.0, "TdTc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JsJc": 1.0, "JhJd": 1.0, "JhJc": 1.0, "JdJc": 1.0, "QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0, "KsKh": 1.0, "KsKd": 1.0, "KsKc": 1.0, "KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "AsAh": 1.0, "AsAd": 1.0, "AsAc": 1.0, "AhAd": 1.0, "AhAc": 1.0, "AdAc": 1.0, "As8s": 1.0, "Ah8h": 1.0, "Ac8c": 1.0, "As7s": 1.0, "Ah7h": 1.0, "Ac7c": 1.0, "Ks8s": 1.0, "Kh8h": 1.0, "Kc8c": 1.0, "Qs8s": 1.0, "Qh8h": 1.0, "Qc8c": 1.0, "Js8s": 1.0, "Jh8h": 1.0, "Jc8c": 1.0, "Ts8s": 1.0, "Th8h": 1.0, "Tc8c": 1.0, "9s8s": 1.0, "9h8h": 1.0, "9c8c": 1.0, "8s7s": 1.0, "8h7h": 1.0, "8c7c": 1.0},
+    "ip": {"6s3s": 1.0, "6h3h": 1.0, "6d3d": 1.0, "6c3c": 1.0, "9s6s": 1.0, "9h6h": 1.0, "9d6d": 1.0, "9c6c": 1.0, "Ts9s": 1.0, "Th9h": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "6h5h": 1.0, "6d5d": 1.0, "6c5c": 1.0, "AsKs": 1.0, "AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "KsQs": 1.0, "KhQh": 1.0, "KdQd": 1.0, "KcQc": 1.0, "QsJs": 1.0, "QhJh": 1.0, "QdJd": 1.0, "QcJc": 1.0, "2s2h": 1.0, "2s2d": 1.0, "2s2c": 1.0, "2h2d": 1.0, "2h2c": 1.0, "2d2c": 1.0, "4s4h": 1.0, "4s4d": 1.0, "4h4d": 1.0, "5h5d": 1.0, "5h5c": 1.0, "5d5c": 1.0}
+  }
+}

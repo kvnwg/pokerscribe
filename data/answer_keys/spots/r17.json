@@ -1,0 +1,25 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r17",
+  "street": "river",
+  "title": "Wet T9763 three clubs, SPR 5, three IP sizes",
+  "tags": ["wet", "polar", "condensed", "raise-size", "three-sizes"],
+  "board": ["Tc", "9c", "7d", "6c", "3h"],
+  "pot": 100,
+  "stacks": [500, 500],
+  "spr": 5.0,
+  "max_raises": 1,
+  "sizes": {
+    "oop": {"bets": [0.5], "raises": [0.5], "allin": true},
+    "ip": {"bets": [0.5, 1.0, 2.0], "raises": [0.5], "allin": true}
+  },
+  "range_text": {
+    "oop": "AT,KT,QTs,JTs,TT:0.25,A9s,K9s,Q9s,AA-JJ",
+    "ip": "J8s,85s,98s,87s,AKs,AQs,KQs,A5s,54s,42s,TT,99:0.5"
+  },
+  "ranges": {
+    "oop": {"AsTs": 1.0, "AhTh": 1.0, "AdTd": 1.0, "AsTh": 1.0, "AsTd": 1.0, "AhTs": 1.0, "AhTd": 1.0, "AdTs": 1.0, "AdTh": 1.0, "AcTs": 1.0, "AcTh": 1.0, "AcTd": 1.0, "KsTs": 1.0, "KhTh": 1.0, "KdTd": 1.0, "KsTh": 1.0, "KsTd": 1.0, "KhTs": 1.0, "KhTd": 1.0, "KdTs": 1.0, "KdTh": 1.0, "KcTs": 1.0, "KcTh": 1.0, "KcTd": 1.0, "QsTs": 1.0, "QhTh": 1.0, "QdTd": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "TsTh": 0.25, "TsTd": 0.25, "ThTd": 0.25, "As9s": 1.0, "Ah9h": 1.0, "Ad9d": 1.0, "Ks9s": 1.0, "Kh9h": 1.0, "Kd9d": 1.0, "Qs9s": 1.0, "Qh9h": 1.0, "Qd9d": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JsJc": 1.0, "JhJd": 1.0, "JhJc": 1.0, "JdJc": 1.0, "QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0, "KsKh": 1.0, "KsKd": 1.0, "KsKc": 1.0, "KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "AsAh": 1.0, "AsAd": 1.0, "AsAc": 1.0, "AhAd": 1.0, "AhAc": 1.0, "AdAc": 1.0},
+    "ip": {"Js8s": 1.0, "Jh8h": 1.0, "Jd8d": 1.0, "Jc8c": 1.0, "8s5s": 1.0, "8h5h": 1.0, "8d5d": 1.0, "8c5c": 1.0, "9s8s": 1.0, "9h8h": 1.0, "9d8d": 1.0, "8s7s": 1.0, "8h7h": 1.0, "8c7c": 1.0, "AsKs": 1.0, "AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "AsQs": 1.0, "AhQh": 1.0, "AdQd": 1.0, "AcQc": 1.0, "KsQs": 1.0, "KhQh": 1.0, "KdQd": 1.0, "KcQc": 1.0, "As5s": 1.0, "Ah5h": 1.0, "Ad5d": 1.0, "Ac5c": 1.0, "5s4s": 1.0, "5h4h": 1.0, "5d4d": 1.0, "5c4c": 1.0, "4s2s": 1.0, "4h2h": 1.0, "4d2d": 1.0, "4c2c": 1.0, "TsTh": 1.0, "TsTd": 1.0, "ThTd": 1.0, "9s9h": 0.5, "9s9d": 0.5, "9h9d": 0.5}
+  }
+}
