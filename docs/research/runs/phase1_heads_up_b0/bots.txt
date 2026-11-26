@@ -1,0 +1,11 @@
+heads-up, mixed, 2500 hands, seed 3
+lag      big blind facing an open   112 decisions: call 5%, fold 84%, raise 11%
+lag      button, first in           269 decisions: call 6%, fold 68%, raise 26%
+maniac   big blind facing an open   111 decisions: call 10%, fold 67%, raise 23%
+maniac   button, first in           261 decisions: call 13%, fold 43%, raise 45%
+nit      big blind facing an open   106 decisions: call 3%, fold 92%, raise 5%
+nit      button, first in           223 decisions: call 4%, fold 83%, raise 14%
+station  big blind facing an open    99 decisions: call 32%, fold 66%, raise 2%
+station  button, first in           249 decisions: call 42%, fold 51%, raise 7%
+tag      big blind facing an open   123 decisions: call 6%, fold 85%, raise 9%
+tag      button, first in           248 decisions: call 1%, fold 81%, raise 18%

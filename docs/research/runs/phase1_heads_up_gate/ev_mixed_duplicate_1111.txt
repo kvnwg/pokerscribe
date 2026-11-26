@@ -1,0 +1,3 @@
+mixed     base   +33.8 (±  9.6)  other   +40.0 (± 10.9)  difference   +6.3 ±  4.2  luck-adjusted   +6.3 ±  4.2 (checked down only   +6.3 ±  4.2) bb/100  [178/3000 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   +3.8 ±  2.2 (raw   +4.6 ±  2.1)
+ALL       difference   +6.3 ±  4.2  luck-adjusted   +6.3 ±  4.2  replayed 6 times   +3.8 ±  2.2 bb/100 over 3000 hands, duplicate (364s)

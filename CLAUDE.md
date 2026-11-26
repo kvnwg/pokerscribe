@@ -46,11 +46,12 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
-- `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons. By default a
-  comparison deals duplicate decks and replays each hand that differs 6 times from where the
-  variants part, dealing the opponents fresh hands they could have held: use the "replayed 6 times"
-  figure. `--method classic` rebuilds results from before Phase 1; `--jobs 4` splits a run over
-  processes with identical results.
+- `tools/simulate.py`, `tools/compare.py`: the simulator (six-max, or heads-up with `--players 2`)
+  and paired comparisons. By default a comparison deals duplicate decks (heads-up: each deal twice
+  with the seats swapped) and replays each hand that differs 6 times from where the variants part,
+  dealing the opponents fresh hands they could have held: use the "replayed 6 times" figure.
+  `--method classic` rebuilds results from before Phase 1; `--jobs 4` splits a run over processes
+  with identical results.
 - `tools/luck.py`: the AIVAT-style luck adjustment for board cards. `tools/hidden.py`: the opponents'
   classes (what they could hold), the redeal, and AIVAT's imaginary observations (`--hidden`).
 - `tools/weakness.py`: ranks the spots where another move would have won more; `--check-flaws`
@@ -83,7 +84,7 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
 `docs/research/README.md`, along with what's shelved.
 
 - Phase 0 is done: correct inputs, capture log, frozen B0.
-- Phase 1 is almost done: duplicate deals, luck adjustment, heads-up simulator mode. Its gate is
+- Phase 1 is built: duplicate deals, luck adjustment, heads-up simulator mode. Its gate is
   standard error at least halved and B0 playing heads-up.
   Built (for the old roadmap's Phase 1): duplicate deals, the luck adjustment, replays that
   redeal the opponents, AIVAT imaginary observations, held-out tables and the weakness report.
@@ -93,8 +94,19 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of classic on the four
   sizing comparisons and 0.16 on `push_chart`. The "replayed 6 times" figure was checked
   against the raw difference on large runs: no bias (pre-registered, 48000 new hands; a gap on
-  the gate runs' hands was luck in the raw figure; `experiments.md`, Phase 1 check). Not built
-  yet: the heads-up simulator mode (`tools/simulate.py` is six-max only).
+  the gate runs' hands was luck in the raw figure; `experiments.md`, Phase 1 check).
+  The heads-up mode came last (`--players 2` in `tools/simulate.py` and `tools/compare.py`, each
+  deal played twice with the seats swapped; `experiments.md`, Phase 1: the heads-up mode). B0
+  plays heads-up with no always-wrong instruction in 37629 instructions, and six-max plays exactly
+  as before.
+  Its gate run (pre-registered, run 5's rule, seeds 1111 to 1414) gave a geometric mean of 0.38
+  and a largest r of 0.53, but 1.41 times the CPU (bar 1.25): it fails as written, on CPU only.
+  Whether that is good enough is Kevin's call, as with run 5. The bots keep their six-max
+  styles, so heads-up they fold a lot and B0 beats every table. Not built: head-to-head play
+  (two agents against each other heads-up), which Phase 6 will need.
+- Found by the heads-up work, not fixed (it would change six-max instructions): B0 can say a
+  bet under the minimum in a tiny pot (BET 1.5 into two big blinds, six-max, 1 in 2038
+  instructions). A bug fix with a regression test.
 - Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
   closed-form and published results, with p95 decision time under 400 ms. They are now the
   reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.
