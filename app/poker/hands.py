@@ -32,7 +32,9 @@ def evaluate(hole: Sequence[str], board: Sequence[str]) -> int:
 
 
 def category(hole: Sequence[str], board: Sequence[str]) -> int:
-    return _EVAL.get_rank_class(evaluate(hole, board))
+    """Hand class, 1 (straight flush, royal included) .. 9 (high card), as in CATEGORY and
+    board_category. (treys gives a royal flush class 0 of its own.)"""
+    return max(1, _EVAL.get_rank_class(evaluate(hole, board)))
 
 
 def _straight_high(ranks: set) -> Optional[int]:

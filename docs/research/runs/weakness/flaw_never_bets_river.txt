@@ -1,0 +1,6 @@
+never_bets_river: costs -20.1 ± 12.7 bb/100 (not a significant cost); its spot at 11 (Never bets the river when checked to: no value bets, no bluffs.)
+     river, checked to: it chose check; a big bet or raise gains +13.9 ± 11.1 bb/100 (+2.06 bb a decision, 89 decisions); most with nothing (+4.4 bb/100)
+     top 1: preflop, facing a 3-bet+: it chose call; a big bet or raise gains +32.2 ± 16.0 bb/100 (+29.75 bb a decision, 18 decisions); most with top 5% (+25.9 bb/100)
+     top 2: flop, checked to: it chose bet; a big bet or raise gains +8.1 ± 3.2 bb/100 (+1.77 bb a decision, 55 decisions); most with pair + draw (+4.0 bb/100)
+     top 3: preflop, limpers: it chose check; a big bet or raise gains +6.1 ± 2.8 bb/100 (+2.22 bb a decision, 33 decisions); most with rest (+4.6 bb/100)
+0 of 0 planted flaws that cost money are in the top 10 (916s)

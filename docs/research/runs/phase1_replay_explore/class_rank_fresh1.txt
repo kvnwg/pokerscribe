@@ -1,0 +1,6 @@
+preflop   all       n= 614 mean 0.499 ± 0.012 (-0.09 SE vs 0.5)  fifths [124, 120, 116, 133, 121]
+preflop   heads-up  n= 394 mean 0.500 ± 0.015 (+0.00 SE vs 0.5)  fifths [77, 78, 77, 83, 79]
+preflop   multiway  n= 220 mean 0.497 ± 0.019 (-0.16 SE vs 0.5)  fifths [47, 42, 39, 50, 42]
+strength  all       n= 614 mean 0.491 ± 0.012 (-0.80 SE vs 0.5)  fifths [132, 120, 124, 120, 118]
+strength  heads-up  n= 394 mean 0.491 ± 0.015 (-0.59 SE vs 0.5)  fifths [87, 76, 83, 70, 78]
+strength  multiway  n= 220 mean 0.490 ± 0.018 (-0.56 SE vs 0.5)  fifths [45, 44, 41, 50, 40]

@@ -1,0 +1,43 @@
+  300 hands, 283 decisions replayed, 190s
+  600 hands, 551 decisions replayed, 359s
+  900 hands, 818 decisions replayed, 490s
+  1200 hands, 1067 decisions replayed, 606s
+mixed table, seed 11, 1200 hands: +37.4 bb/100 raw, +31.3 luck-adjusted
+Where a different move gains most (top 15 of 1067 decisions replayed):
+  1. preflop, facing a 3-bet+: it chose call; a big bet or raise gains +32.0 ± 15.6 bb/100 (+29.55 bb a decision, 18 decisions); most with top 5% (+25.7 bb/100)
+  2. flop, checked to: it chose bet; a big bet or raise gains +16.7 ± 5.5 bb/100 (+3.65 bb a decision, 55 decisions); most with pair + draw (+4.0 bb/100)
+  3. preflop, limpers: it chose fold; a small bet or raise gains +7.4 ± 3.0 bb/100 (+0.82 bb a decision, 108 decisions); most with top 35% (+3.0 bb/100)
+  4. preflop, limpers: it chose check; a big bet or raise gains +6.4 ± 2.8 bb/100 (+2.33 bb a decision, 33 decisions); most with rest (+4.3 bb/100)
+  5. preflop, facing a 3-bet+: it chose raise; check or call gains +5.2 ± 3.1 bb/100 (+12.38 bb a decision, 5 decisions)
+  6. preflop, first in: it chose raise; a small bet or raise gains +0.1 ± 0.1 bb/100 (+0.11 bb a decision, 136 decisions); most with top 5% (+17.1 bb/100)
+  7. river, facing a bet: it chose fold; a small bet or raise gains +11.0 ± 7.5 bb/100 (+16.49 bb a decision, 12 decisions); most with pair (+4.1 bb/100)
+  8. turn, checked to: it chose bet; a big bet or raise gains +6.6 ± 5.0 bb/100 (+2.21 bb a decision, 36 decisions); most with draw (+0.0 bb/100)
+  9. preflop, limpers: it chose raise; a small bet or raise gains +1.9 ± 1.9 bb/100 (+0.98 bb a decision, 23 decisions); most with top 15% (+4.9 bb/100)
+ 10. turn, facing a bet: it chose fold; a small bet or raise gains +13.1 ± 9.4 bb/100 (+14.30 bb a decision, 11 decisions); most with nothing (+10.5 bb/100)
+ 11. turn, facing a bet: it chose call; a big bet or raise gains +6.9 ± 5.9 bb/100 (+16.58 bb a decision, 15 decisions); most with pair + draw (+8.3 bb/100)
+ 12. flop, facing a bet: it chose call; all in gains +19.8 ± 15.1 bb/100 (+39.69 bb a decision, 24 decisions); most with pair + draw (+1.1 bb/100)
+ 13. river, checked to: it chose bet; all in gains +5.7 ± 6.1 bb/100 (+13.80 bb a decision, 19 decisions); most with two pair or trips (+1.5 bb/100)
+ 14. preflop, limpers: it chose call; a big bet or raise gains +0.6 ± 2.7 bb/100 (+0.38 bb a decision, 20 decisions); most with top 35% (+0.9 bb/100)
+ 15. flop, facing a bet: it chose fold; check or call gains +2.6 ± 5.4 bb/100 (+1.08 bb a decision, 29 decisions); most with nothing (+0.0 bb/100)
+Luck-adjusted by position:
+     BB                             200 hands     -49.3 bb  (-4.1 bb/100 of all hands)
+     BTN                            200 hands      +3.2 bb  (+0.3 bb/100 of all hands)
+     CO                             200 hands     +45.9 bb  (+3.8 bb/100 of all hands)
+     HJ                             200 hands     +82.8 bb  (+6.9 bb/100 of all hands)
+     UTG                            200 hands    +119.8 bb  (+10.0 bb/100 of all hands)
+     SB                             200 hands    +173.7 bb  (+14.5 bb/100 of all hands)
+Luck-adjusted by pot type:
+     4-bet+                          79 hands     -14.4 bb  (-1.2 bb/100 of all hands)
+     limped                         212 hands      -9.8 bb  (-0.8 bb/100 of all hands)
+     3-bet                          139 hands    +122.2 bb  (+10.2 bb/100 of all hands)
+     raised                         770 hands    +278.2 bb  (+23.2 bb/100 of all hands)
+Luck-adjusted by line (f fold, c check or call, b bet, r raise, a all in), biggest losses first, lines seen 10+ times:
+     f                              885 hands    -198.5 bb  (-16.5 bb/100 of all hands)
+     rf                              38 hands    -185.5 bb  (-15.5 bb/100 of all hands)
+     -                               10 hands      +5.0 bb  (+0.4 bb/100 of all hands)
+     c / c / c / c                   33 hands     +28.3 bb  (+2.4 bb/100 of all hands)
+     r / c / c / c                   16 hands     +31.8 bb  (+2.7 bb/100 of all hands)
+     c / cf                          18 hands     +32.2 bb  (+2.7 bb/100 of all hands)
+     r / b                           19 hands     +62.1 bb  (+5.2 bb/100 of all hands)
+     r                               65 hands    +114.2 bb  (+9.5 bb/100 of all hands)
+(606s)
