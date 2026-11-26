@@ -86,12 +86,22 @@ jobs:
           python -m pip install -r requirements-dev.txt -r tools/phh/requirements.txt
           python -m pip freeze
 
+      # Two test files need the Rust engine built and are skipped without it:
+      # test_engine_bindings.py imports the Python module pokerscribe_engine, and
+      # test_solver_rust_backend.py runs the solver program subgame-solve. These are the same
+      # two builds setup_mac.sh does when Rust is installed (Rust is already on the runner).
+      - name: Build the Rust engine for the Python tests
+        run: |
+          rustc --version
+          python -m pip install ./engine/crates/py
+          cargo build --release --bin subgame-solve --manifest-path engine/Cargo.toml
+
       - name: python -m pytest
         run: python -m pytest -rfEs --durations=15 --junitxml="$RUNNER_TEMP/pytest.xml"
 
       # Several tests skip themselves when a program or package is missing (Xvfb, RapidOCR,
-      # Tesseract, PokerKit). Everything they need is installed above, so a skip here means
-      # this workflow no longer tests what it should, and the run fails.
+      # Tesseract, PokerKit, the Rust engine). Everything they need is installed above, so a
+      # skip here means this workflow no longer tests what it should, and the run fails.
       - name: No test may be skipped
         if: ${{ !cancelled() }}
         run: |

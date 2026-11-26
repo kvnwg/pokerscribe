@@ -249,7 +249,7 @@ GitHub Actions tests every pull request and every push to `main`. The workflows 
 | Python (`python.yml`) | `python -m pytest`, once on Python 3.12 and once on 3.13 | every pull request, every push to `main` |
 | Rust slow tests (`rust-slow.yml`) | `cargo test --release -- --ignored` | every night, and on demand: Actions tab, "Rust slow tests", "Run workflow" |
 
-All three run on Linux. The Python check installs what the tests need there: a virtual display (Xvfb), the libraries PySide6 loads, Tesseract, PokerKit and the fonts the test tables are drawn with. It fails if any test is skipped. No test needs macOS (Apple's text reader is tested through a stand-in), so nothing runs on the more expensive macOS machines.
+All three run on Linux. The Python check installs what the tests need there: a virtual display (Xvfb), the libraries PySide6 loads, Tesseract, PokerKit and the fonts the test tables are drawn with. It also builds the Rust engine the way `setup_mac.sh` does (the Python module `pokerscribe_engine` and the solver program `subgame-solve`). It fails if any test is skipped. No test needs macOS (Apple's text reader is tested through a stand-in), so nothing runs on the more expensive macOS machines.
 
 A red check means a test failed. Fix the cause: never skip, disable or loosen a test to turn a check green.
 
