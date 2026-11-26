@@ -60,7 +60,8 @@ def deal(k: int, method: str) -> tuple:
 
 
 def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0, stacks: str = "even",
-           profiles: bool = False, method: str = "classic", adjust: bool = True, adjust_all: bool = False):
+           profiles: bool = False, method: str = "classic", adjust: bool = True, adjust_all: bool = False,
+           start: int = 0, resample: int = 1):
     """With profiles, the app learns the bots' styles from the hands as in watch mode. They are
     learned from the base variant's hands; a replayed hand starts from the same profiles.
 
@@ -69,17 +70,27 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
     luck-adjusted differences, tools/luck.py), "checked_down" (the same with the checked-down
     value only), "x" (each hand's all-in features, other minus base) and "weights"
     (luck.WEIGHTS, fixed). With adjust_all, "base_adjusted" and "other_adjusted": each hand's
-    luck-adjusted result for each variant."""
+    luck-adjusted result for each variant. start: play hands start .. start + n - 1 (a shard
+    of a longer run; see run_paired).
+
+    resample K > 1 (duplicate or keyed, no profiles): each hand where the variants part ways
+    is also played K - 1 more times from the first decision where they differ, with fresh
+    bot random numbers and fresh board cards still to come (the same for both variants in
+    each replay), and extra["resampled"] is the average luck-adjusted difference over the K
+    plays (extra["resampled_raw"] the same without the luck adjustment). Which hands get
+    replayed depends only on what happened before they part, so the average has the same
+    expected value as one play."""
     assert method in METHODS, method
+    assert resample <= 1 or (method != "classic" and not profiles), "resample needs keyed bots and no profiles"
     sa, sb = new_stats(base, other), new_stats(other)
     diffs, replayed = [], 0
     zero = [0.0] * (1 + luck.N_FEATURES)
     extra = {"decks": [], "adjusted": [], "checked_down": [], "x": [], "weights": [],
-             "base_adjusted": [], "other_adjusted": []}
+             "base_adjusted": [], "other_adjusted": [], "resampled": [], "resampled_raw": []}
     base_y, base_x = [], []
     prof = sim.new_profiles() if profiles else None
     sa["profiles"] = prof
-    for k in range(n):
+    for k in range(start, start + n):
         d, r = deal(k, method)
         styles, names = sim.seating(table, seed, d)
         hand_seed = seed * 100003 + d
@@ -101,6 +112,22 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
         else:
             net_b = net_a
             sb["hands"].append(net_b)
+        if resample > 1:
+            raw_s, adj_s = [net_b - net_a], [luck.adjust(net_b - net_a, fd)]
+            if sa["diverged"]:
+                j = rec_a["diverge_at"]
+                for salt in range(1, resample):
+                    recs = []
+                    for v in (base, other):
+                        st = new_stats(v)
+                        sim.play_hand(styles, d % 6, hand_seed, 0, depth_bb, st, stacks, names, None, k + 1,
+                                      rotate=r, keyed=keyed, split_at=j, resample=salt)
+                        recs.append(st["last"])
+                    raw_s.append(recs[1]["net"] - recs[0]["net"])
+                    f0, f1 = luck.features(recs[0]), luck.features(recs[1])
+                    adj_s.append(luck.adjust(raw_s[-1], [b - a for a, b in zip(f0, f1)]))
+            extra["resampled_raw"].append(sum(raw_s) / len(raw_s))
+            extra["resampled"].append(sum(adj_s) / len(adj_s))
         diffs.append(net_b - net_a)
         extra["decks"].append(d)
         if adjust:
@@ -116,6 +143,47 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
         extra["base_adjusted"] = [luck.adjust(y, [0.0] + x) for y, x in zip(base_y, base_x)]
         extra["other_adjusted"] = [a + (dd if adjust else raw) for a, dd, raw in
                                    zip(extra["base_adjusted"], extra["adjusted"] or diffs, diffs)]
+    return sa, sb, diffs, replayed, extra
+
+
+def _paired_star(args):
+    return paired(*args[:-2], start=args[-2], resample=args[-1])
+
+
+def run_paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: float = 100.0,
+               stacks: str = "even", profiles: bool = False, method: str = "classic", adjust: bool = True,
+               adjust_all: bool = False, jobs: int = 1, resample: int = 1):
+    """paired() split over `jobs` processes by whole decks and merged; the result is the same
+    hand for hand. With profiles the hands depend on the ones before, so it runs in one."""
+    if jobs <= 1 or profiles or n < 12:
+        return paired(base, other, n, table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all,
+                      resample=resample)
+    from concurrent.futures import ProcessPoolExecutor
+
+    chunk = -(-n // jobs)
+    chunk += (-chunk) % 6  # whole decks
+    starts = list(range(0, n, chunk))
+    args = [(base, other, min(chunk, n - st), table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all, st,
+             resample) for st in starts]
+    with ProcessPoolExecutor(max_workers=jobs) as ex:
+        parts = list(ex.map(_paired_star, args))
+    sa, sb, diffs, replayed, extra = parts[0]
+    for pa, pb, d, rep_, ex_ in parts[1:]:
+        for mine, theirs in ((sa, pa), (sb, pb)):
+            for key, val in theirs.items():
+                if isinstance(val, list) and isinstance(mine.get(key), list):
+                    mine[key] += val
+                elif isinstance(val, dict) and isinstance(mine.get(key), dict) and key not in ("variant", "shadow",
+                                                                                               "last"):
+                    for kk, vv in val.items():
+                        mine[key][kk] = mine[key][kk] + vv if kk in mine[key] else vv
+        diffs += d
+        replayed += rep_
+        for key, val in ex_.items():
+            if key == "weights":
+                continue
+            extra[key] += val
+    sa["examples"] = sa["examples"][:25]
     return sa, sb, diffs, replayed, extra
 
 
@@ -152,19 +220,24 @@ def main():
     ap.add_argument("--adjust-all", action="store_true",
                     help="also luck-adjust every hand, for luck-adjusted win rates of each variant")
     ap.add_argument("--save", help="write every hand's differences to this JSON file (for later analysis)")
+    ap.add_argument("--resample", type=int, default=1,
+                    help="play each hand where the variants differ this many times from where they part")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="processes to split the hands over (same results; not with --profiles)")
     a = ap.parse_args()
     if a.method == "duplicate" and a.hands % 6:
         a.hands += 6 - a.hands % 6  # whole decks
         print(f"(rounded up to {a.hands} hands: six per deck)")
     base, other = json.loads(a.base), json.loads(a.other)
     adjust = not a.no_luck
-    total, total_adj, total_units = [], [], []
+    total, total_adj, total_units, total_res = [], [], [], []
     saved = {"args": vars(a), "tables": {}}
     t0 = time.time()
     for table in a.tables.split(","):
         t_table = time.time()
-        sa, sb, diffs, replayed, extra = paired(base, other, a.hands, table, a.seed, 500.0 if a.deep else 100.0,
-                                                a.stacks, a.profiles, a.method, adjust, a.adjust_all)
+        sa, sb, diffs, replayed, extra = run_paired(base, other, a.hands, table, a.seed, 500.0 if a.deep else 100.0,
+                                                    a.stacks, a.profiles, a.method, adjust, a.adjust_all, a.jobs,
+                                                    a.resample)
         units = extra["decks"] if a.method == "duplicate" else None
         wa, ea = summary(sa["hands"], units)
         wb, eb = summary(sb["hands"], units)
@@ -180,6 +253,12 @@ def main():
             line += f"  luck-adjusted {ad:+6.1f} ± {ade:4.1f} (checked down only {cd:+6.1f} ± {cde:4.1f})"
         probs = dict(sa["problems"]) or "none"
         print(f"{line} bb/100  [{replayed}/{a.hands} hands differ, problems {probs}]", flush=True)
+        if a.resample > 1:
+            rs, rse = summary(extra["resampled"], units)
+            rr, rre = summary(extra["resampled_raw"], units)
+            total_res += extra["resampled"]
+            print(f"          replayed {a.resample} times from where they part: luck-adjusted {rs:+6.1f} ± {rse:4.1f} "
+                  f"(raw {rr:+6.1f} ± {rre:4.1f})", flush=True)
         if a.adjust_all:
             xa, xea = summary(extra["base_adjusted"], units)
             xb, xeb = summary(extra["other_adjusted"], units)
@@ -189,6 +268,7 @@ def main():
             print("          styles learned: " + sim.profile_report(sa["profiles"], table), flush=True)
         saved["tables"][table] = {"diffs": diffs, "adjusted": extra["adjusted"], "decks": extra["decks"],
                                   "checked_down": extra["checked_down"], "x": extra["x"], "weights": extra["weights"],
+                                  "resampled": extra["resampled"], "resampled_raw": extra["resampled_raw"],
                                   "base": sa["hands"], "other": sb["hands"], "replayed": replayed,
                                   "base_adjusted": extra["base_adjusted"], "other_adjusted": extra["other_adjusted"],
                                   "seconds": time.time() - t_table}
@@ -201,6 +281,9 @@ def main():
     if adjust:
         ad, ade = summary(total_adj, units)
         line += f"  luck-adjusted {ad:+6.1f} ± {ade:4.1f}"
+    if total_res:
+        rs, rse = summary(total_res, units)
+        line += f"  replayed {a.resample} times {rs:+6.1f} ± {rse:4.1f}"
     print(f"{line} bb/100 over {len(total)} hands, {a.method} ({time.time() - t0:.0f}s)")
 
 

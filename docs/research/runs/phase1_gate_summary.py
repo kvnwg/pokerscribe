@@ -5,7 +5,8 @@ the gate is judged on, and run times.
 
 Two luck adjustments are reported: "checked down" (the checked-down value only, the
 meaning of "luck-adjusted" in run 1) and "fitted" (tools/luck.py's mix with the all-in value,
-frozen weights, run 2). Runs saved before the fitted mix existed only have the first.
+frozen weights, run 2), and "resampled" (the fitted adjustment averaged over replays from
+where the variants part, run 3). Runs saved before an estimator existed lack it.
 """
 import glob
 import json
@@ -26,9 +27,11 @@ for path in sorted(glob.glob(os.path.join(out, "*.json"))):
     units = t["decks"] if method == "duplicate" else None
     checked = t.get("checked_down") or t["adjusted"]
     fitted = t["adjusted"] if t.get("checked_down") else None
+    resampled = t.get("resampled") or None
     runs[(name, method)] = {
         "raw": summary(t["diffs"], units), "checked": summary(checked, units),
         "fitted": summary(fitted, units) if fitted else None, "base": summary(t["base"], units),
+        "resampled": summary(resampled, units) if resampled else None,
         "replayed": t["replayed"], "hands": len(t["diffs"]), "seconds": t["seconds"], "weights": t.get("weights")}
 
 
@@ -37,15 +40,16 @@ def fmt(x):
 
 
 names = sorted({n for n, _ in runs})
-print("| Comparison | Method | Hands | Differ | Raw difference | Checked down | Fitted | Base win rate | Seconds |")
-print("|---|---|---|---|---|---|---|---|---|")
+print("| Comparison | Method | Hands | Differ | Raw difference | Checked down | Fitted | Resampled | Base win rate | "
+      "Seconds |")
+print("|---|---|---|---|---|---|---|---|---|---|")
 for n in names:
     for m in ("classic", "keyed", "duplicate"):
         r = runs.get((n, m))
         if r is None:
             continue
         print(f"| {n} | {m} | {r['hands']} | {r['replayed']} | {fmt(r['raw'])} | {fmt(r['checked'])} | "
-              f"{fmt(r['fitted'])} | {fmt(r['base'])} | {r['seconds']:.0f} |")
+              f"{fmt(r['fitted'])} | {fmt(r['resampled'])} | {fmt(r['base'])} | {r['seconds']:.0f} |")
 
 
 def ratios_table(which: str):
@@ -57,6 +61,9 @@ def ratios_table(which: str):
     for n in names:
         c, k, d = runs.get((n, "classic")), runs.get((n, "keyed")), runs.get((n, "duplicate"))
         if c is None or d is None or d[which] is None:
+            continue
+        if d["replayed"] == 0:
+            print(f"| {n} | - | - | - | - | (no hand differs: left out) | - |")
             continue
         base = c["raw"][1]
 
@@ -79,6 +86,8 @@ def ratios_table(which: str):
 ratios_table("checked")
 if any(r["fitted"] for r in runs.values()):
     ratios_table("fitted")
+if any(r["resampled"] for r in runs.values()):
+    ratios_table("resampled")
     ws = next((r["weights"] for r in runs.values() if r["weights"]), None)
     if ws:
         print("\nWeights used (flop, turn, river; SPR up to 1.5, up to 4, above): " + " ".join(f"{w:+.2f}" for w in ws))

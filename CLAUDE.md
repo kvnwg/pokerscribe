@@ -43,7 +43,14 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
-- `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons.
+- `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons. Comparisons
+  use duplicate deals and the luck adjustment by default (`--method classic` rebuilds results from
+  before Phase 1); `--jobs 4` splits a run over processes with identical results.
+- `tools/luck.py`: the AIVAT-style luck adjustment (frozen `WEIGHTS`, refit with `fit`).
+- `tools/weakness.py`: ranks the spots where another move would have won more; `--check-flaws`
+  tests it on planted flaws.
+- Held-out opponents: the `heldout`, `regulars`, `switchers` and `wildcards` tables in
+  `tools/simulate.py` (`HELD_OUT_TABLES`). Never tune on them; judge promotions on them.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 

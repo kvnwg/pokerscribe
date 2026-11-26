@@ -160,3 +160,25 @@ def test_clustered_standard_error(tools):
     assert compare.summary(vals, list(range(6))) == pytest.approx(compare.summary(vals))
     m, se = compare.summary([5.0, -5.0, 3.0, -3.0], [0, 0, 1, 1])
     assert m == 0 and se == 0
+
+
+def test_split_run_matches_one_process(tools):
+    """compare --jobs: the hands split over processes by whole decks give exactly the same
+    per-hand results as one process."""
+    _, _, compare = tools
+    one = compare.paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate")
+    split = compare.run_paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate", jobs=2)
+    assert one[2] == split[2] and one[0]["hands"] == split[0]["hands"] and one[1]["hands"] == split[1]["hands"]
+    assert one[4]["adjusted"] == split[4]["adjusted"] and one[4]["decks"] == split[4]["decks"] and one[3] == split[3]
+
+
+def test_resampling_from_the_split(tools):
+    """--resample: hands where the variants differ are replayed from where they part with
+    fresh bot numbers and board cards; a variant against itself never differs, and a real
+    comparison gives the same averages whether split over processes or not."""
+    _, _, compare = tools
+    same = compare.paired({}, {}, 12, "maniacs", 3, method="duplicate", resample=3)
+    assert all(x == 0 for x in same[4]["resampled"])
+    one = compare.paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate", resample=3)
+    split = compare.run_paired({}, {"bet_size": 0.5}, 24, "maniacs", 7, method="duplicate", jobs=2, resample=3)
+    assert one[4]["resampled"] == split[4]["resampled"] and len(one[4]["resampled"]) == 24

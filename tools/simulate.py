@@ -139,6 +139,12 @@ class Hand:
     # street, how many times that seat has acted on that street), so two variants of the app
     # that part ways in a hand still give the bots the same random numbers decision by decision
     rng_key: Optional[int] = None
+    # resampling after the variants part ways (docs/research/runs/phase1_variance_split.py):
+    # once the app has made its decision number `split_at`, the bots draw from seeds salted
+    # with `resample` and the board cards still to come are drawn afresh from the unseen cards
+    split_at: Optional[int] = None
+    resample: Optional[int] = None
+    diverge_at: Optional[int] = None  # the app's decision where a shadow variant first disagreed
     rng_counts: Dict[tuple, int] = field(default_factory=dict)
     chance: List[dict] = field(default_factory=list)  # board cards dealt while the app was in (tools/luck.py)
     spots: List[dict] = field(default_factory=list)  # the app's decisions, for tools/weakness.py
@@ -149,6 +155,8 @@ class Hand:
         k = (i, len(self.board))
         n = self.rng_counts.get(k, 0)
         self.rng_counts[k] = n + 1
+        if self.resample is not None and self.split_at is not None and len(self.spots) > self.split_at:
+            return random.Random(f"{self.rng_key}/{self.resample}/{i}/{len(self.board)}/{n}")
         return random.Random(((self.rng_key * 8 + i) * 8 + len(self.board)) * 64 + n)
 
     def position(self, i: int) -> str:
@@ -370,6 +378,7 @@ def app_decide(h: Hand, me: int, budget_ms: int, stats) -> Tuple[str, float]:
         other = decision(h, me, shadow, st)
         if (other.action, other.amount) != (adv.action, adv.amount):
             h.diverged = True  # the two variants part ways in this hand: replay it with the other one
+            h.diverge_at = len(h.spots)
     stats["advice"][(len(h.board), adv.action)] += 1
     check_advice(h, me, adv, stats)
     record = spot(h, me, adv.action)
@@ -605,7 +614,8 @@ def stack_sizes(styles: List[str], seed: int, depth_bb: float, stacks: str = "ev
 
 def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_bb: float, stats,
               stacks: str = "even", names: Optional[List[str]] = None, profiles=None,
-              number: int = 0, rotate: int = 0, keyed: bool = False) -> Dict[int, float]:
+              number: int = 0, rotate: int = 0, keyed: bool = False, split_at: Optional[int] = None,
+              resample: Optional[int] = None) -> Dict[int, float]:
     """Play one hand; the app is styles.index("app"). The deck deals hole cards to six card
     slots and the button sits at slot `button`. With `rotate` r the players move r slots on
     (the app takes slot r's cards and position), so the six rotations of one deck give the
@@ -622,7 +632,8 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
             s.name = names[k]
     button = (button - rotate) % 6
     board_cards = deck[12:17]
-    h = Hand(seats, button, profiles=profiles, number=number, rng_key=seed * 6 + rotate if keyed else None)
+    h = Hand(seats, button, profiles=profiles, number=number, rng_key=seed * 6 + rotate if keyed else None,
+             split_at=split_at, resample=resample)
     me = styles.index("app")
     sb_i, bb_i = (button + 1) % 6, (button + 2) % 6
     for i, amt in ((sb_i, SB), (bb_i, BB)):
@@ -649,6 +660,13 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
             h.chance.append({"board": tuple(h.board), "deal": tuple(board_cards[len(h.board):n]),
                              "live": tuple(h.active()), "put_in": tuple(s.put_in for s in seats),
                              "behind": tuple(s.stack for s in seats)})
+        if resample is not None and split_at is not None and len(h.spots) > split_at:
+            dead = {c for st_ in seats for c in st_.cards} | set(h.board)
+            fresh = [c for c in hands.DECK if c not in dead]
+            random.Random(f"{seed}/{rotate}/{resample}/{len(h.board)}").shuffle(fresh)
+            board_cards = list(h.board) + fresh[:5 - len(h.board)]
+            if h.chance and h.chance[-1]["board"] == tuple(h.board):
+                h.chance[-1]["deal"] = tuple(board_cards[len(h.board):n])
         h.board = board_cards[:n]
         if sum(1 for i in h.active() if not seats[i].all_in) >= 2:
             betting_round(h, (button + 1) % 6, bot_rng, budget_ms, stats)
@@ -660,7 +678,8 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     # everything tools/luck.py and tools/weakness.py need about the hand just played
     stats["last"] = {"cards": tuple(s.cards for s in seats), "board": tuple(board_cards), "me": me,
                      "chance": h.chance, "spots": h.spots, "net": net[me] / BB, "key": seed * 6 + rotate,
-                     "pos": h.position(me), "put_in": seats[me].put_in / BB, "pot_type": pot_type(h)}
+                     "pos": h.position(me), "put_in": seats[me].put_in / BB, "pot_type": pot_type(h),
+                     "diverge_at": h.diverge_at}
     stats["hands"].append(net[me] / BB)
     pos = h.position(me)
     stats["by_pos"][pos].append(net[me] / BB)

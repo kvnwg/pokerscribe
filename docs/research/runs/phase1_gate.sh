@@ -18,9 +18,17 @@
 #   cross-fitted fit was tried first and dropped before run 2: with 16 hands that differ it
 #   was unstable (its standard error was six times the checked-down one in a 300-hand test).
 #
+# Run 3, seed 404. Rule fixed before any seed-404 result was seen (26 Nov 2026), after a
+#   diagnostic on seed 303 (phase1_variance_split.py) showed that on the mixed table most of
+#   the variance left is the bots' random choices after the variants part ways: the duplicate
+#   runs also replay each hand where the variants differ 6 times from the first decision where
+#   they part (--resample 6; fresh bot random numbers and board cards, the same for both), and
+#   r is the SE of that averaged luck-adjusted difference ("resampled") over the classic raw
+#   SE of run 2. Same thresholds, comparisons and classic runs.
+#
 # The keyed runs (a seed per bot decision, no seat rotation) only show which part helps.
 # Run from the repo root (4 runs at a time):
-#   SEED=404 OUT=docs/research/runs/phase1_gate_404 bash docs/research/runs/phase1_gate.sh
+#   SEED=404 RESAMPLE=6 OUT=docs/research/runs/phase1_gate_404 bash docs/research/runs/phase1_gate.sh
 set -u
 OUT=${OUT:-docs/research/runs/phase1_gate}
 mkdir -p "$OUT"
@@ -28,7 +36,7 @@ HANDS=${HANDS:-3000}
 SEED=${SEED:-303}
 PY=${PY:-.venv/bin/python}
 METHODS=${METHODS:-classic duplicate keyed}
-export OUT HANDS SEED PY
+export OUT HANDS SEED PY RESAMPLE
 {
   for m in $METHODS; do
     echo "ev_mixed $m '{\"ev_sizing\": true}' --tables mixed"
@@ -41,7 +49,8 @@ export OUT HANDS SEED PY
     echo "no_stab $m '{\"stab\": 0.0}' --tables mixed"
   done
 } | xargs -P "${JOBS:-4}" -L 1 bash -c 'name=$0; m=$1; json=$2; shift 2
-  "$PY" tools/compare.py "$json" "$HANDS" "$@" --method "$m" --seed "$SEED" --save "$OUT/${name}_$m.json" \
+  res=1; [ "$m" != classic ] && res=${RESAMPLE:-1}
+  "$PY" tools/compare.py "$json" "$HANDS" "$@" --method "$m" --seed "$SEED" --resample "$res" --save "$OUT/${name}_$m.json" \
     > "$OUT/${name}_$m.txt" 2>&1
   echo "done $name $m"'
 "$PY" docs/research/runs/phase1_gate_summary.py "$OUT"
