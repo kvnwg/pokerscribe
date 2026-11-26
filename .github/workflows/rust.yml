@@ -1,0 +1,73 @@
+name: Rust
+
+# Runs the engine's tests (cargo test --release in engine/) on every pull request and on every
+# push to main. The slow tests marked #[ignore] are not run here: see rust-slow.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request stops the run for the push before it. Runs on main are never
+# stopped, so every merge gets its own result.
+concurrency:
+  group: rust-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test --release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+
+      # engine/Cargo.lock is not committed, so the versions of the outside crates are worked
+      # out here and the cache below is named after the result.
+      - name: Resolve dependencies
+        id: deps
+        run: |
+          rustc --version
+          cargo --version
+          cargo generate-lockfile
+          echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+
+      # Keep the path and key the same as in rust-slow.yml: both workflows share this cache.
+      - name: Restore the cargo cache
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/target
+          key: cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-
+
+      - name: cargo test --release
+        run: cargo test --release
+
+      # Only main saves the cache. Every pull request can read what main saved, but a cache
+      # saved from a pull request is visible to that pull request alone.
+      - name: Save the cargo cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
