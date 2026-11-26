@@ -162,12 +162,34 @@ class HandTracker:
                 kept = self._adds_up(self._start_at - self._dropped, current, targets[1:])
                 if kept is not None:
                     return self._start_at, kept[0], False
+            if self._adds_up(idx, current, targets, exact=True) is None:
+                earlier = self._exact_earlier(idx, current, targets)
+                if earlier is not None:
+                    idx, (contrib, includes) = earlier
             return self._dropped + idx, contrib, includes
         return None
 
-    def _adds_up(self, idx: int, current: Dict[Key, float], targets):
+    def _exact_earlier(self, idx: int, current: Dict[Key, float], targets):
+        """An older snapshot of the same hand (no stack grew between it and snapshot `idx`)
+        from which the chips add up exactly, when snapshot `idx` matched only within the
+        rounding allowance. With a street's pictures all missed, the stacks just after the
+        blinds went in came to 288 against a pot of 291: taken for the start, the blinds then
+        counted as this round's bets, and the start moving looked like a new hand."""
+        later = self._history[idx]
+        for j in range(idx - 1, -1, -1):
+            snap = self._history[j]
+            if any(k in snap and snap[k] < v - 0.5 for k, v in later.items()):
+                return None  # a stack grew in between: a hand ended there
+            found = self._adds_up(j, current, targets, exact=True)
+            if found is not None:
+                return j, found
+            later = snap
+        return None
+
+    def _adds_up(self, idx: int, current: Dict[Key, float], targets, exact: bool = False):
         """(chips per seat, whether the pot includes this round's bets) when the stacks that
-        left since snapshot `idx` add up to one of the targets."""
+        left since snapshot `idx` add up to one of the targets: within a rounding allowance
+        (amounts shown as "1.5K"), or with `exact`, to the chip."""
         if not 0 <= idx < len(self._history):
             return None
         snap = self._history[idx]
@@ -183,7 +205,8 @@ class HandTracker:
             return None
         total = sum(contrib.values())
         for target, includes in targets:
-            if target > 0 and abs(total - target) <= max(1.0, 0.02 * target):
+            allowed = max(0.011, 0.0005 * target) if exact else max(1.0, 0.02 * target)
+            if target > 0 and abs(total - target) <= allowed:
                 return contrib, includes
         return None
 

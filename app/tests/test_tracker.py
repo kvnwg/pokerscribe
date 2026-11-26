@@ -210,3 +210,32 @@ def test_before_the_flop_with_no_pot_printed():
     for name, bet in (("John", 5.0), ("Mike", 10.0), ("George", 10.0)):
         st.players[SEATS.index(name)].bet = Field.manual(bet)
     assert not t.update(st).valid and not st.blinds.known and not st.pot.known
+
+
+def test_a_skipped_street_does_not_turn_the_blinds_into_bets():
+    """8-player self-test: the turn's pictures were all skipped. On the river, the stacks just
+    after the blinds went in came within the rounding allowance of the pot (288 against 291),
+    and being newer than the true start they were taken for it. The big blind's 2 then
+    counted as a river bet ("Marlow bet 2") when nobody had bet."""
+    def cap(stacks, board=(), pot=None, live=("John", "Mike", "George", "hero", "Deja")):
+        st = capture(dict(FULL, **stacks), board=board, pot=pot)
+        for p in st.players:
+            p.in_hand = Field.manual(p.name in live)
+        return st
+
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))  # between hands
+    t.update(cap({"John": 999, "Mike": 998}, pot=3))  # the blinds
+    t.update(cap({"John": 999, "Mike": 998, "George": 992}, pot=11))  # George raises to 8
+    folded = ("Mike", "George")
+    t.update(cap({"John": 999, "Mike": 992, "George": 992}, pot=17, live=folded))
+    flop = ("Kh", "9d", "2c")
+    t.update(cap({"John": 999, "Mike": 992, "George": 992}, board=flop, pot=17, live=folded))
+    t.update(cap({"John": 999, "Mike": 992, "George": 952}, board=flop, pot=57, live=folded))
+    t.update(cap({"John": 999, "Mike": 952, "George": 952}, board=flop + ("5s",), pot=97, live=folded))
+    # the turn's betting (97 each) never seen; the river's first picture
+    st = cap({"John": 999, "Mike": 855, "George": 855}, board=flop + ("5s", "Jc"), pot=291, live=folded)
+    info = t.update(st)
+    assert info.valid and not info.new_hand
+    assert [p.bet.value for p in st.players] == [0, 0, 0, 0, 0]
+    assert info.contributions[3] == info.contributions[4] == 145
