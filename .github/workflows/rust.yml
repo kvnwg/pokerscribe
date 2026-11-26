@@ -6,7 +6,7 @@ name: Rust
 on:
   pull_request:
   push:
-    branches: [main, claude/exciting-rubin-j8hs7q] # TEMPORARY: measuring on this branch
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
   test:
     name: cargo test --release
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: engine
@@ -62,7 +62,7 @@ jobs:
       # Only main saves the cache. Every pull request can read what main saved, but a cache
       # saved from a pull request is visible to that pull request alone.
       - name: Save the cargo cache
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/exciting-rubin-j8hs7q') && steps.cache.outputs.cache-hit != 'true' # TEMPORARY
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: |

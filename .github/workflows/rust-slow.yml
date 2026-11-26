@@ -8,8 +8,6 @@ on:
   schedule:
     - cron: "23 10 * * *" # every day at 10:23 UTC, the middle of the night in Vancouver
   workflow_dispatch:
-  push: # TEMPORARY: measuring on this branch
-    branches: [claude/exciting-rubin-j8hs7q]
 
 permissions:
   contents: read

@@ -7,7 +7,7 @@ name: Python
 on:
   pull_request:
   push:
-    branches: [main, claude/exciting-rubin-j8hs7q] # TEMPORARY: measuring on this branch
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
   pytest:
     name: pytest (Python ${{ matrix.python }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -87,7 +87,7 @@ jobs:
           python -m pip freeze
 
       - name: python -m pytest
-        run: python -m pytest -rs --durations=15 --junitxml="$RUNNER_TEMP/pytest.xml"
+        run: python -m pytest -rfEs --durations=15 --junitxml="$RUNNER_TEMP/pytest.xml"
 
       # Several tests skip themselves when a program or package is missing (Xvfb, RapidOCR,
       # Tesseract, PokerKit). Everything they need is installed above, so a skip here means
