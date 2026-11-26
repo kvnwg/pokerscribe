@@ -1,0 +1,3 @@
+{"ev_sizing": true} on fish247 (even), seed 303: 57 of 1200 hands differ, 6 replays each
+  raw            mean square per differing hand   265.4: after the split   132.0 (50%), fixed before it   133.4 (50%)
+  luck-adjusted  mean square per differing hand   179.6: after the split    23.2 (13%), fixed before it   156.4 (87%)

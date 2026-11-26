@@ -1,0 +1,6 @@
+gate seeds:
+plain  hands 513 observed gap   -787.0 bb; null 2.5%..97.5%: -501.8 .. +503.7; share of null at or below observed: 0.0003
+redeal hands 513 observed gap  -1320.8 bb; null 2.5%..97.5%: -618.4 .. +595.5; share of null at or below observed: 0.0000
+seeds 41-48:
+plain  hands 1020 observed gap    -89.1 bb; null 2.5%..97.5%: -593.9 .. +598.3; share of null at or below observed: 0.3847
+redeal hands 1020 observed gap   -574.1 bb; null 2.5%..97.5%: -651.2 .. +691.3; share of null at or below observed: 0.0432
