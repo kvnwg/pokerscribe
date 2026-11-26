@@ -266,6 +266,19 @@ impl Spot {
 }
 
 fn bet_sizes(raw: &RawSizes, what: &str) -> Result<BetSizes, SpotError> {
+    for (name, value) in [
+        ("reraises", &raw.reraises),
+        ("allin_within", &raw.allin_within),
+        ("exact", &raw.exact),
+    ] {
+        let unset =
+            value.is_null() || (name == "exact" && value.as_array().is_some_and(Vec::is_empty));
+        if !unset {
+            return err(format!(
+                "{what}.{name}: this solver doesn't build trees with {name:?} yet (it isn't in data/SPOT_FORMAT.md)"
+            ));
+        }
+    }
     let clean = |values: &[f64], name: &str| -> Result<Vec<f64>, SpotError> {
         if values.iter().any(|x| !(x.is_finite() && *x > 0.0)) {
             return err(format!(
@@ -314,6 +327,14 @@ struct RawSizes {
     raises: Vec<f64>,
     #[serde(default)]
     allin: bool,
+    // Options of `app/solver`'s BetSizes that `data/SPOT_FORMAT.md` doesn't define. Python
+    // would build a different tree with them, so they are refused, not passed over.
+    #[serde(default)]
+    reraises: Value,
+    #[serde(default)]
+    allin_within: Value,
+    #[serde(default)]
+    exact: Value,
 }
 
 /// A JSON object read as (key, value) pairs in the order of the file.
@@ -442,6 +463,18 @@ pub(crate) mod tests {
             ),
             (Box::new(|v| v["street"] = "turn".into()), "needs 4"),
             (
+                Box::new(|v| v["sizes"]["ip"]["reraises"] = serde_json::json!([])),
+                "sizes.ip.reraises",
+            ),
+            (
+                Box::new(|v| v["sizes"]["oop"]["allin_within"] = 6.into()),
+                "sizes.oop.allin_within",
+            ),
+            (
+                Box::new(|v| v["sizes"]["oop"]["exact"] = serde_json::json!(["bets"])),
+                "sizes.oop.exact",
+            ),
+            (
                 Box::new(|v| {
                     v["expected"] =
                         serde_json::json!([{"nodes": "^x$", "actor": "ip", "action": "x"}])
@@ -459,6 +492,13 @@ pub(crate) mod tests {
             let e = with(&*change).expect_err(want);
             assert!(e.0.contains(want), "{:?} should mention {want:?}", e.0);
         }
+        // the same options unset, as `BetSizes.to_dict` never writes them, are fine
+        assert!(with(|v: &mut Value| {
+            v["sizes"]["ip"]["reraises"] = Value::Null;
+            v["sizes"]["ip"]["allin_within"] = Value::Null;
+            v["sizes"]["ip"]["exact"] = serde_json::json!([]);
+        })
+        .is_ok());
         assert!(Spot::from_json("{not json")
             .unwrap_err()
             .0

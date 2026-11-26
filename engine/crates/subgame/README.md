@@ -266,9 +266,14 @@ threads.
    say so; it is not edited here. The check costs under 0.3 ms on a river spot and 7 to 11
    ms on a turn spot.
 
-5. **Spot checks differ from `validate_spot` in two places.** `range_text` is not expanded
+5. **Spot checks differ from `validate_spot` in three places.** `range_text` is not expanded
    and compared with `ranges` (`ranges` is the range). Raise sizes under 0.5 are accepted: the
-   min-raise rule of the format covers them, and a unit test checks it.
+   min-raise rule of the format covers them, and a unit test checks it. And three size
+   options that `app/solver` got on 26 Nov 2026 (`reraises`, `allin_within`, `exact` in
+   `BetSizes`) are refused with a message. `data/SPOT_FORMAT.md` doesn't define them and no
+   answer-key spot uses them, but the Python tools would read them from a spot and build a
+   different tree, so passing over them silently would be wrong. Both fixtures were rebuilt
+   with that version of `app/solver` and came out the same, byte for byte.
 
 6. **Not done.** Suit isomorphism (optional in the brief). Writing gzip (`--out x.jsonl.gz`
    is refused with a message). Single precision and SIMD: everything is `f64`.
