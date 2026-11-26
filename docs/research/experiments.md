@@ -228,7 +228,8 @@ so they share one time ratio. Full tables: `runs/phase1_gate/summary.md` and
 - After run 3, AIVAT's imaginary observations for the bots were built and the replays were
   made to redeal the opponents' cards (next sections). Run 4 used the redeal.
 - Comparisons now default to the run 4 method: duplicate deals, 6 replays from the split
-  that redeal the opponents, and luck only where nobody can bet again. It is unbiased, has
+  that redeal the opponents, and luck only where nobody can bet again. It is unbiased
+  (checked on large runs later: Phase 1 check, the replays against the raw difference), has
   about 0.4 of the classic SE, and costs about 1.2 times the CPU. Use the "replayed 6
   times" figure, and `--jobs 4`. `--method classic` rebuilds every earlier row.
 - Bug fixed on the way: treys gives a royal flush class 0, so a royal flush on the board
@@ -423,8 +424,8 @@ runs and tests nothing.
   is about 0.6 to 0.65 of classic, not halved.
 - Even so, the new way needs less CPU for the same precision in every judged comparison: r
   squared times that comparison's CPU ratio is 0.02 (`push_chart`) to 0.73
-  (`texture_sizing`) in run 5. It is unbiased (see above), so it stays the default in
-  `tools/compare.py`.
+  (`texture_sizing`) in run 5. It is unbiased (see above, and the Phase 1 check near the end),
+  so it stays the default in `tools/compare.py`.
 - **So the gate as written is not passed, and Phase 2 does not start.**
 - What next (another run decided in advance, a different rule, or starting Phase 2 without a
   pass) is Kevin's decision, to be written down here before anything more is run for the
@@ -1154,6 +1155,104 @@ against Slumbot through its public API, 100 in each seat. It never folds and nev
 For a B0 benchmark, the per-hand standard deviation here is about 12 bb. Reaching ± 10 bb/100
 would take roughly 14,000 hands, about 22 hours at this pace. The baseline figure didn't cut the
 variance for check/call, because that bot plays nothing like Slumbot. It should help more for B0.
+
+## Phase 1 check: the replays against the raw difference (26 Nov 2026)
+
+Kevin's Phase 1 brief asks for a large run showing that the luck-reduced mean matches the raw
+mean within its SE. The luck adjustment had such tests, card by card. The default "replayed 6
+times" figure (replays from the split that redeal the opponents) only had an argument. This
+section checks it. Scripts and one output file per test: `runs/phase1_replay_explore/`
+(`run.sh` rebuilds them) and `runs/phase1_replay_check.sh`.
+
+**On the gate runs' hands** (runs 4 and 5, seeds 606 to 909, 12000 hands per comparison,
+bb/100):
+
+| Comparison | Raw | Replayed 6 times | Replayed minus raw |
+|---|---|---|---|
+| `push_chart`, tourney | -0.8 ± 0.8 | -0.1 ± 0.1 | +0.7 ± 0.8 (+0.9 SE) |
+| `ev_sizing`, fish247 | +4.6 ± 2.4 | +3.0 ± 1.1 | -1.6 ± 2.1 (-0.8 SE) |
+| `ev_sizing`, mixed | -0.4 ± 2.0 | +1.3 ± 1.2 | +1.7 ± 2.0 (+0.8 SE) |
+| `bet_size: 0.5` | +6.7 ± 2.6 | -2.4 ± 1.3 | -9.2 ± 2.4 (-3.8 SE) |
+| `texture_sizing` | +0.9 ± 1.8 | -2.5 ± 1.0 | -3.4 ± 1.7 (-1.9 SE) |
+| `stab: 0.0` | -2.3 ± 1.4 | -1.7 ± 0.6 | +0.6 ± 1.1 (+0.6 SE) |
+| `semibluff_turn: "never"` | -0.2 ± 1.0 | -2.1 ± 0.7 | -1.9 ± 1.2 (-1.5 SE) |
+| `commit: 1.0` | +1.2 ± 1.4 | +1.1 ± 0.8 | -0.2 ± 1.3 (-0.1 SE) |
+
+The luck adjustment alone (no replays) is within 1.7 SE of raw on all eight. `bet_size: 0.5`
+fails the check by a wide margin, so it was looked at play by play.
+
+**`bet_size: 0.5`, every play kept** (`record.py`: for each of the 513 hands that differ, the
+original pair, 5 replays with the bots' real cards and 5 redealt):
+
+- On every hand that differs (here and on the 8 new seeds below): the replays repeat the
+  betting before the split exactly, with real or redealt cards; the bots' real hands are in
+  their classes; and replaying the real hands through the redeal code gives the same results
+  (salts 1 and 2).
+- The gap comes from a few big pots. In 9 hands the original deal had the half-pot bet 62 to
+  137 bb ahead, and none went the other way; the replays' big swings go both ways. Hand 2980
+  of seed 909 is one: a station holding A-K folds to a 2/3-pot bet on A-J-2 but calls half
+  pot, then calls down against a set (+89.5 bb). The half-pot bet really does win there; the
+  question is only how often such hands come up.
+- If the replays keep the expected value, the original deal is just one of a hand's six
+  exchangeable plays. Picking at random which one counts as the original (per hand) puts the
+  observed gap in the bottom 0.03% (real-card replays) and below every one of 4000 draws
+  (redealt).
+
+**Where the real hands sit within their classes** (1885 live bots in hands that differ, on
+the gate seeds and the 8 new seeds below): their rank by preflop strength is 0.50 and by
+strength at the split 0.51 (0.5 expected). In the band that folds to the 2/3-pot bet but
+calls half pot (first answer after the split, same random numbers) there are 46 real hands
+against 42.8 expected. They beat the app at showdown on the original board 361 times against
+356 expected. Subgroups move by up to 2.7 SE in both directions (heads-up high, multiway low
+on the new seeds), about what this many looks give by chance.
+
+**On 8 new seeds** (41 to 48, 24000 hands, 1020 that differ):
+
+| Estimate of `bet_size: 0.5` | bb/100 |
+|---|---|
+| Raw | -2.1 ± 1.6 |
+| Replays with the bots' real cards | -2.4 ± 1.2 |
+| Redealt replays (the default, before the luck adjustment) | -4.1 ± 0.9 |
+| Classic, gate run 5's 18000 separate hands | -3.3 ± 1.7 |
+
+- Real-card replays against the original deals: -0.09 ± 0.27 bb per hand that differs
+  (relabelling p 0.38). Redealt replays: -0.56 ± 0.34 (p 0.04).
+- The exact test of the redeal: one extra redealt hand per hand, replayed with the same 5
+  salts as the real cards. If the redeal draws from the right hands, the two are
+  interchangeable, so the sign of their difference is a coin flip whatever the tails look
+  like. Real minus redealt: +0.005 ± 0.24 bb per hand, p 0.98 (two-sided). On the gate seeds
+  it was +0.95 ± 0.44, p 0.03.
+
+**The confirming check** (`runs/phase1_replay_check.sh`, its rule committed before any hand
+on its seeds was played). Seeds 51 to 66, 48000 hands, 2210 that differ. For each of those
+hands, three arms replayed with salts 1 to 5: the bots' real cards and two redealt draws. The
+test is the exact relabelling one, one-sided. The rule: p under 0.01 means biased, p over 0.10
+means no sign of a bias.
+
+| Estimate of `bet_size: 0.5` | bb/100 |
+|---|---|
+| Raw (the original deals) | -3.6 ± 1.2 |
+| Replays with the bots' real cards | -3.9 ± 0.8 |
+| Redealt replays | -3.4 ± 0.6 |
+
+Real arm minus redealt arms: -0.5 bb/100, z -0.6, p 0.73. **No sign of a bias on new hands.**
+Raw minus redealt: -0.2 ± 1.2 bb/100.
+
+**So:**
+
+- The gap on the gate runs' hands was the raw figure's luck, not the replays': a few big pots
+  the half-pot bet happened to win, which the replays average out. The new seeds and the
+  classic method agree with the replayed figure. On its own that draw was unusual (about 1 in
+  3000, or 1 in 400 allowing for the eight comparisons).
+- With a few big pots deciding it, the raw figure can move further than its ± suggests. That
+  is one more reason to read the "replayed 6 times" figure.
+- The redeal stays the default. Gate runs 4 and 5 measured SE ratios, which a gap in the
+  mean doesn't touch. The `river_solver` comparison used the replayed figure. Both stand.
+- For Kevin's brief (item 2): on 48000 new hands the redealt replays' mean matches the raw
+  mean (-0.2 ± 1.2 bb/100 apart) with about half the SE (0.61 against 1.16, before the luck
+  adjustment).
+- Also seen on the way: half-pot value bets lose to B0's two thirds of the pot by about 3.5
+  bb/100 on mixed. B0 isn't tuned any more, so nothing changes.
 
 ## Research notes (paraphrased, with sources)
 

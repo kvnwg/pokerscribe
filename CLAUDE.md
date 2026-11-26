@@ -87,8 +87,10 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   geometric mean of 0.46 (bar 0.5) at 1.24 times the CPU (bar 1.25), but `texture_sizing` was at
   0.7507, over the 0.75 per-comparison bar. Kevin then closed it as good enough (`experiments.md`,
   Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of classic on the four
-  sizing comparisons and 0.16 on `push_chart`. Not built yet: the heads-up simulator mode
-  (`tools/simulate.py` is six-max only).
+  sizing comparisons and 0.16 on `push_chart`. The "replayed 6 times" figure was checked
+  against the raw difference on large runs: no bias (pre-registered, 48000 new hands; a gap on
+  the gate runs' hands was luck in the raw figure; `experiments.md`, Phase 1 check). Not built
+  yet: the heads-up simulator mode (`tools/simulate.py` is six-max only).
 - Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
   closed-form and published results, with p95 decision time under 400 ms. They are now the
   reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.
