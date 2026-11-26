@@ -1,0 +1,11 @@
+[package]
+name = "cfr"
+version = "0.1.0"
+edition = "2021"
+description = "Counterfactual regret minimization core for PokerScribe: CFR, CFR+, Linear CFR, DCFR, MCCFR, best response."
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+toygames = { path = "../toygames" }

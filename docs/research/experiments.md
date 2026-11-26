@@ -525,6 +525,30 @@ about 293 ms. p95 stays under 400 ms.
 - Real river raises: 2 in 24,000 hands.
 - Hands with three or more players on the river: the rules still decide those.
 
+## Slumbot harness check (26 Nov 2026)
+
+A test of `tools/slumbot`, not a strategy experiment. The check/call bot played 200 hands
+against Slumbot through its public API, 100 in each seat. It never folds and never bets.
+
+`python -m tools.slumbot play --hands 200 --log docs/research/runs/slumbot/checkcall_200.jsonl --bot checkcall`
+
+- **Rules.** Heads-up, blinds 50/100, 200bb stacks reset every hand. Requests were sent at most
+  once a second: 1,138 in 19 minutes.
+- **Result checks.** None of the hands was aborted. We recomputed every result from the parsed
+  action string and the cards, and all 200 match Slumbot's `winnings`. That includes 191
+  showdowns, checked with treys, and 9 hands where Slumbot folded its small blind.
+
+| Measure | bb/100 | Hands |
+|---|---|---|
+| Raw | -257.8 ± 83.5 | 200 |
+| Baseline (Slumbot's luck-adjusted figure) | -206.5 ± 88.8 | 200 |
+| As big blind | -219.5 ± 129.4 | 100 |
+| As small blind | -296.0 ± 106.1 | 100 |
+
+For a B0 benchmark, the per-hand standard deviation here is about 12 bb. Reaching ± 10 bb/100
+would take roughly 14,000 hands, about 22 hours at this pace. The baseline figure didn't cut the
+variance for check/call, because that bot plays nothing like Slumbot. It should help more for B0.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open
