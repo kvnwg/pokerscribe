@@ -178,3 +178,61 @@ Still open:
   then, but it should be fixed.
 - Lone single-digit bets without "$" are read only when two reads agree; otherwise UNKNOWN.
 - Not yet checked against a real 247 table: run "Save last reads" there and replay them.
+
+## Picture tables (26 Nov, evening): rounds 8 to 13
+
+From Kevin's screenshots of tables with round pictures and numbers that are not chips, four new
+layouts: avatars, stock, portrait and levels (`docs/research/SCREEN_READING.md`, "Round
+pictures and numbers that are not chips"). Then lvtext, held out from the fixes: a bare gold
+level number beside every name. Each round a fresh seed, 15% of pictures skipped (10% in the
+first two).
+
+| Round (seed) | Same instruction | Move shown on their turn |
+| --- | --- | --- |
+| 8 (21), before any fix | 46/56 | 53/144 |
+| 9 (21), after the fixes | 51/52 | 3/144 |
+| 10 (22) | 55/61 | 5/135 |
+| 11 (23) | 100/100 | 5/236 |
+| 12 (24) | 156/157 | 1/346 |
+| 13 (25) | 160/160 | 0/344 |
+| lvtext, held out (27) | 53/53 | 0/123 |
+| the six older layouts (26) | 150/150 | 0/368 |
+
+What the rounds found and fixed, each with a test in `app/tests/test_avatar_tables.py`: levels
+and countdowns on pictures taken for bets; a number on the name's line taken for a bet;
+pictures and the table's rim taken for card backs, and plain grey backs missed; a short timer
+ring not read as the turn; showdown cards taken for yours; your hand's strength taken for your
+name; the dealer button touching a level badge or a stack; a comma read as a point ("2.035");
+a chip icon read as a "0" before the bet.
+
+After round 13:
+
+- At showdown a player beside the middle shows his cards on the board's line, smaller. Seven
+  cards in a row were no board at all, and the board cards were given to the nearest player: a
+  folded player at the top read as still in, and the river bets as whole-hand amounts (avatars,
+  "in hand wrong 13" and most of "bets 22"). Rows are now cut where the card size changes or a
+  wide gap opens.
+- The chip icon read as a letter stuck to the bet ("C210"): the bet came back as nothing
+  (stock). A round letter straight before an amount of two digits or more is dropped.
+- In stock, "acting seat not read 40/238" is your own turns: your picture is under your cards,
+  and the buttons decide then.
+
+Still open: at showdown, the river bets already swept into the pot still show as bets worked
+out from the stacks (levels and portrait, "bets 3"; the same as round 7's open item). Nothing
+is decided then.
+
+## Eight players (26 Nov, night)
+
+Kevin: "it also needs to be trained on an 8 people table". `--players 8` spreads eight players
+over a layout's seats, and a new eight-seat layout ("eight") was added. Seed 30, 20 hands per
+layout, 15% of pictures skipped.
+
+| Layout | Same instruction | Move shown on their turn | Acting seat not read | Mistakes |
+| --- | --- | --- | --- | --- |
+| eight | 26/26 | 0/72 | 0/216 | bets 4 |
+
+The four bet mistakes: the turn's pictures were all skipped, and on the river the stacks just
+after the blinds went in came within the tracker's rounding allowance of the pot (288 against
+291). Being newer than the true start they were taken for it, so the big blind's 2 counted as a
+river bet. Fixed: an older snapshot of the same hand that adds up to the chip wins over a
+newer one that adds up only roughly (`test_a_skipped_street_does_not_turn_the_blinds_into_bets`).

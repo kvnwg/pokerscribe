@@ -199,10 +199,12 @@ pictures and decoy numbers (the section above): avatars (green app, level badges
 stacks, an experience counter), stock (blue room, "Seat" on free places, bare bets, buttons in
 a column, "Bonus +100%"), portrait (phone, names above pictures, a countdown, grey card backs,
 buttons across the bottom), levels (a level box on each plate) and lvtext, held out (a bare gold
-level number beside every name, toward the middle). See the run log in
+level number beside every name, toward the middle). And eight, an eight-seat table;
+`--players` puts any number of players on a layout with enough seats. See the run log in
 `docs/research/runs/selftest.md`.
 
     python tools/selftest.py --hands 20 --seed 3 --drop 0.1 --out "<folder for examples>"
+    python tools/selftest.py --players 8 --layouts eight,ninemax --hands 20 --seed 30 --drop 0.15
 
 ## Next
 
