@@ -1,0 +1,8 @@
+=== {"ev_sizing": true} | 3000 | stacks even | profiles, base = baseline
+mixed     base   +35.5 (± 22.3)  other   +40.5 (± 24.0)  difference   +5.0 ±  6.0 bb/100  [149/3000 hands differ, problems none]
+          styles learned: station0 -> station (3000 hands, vpip 40%, pfr 4%); nit1 -> nit (3000 hands, vpip 12%, pfr 8%); tag2 -> tag (3000 hands, vpip 16%, pfr 13%); lag3 -> tag (3000 hands, vpip 28%, pfr 21%); maniac4 -> lag (3000 hands, vpip 49%, pfr 36%)
+ALL       difference   +5.0 ±  6.0 bb/100 over 3000 hands (594s)
+=== {"semibluff_turn": "combo"} | 2000 | stacks even | profiles, base = baseline (always)
+mixed     base   +29.1 (± 26.0)  other   +28.3 (± 26.0)  difference   -0.8 ±  0.9 bb/100  [4/2000 hands differ, problems none]
+          styles learned: station0 -> station (2000 hands, vpip 40%, pfr 5%); nit1 -> nit (2000 hands, vpip 11%, pfr 7%); tag2 -> tag (2000 hands, vpip 16%, pfr 13%); lag3 -> tag (2000 hands, vpip 28%, pfr 20%); maniac4 -> lag (2000 hands, vpip 49%, pfr 36%)
+ALL       difference   -0.8 ±  0.9 bb/100 over 2000 hands (184s)

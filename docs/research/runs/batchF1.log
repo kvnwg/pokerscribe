@@ -1,0 +1,8 @@
+=== {"ev_sizing": true} | 3000 | stacks even | profiles, base = baseline
+fish247   base   +51.1 (± 17.5)  other   +50.0 (± 18.1)  difference   -1.1 ±  7.7 bb/100  [204/3000 hands differ, problems none]
+          styles learned: fish2470 -> station (3000 hands, vpip 32%, pfr 4%); fish2471 -> station (3000 hands, vpip 34%, pfr 5%); fish2472 -> station (3000 hands, vpip 32%, pfr 4%); fish2473 -> station (3000 hands, vpip 34%, pfr 5%); fish2474 -> station (3000 hands, vpip 34%, pfr 5%)
+ALL       difference   -1.1 ±  7.7 bb/100 over 3000 hands (692s)
+=== {"semibluff_turn": "combo"} | 2000 | stacks even | profiles, base = baseline (always)
+fish247   base   +31.8 (± 20.8)  other   +31.8 (± 20.8)  difference   +0.0 ±  0.0 bb/100  [0/2000 hands differ, problems none]
+          styles learned: fish2470 -> station (2000 hands, vpip 32%, pfr 4%); fish2471 -> station (2000 hands, vpip 34%, pfr 5%); fish2472 -> station (2000 hands, vpip 33%, pfr 4%); fish2473 -> station (2000 hands, vpip 33%, pfr 4%); fish2474 -> station (2000 hands, vpip 34%, pfr 5%)
+ALL       difference   +0.0 ±  0.0 bb/100 over 2000 hands (170s)

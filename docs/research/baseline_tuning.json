@@ -1,0 +1,63 @@
+{
+  "value_bet_hu": 0.62,
+  "value_bet_river": 0.66,
+  "value_bet_multi": 0.5,
+  "value_raise_hu": 0.72,
+  "value_raise_river": 0.8,
+  "value_raise_multi": 0.6,
+  "bet_size": 0.6666666666666666,
+  "texture_sizing": false,
+  "sizes": {
+    "dry": 0.33,
+    "medium": 0.55,
+    "wet": 0.75
+  },
+  "pot_control": 0.0,
+  "stab": 0.4,
+  "semibluff": true,
+  "facing": {
+    "raise": [
+      0.25,
+      0.03
+    ],
+    "over": [
+      0.3,
+      0.08
+    ],
+    "pot": [
+      0.45,
+      0.1
+    ],
+    "half": [
+      0.55,
+      0.12
+    ],
+    "small": [
+      0.7,
+      0.12
+    ]
+  },
+  "narrow": true,
+  "facing_budget_s": 0.12,
+  "facing_iterations": 60000,
+  "allin_budget_s": 0.35,
+  "push_bb": 12,
+  "push_chart": false,
+  "push_scale": 1.0,
+  "eff_push": false,
+  "reshove": null,
+  "bully": false,
+  "bully_bb": 30,
+  "commit": 0.0,
+  "commit_draws": false,
+  "river_ip_call_share": 0.0,
+  "geometric": false,
+  "balanced_river": false,
+  "semibluff_turn": "always",
+  "ev_sizing": false,
+  "sizing_budget_s": 0.03,
+  "sizing_iterations": 4000,
+  "bucket_sizing": false,
+  "small_bet_from": 0.0,
+  "oop_lead": 0.0
+}

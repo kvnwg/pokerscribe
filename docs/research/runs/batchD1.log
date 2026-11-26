@@ -1,0 +1,4 @@
+=== {"ev_sizing": true} | 1000 | stacks even | x
+mixed     base   +54.4 (± 40.7)  other   +59.7 (± 42.6)  difference   +5.3 ± 11.2 bb/100  [41/1000 hands differ, problems none]
+fish247   base   +44.1 (± 25.7)  other   +46.5 (± 26.2)  difference   +2.4 ±  2.3 bb/100  [65/1000 hands differ, problems none]
+ALL       difference   +3.8 ±  5.7 bb/100 over 2000 hands (246s)

@@ -1,0 +1,8 @@
+=== {"push_chart": true} | 1000 | stacks tourney | x
+maniacs   base   +22.5 (± 23.8)  other   +22.1 (± 23.8)  difference   -0.4 ±  1.5 bb/100  [5/1000 hands differ, problems none]
+fish247   base   +16.7 (± 13.6)  other   +16.9 (± 13.7)  difference   +0.1 ±  2.0 bb/100  [8/1000 hands differ, problems none]
+ALL       difference   -0.1 ±  1.3 bb/100 over 2000 hands (141s)
+=== {"bully": true} | 1000 | stacks uneven | x
+mixed     base   +33.8 (± 33.4)  other   +34.4 (± 33.4)  difference   +0.6 ±  0.7 bb/100  [3/1000 hands differ, problems none]
+fish247   base   +41.9 (± 21.9)  other   +41.8 (± 21.9)  difference   -0.1 ±  0.3 bb/100  [2/1000 hands differ, problems none]
+ALL       difference   +0.2 ±  0.4 bb/100 over 2000 hands (158s)

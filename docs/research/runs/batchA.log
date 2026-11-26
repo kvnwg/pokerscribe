@@ -1,0 +1,5 @@
+=== {"reshove": {"EP": 0.08, "HJ": 0.10, "CO": 0.13, "BTN": 0.17, "SB": 0.20}} | 1000 | stacks tourney | x
+mixed     base   +36.8 (± 18.8)  other   +34.0 (± 18.6)  difference   -2.8 ±  3.6 bb/100  [3/1000 hands differ, problems none]
+fish247   base   +16.7 (± 13.6)  other   +15.9 (± 13.6)  difference   -0.8 ±  0.8 bb/100  [1/1000 hands differ, problems none]
+ALL       difference   -1.8 ±  1.9 bb/100 over 2000 hands (146s)
+=== {"eff_push": true, "push_chart": true} | 1000 | stacks tourney | base push_chart

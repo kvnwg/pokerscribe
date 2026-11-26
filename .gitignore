@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# data that is rebuilt, never committed (see tools/phh/README.md)
+phh_data/
+uoftcprg/
+*.parquet
+.DS_Store
