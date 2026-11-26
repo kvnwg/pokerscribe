@@ -1,0 +1,11 @@
+[package]
+name = "abstract_game"
+version = "0.1.0"
+edition = "2021"
+description = "Action abstraction for PokerScribe: bet-size menus, pseudo-harmonic mapping, a Bucketer trait and a shrunk heads-up No-Limit Hold'em game the CFR library can train on."
+publish = false
+
+[dependencies]
+cfr = { path = "../cfr" }
+eval = { path = "../eval" }
+nlhe = { path = "../nlhe" }
