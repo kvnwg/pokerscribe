@@ -1315,7 +1315,11 @@ engine are now connected in two places. See `SOLVER.md`, "The Rust backend", and
   - Also in the log, because they were run: each of those two solver variants against
     the baseline over 150 hands. Both give the same line, +11.7 ± 8.3 bb/100 from 3
     hands that differ. That is 1.4 standard errors on 150 hands. It was run to see the
-    two lines agree and says nothing about `river_solver` against B0.
+    two lines agree and says nothing about `river_solver` against B0 (for that, see
+    "Phase 2: the river solver against B0").
+  - Those runs used the comparison tool as it was before the Phase 1 tools arrived
+    (`--method classic` today). Run again with the tool as it is now (duplicate decks,
+    hands that differ replayed 6 times): 0 of 150 and 0 of 1,002 hands differ.
 - **Not compared against B0**, and not to be turned on: `river_solver` itself has not
   passed the B0 bar. The backend was written and tested against a stand-in that follows
   the program's command line and file formats. `subgame-solve` reached the repo the same
@@ -1375,8 +1379,10 @@ clock and with the advice's settings. Then every decision through `advise()` wit
 - One paired run in the simulator, with the program built:
   `tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed
   --base '{"river_solver": true}'` (seed 101): 1 of 1,000 hands differs, -0.1 ± 0.1
-  bb/100, and a second run gives the same line. This compares the two solvers on the
-  same spots, not either of them with B0. Log: `runs/rust_solver_switch_check.log`.
+  bb/100, and a second run gives the same line. With the comparison tool as it is now
+  (duplicate decks, replays): 1 of 1,002 hands differs, -0.9 ± 0.9 bb/100 replayed 6
+  times. This compares the two solvers on the same spots, not either of them with B0.
+  Log: `runs/rust_solver_switch_check.log`.
 
 ### What the call costs
 

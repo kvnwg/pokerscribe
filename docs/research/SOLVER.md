@@ -397,9 +397,10 @@ last two lines are all 394 decisions with `rust_solver` off and on.)
   hand near 50% can flip. Through `advise()`: the same instruction on 384 of 394.
 - In the simulator, with fixed work: `river_solver` with the Rust program against
   `river_solver` with the Python solver, 1,000 hands at table mixed, seed 101: 1 hand
-  differs, -0.1 ± 0.1 bb/100, and a second run gives the same line
-  (`runs/rust_solver_switch_check.log`). This compares two solvers on the same spots. It
-  is not a test of either against B0.
+  differs, -0.1 ± 0.1 bb/100, and a second run gives the same line. With duplicate
+  decks and replays, the comparison tool's default since: 1 of 1,002 hands, -0.9 ± 0.9
+  bb/100 (`runs/rust_solver_switch_check.log`). This compares two solvers on the same
+  spots. It is not a test of either against B0.
 
 `test_the_real_program_when_it_is_built` runs the real program on a plain spot and on two
 spots with the advice's sizes, and checks each answer with the Python exploitability
