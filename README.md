@@ -214,7 +214,8 @@ app/
   ui/                PySide6 interface
   tests/             test suite and the synthetic table renderer
 engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
-                     the hand evaluator, and crates/py, the Python module pokerscribe_engine.
+                     the hand evaluator, the river and turn solver (subgame-solve), and
+                     crates/py, the Python module pokerscribe_engine.
                      Optional: the app runs without Rust (see engine/crates/py/README.md)
 tools/               benchmarks, template builders, the simulator and paired comparisons
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)

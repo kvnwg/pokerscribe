@@ -671,8 +671,9 @@ engine are now connected in two places. See `SOLVER.md`, "The Rust backend", and
     hands that differ. That is 1.4 standard errors on 150 hands. It was run to see the
     two lines agree and says nothing about `river_solver` against B0.
 - **Not compared against B0**, and not to be turned on: `river_solver` itself has not
-  passed the B0 bar, and the Rust program was not in the repo yet. The backend was tested
-  against a stand-in that follows the program's command line and file formats.
+  passed the B0 bar. The backend was written and tested against a stand-in that follows
+  the program's command line and file formats. `subgame-solve` reached the repo the same
+  day, and the backend works with it as written (below).
 
 ### Bet sizes the SPOT format can't say
 
@@ -698,27 +699,62 @@ pots), and one list of raise sizes can't say both. No decision in the sample fac
 raise. The fix belongs on the Rust side: `subgame-solve` reading the three options, then
 `EXTENDED_SIZES = True` in `rust_backend.py`.
 
+### Against the real program
+
+`runs/rust_solver_real.py` (log `runs/rust_solver_real.log`): the same 394 river spots,
+each solved by the Python solver and by `subgame-solve` through the backend, by the
+clock and with the advice's settings. Then every decision through `advise()` with
+`rust_solver` off and on, both switches on in the measuring script only.
+
+| | Python solver | `subgame-solve` |
+| --- | --- | --- |
+| Answered | 394 | 302, none failed (92 can't be written) |
+| The solve call, p50 / p95 / max | 287 / 290 / 303 ms | 56 / 154 / 228 ms |
+| Of that, solving / everything else, p50 | 287 ms / none | 44 ms / 15 ms |
+| From an equilibrium, % of the pot, p50 / p95 / max | 0.10 / 0.35 / 0.74 | 0.06 / 0.40 / 0.50 |
+| Answers over 1% of the pot | 0 | 0 |
+| The whole decision through `advise()`, p50 / p95 / max | 294 / 299 / 441 ms | 79 / 297 / 311 ms |
+| Decisions the solver answered | 388 of 394 | 389 of 394 |
+
+- What the backend had taken on trust held: the target is in percent of the pot,
+  `--time-ms` limits the solving, and a size over the stack becomes all in (every one of
+  the 302 answers came back for exactly the spot's tree).
+- The program's own exploitability is the Python checker's: the largest difference is
+  0.00003% of the pot.
+- The median decision drops from 294 ms to 79 ms. The p95 stays at 297 ms because the 92
+  spots that can't be written are still the Python solver's.
+- The advice would act the same on both answers in 289 of 297 spots where both have one
+  for the hero's hand. The other 8 are close mixes (call 58%, fold 42% against 50%, 50%;
+  all 8 are in the log). Through `advise()`: the same instruction on 384 of 394.
+- One paired run in the simulator, with the program built:
+  `tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed
+  --base '{"river_solver": true}'` (seed 101): 1 of 1,000 hands differs, -0.1 ± 0.1
+  bb/100, and a second run gives the same line. This compares the two solvers on the
+  same spots, not either of them with B0. Log: `runs/rust_solver_switch_check.log`.
+
 ### What the call costs
 
 Each decision that goes to the Rust program pays for starting it, writing the spot and
 reading the answer back. `tools/rust_solver_overhead.py --advice-hands 6000
---advice-spots 400`, 5 calls a spot, with a stand-in program that does no solving
-(`tools/replay_solve.rs`), in a Linux cloud container (Intel Xeon at 2.10 GHz). Log:
-`runs/rust_solver_overhead.log`.
+--advice-spots 400`, 5 calls a spot, in a Linux cloud container (Intel Xeon at 2.10 GHz,
+4 cores). Run twice: with the real program (`--binary`; overhead is the whole call less
+the solving time the program reports) and with a stand-in that does no solving
+(`tools/replay_solve.rs`). Log: `runs/rust_solver_overhead.log`.
 
-| Spots | Combos, both ranges | Overhead p50 | p95 | max | p95 as a share of 400 ms |
-| --- | --- | --- | --- | --- | --- |
-| narrow ranges, 40 | 219 to 340 | 5.7 ms | 7.2 ms | 17.3 ms | 1.8% |
-| medium ranges, 40 | 462 to 685 | 10.2 ms | 16.4 ms | 37.7 ms | 4.1% |
-| wide ranges, 40 | 909 to 1,145 | 13.4 ms | 20.7 ms | 35.9 ms | 5.2% |
-| the advice's spots, 302 | 110 to 1,401 (median 833) | 11.7 ms | 19.7 ms | 28.4 ms | 4.9% |
+| Spots | Combos, both ranges | Real program: p50 | p95 | max | Stand-in: p50 | p95 | max |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| narrow ranges, 40 | 219 to 340 | 8.6 ms | 12.2 ms | 29.5 ms | 5.7 ms | 7.2 ms | 17.3 ms |
+| medium ranges, 40 | 462 to 685 | 13.3 ms | 17.8 ms | 33.1 ms | 10.2 ms | 16.4 ms | 37.7 ms |
+| wide ranges, 40 | 909 to 1,145 | 19.3 ms | 26.6 ms | 35.1 ms | 13.4 ms | 20.7 ms | 35.9 ms |
+| the advice's spots, 302 | 110 to 1,401 (median 833) | 16.8 ms | 26.4 ms | 36.0 ms | 11.7 ms | 19.7 ms | 28.4 ms |
 
+- On the advice's spots: about 17 ms a call that is not solving, 26 ms at p95, which is
+  6.6% of the 400 ms decision budget.
 - Starting the program is 1.5 ms of it. Reading the answer in Python is the largest part
-  (3.2, 5.3, 7.8 and 6.8 ms at the median).
+  (7 to 9 ms at the median on the advice's spots).
 - The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets
-  260 ms. That is twice the p95; the largest single call measured (37.7 ms) just fits.
-- Not in these numbers: the real program's own JSON reading and writing, and a Mac. To be
-  measured again with `--binary` once `subgame-solve` is built.
+  260 ms. The largest overhead measured in any run is 37.7 ms.
+- Not in these numbers: a Mac.
 
 ## Research notes (paraphrased, with sources)
 

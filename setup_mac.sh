@@ -28,8 +28,8 @@ echo "Using $($PY --version)"
 
 # Optional: the Rust engine (engine/). PokerScribe runs without it, so nothing here can
 # make the setup fail. With Rust installed (https://rustup.rs) this builds the Python
-# module pokerscribe_engine and, once that crate is there, the solver program
-# subgame-solve. Set POKERSCRIBE_SKIP_RUST=1 to leave it out.
+# module pokerscribe_engine and the solver program subgame-solve. Set
+# POKERSCRIBE_SKIP_RUST=1 to leave it out.
 if [ "${POKERSCRIBE_SKIP_RUST:-}" != "1" ] && command -v cargo >/dev/null 2>&1; then
   echo
   echo "Rust is installed: building the optional Rust engine (a minute or two the first time)."

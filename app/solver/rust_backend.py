@@ -29,9 +29,9 @@ river decisions in simulated hands, all with stacks of 12.5 to 19 pots, where al
 answers a pot-sized bet but not a half-pot bet (EXTENDED_SIZES is the way out).
 
 Only the program's command line and its two file formats are used here, nothing from the
-crate behind it. --target-exploitability is taken to be in percent of the pot (the 0.3 in
-the usage line is the 0.3% the answer keys were solved to), while RiverStrategy and
-solve_river count in shares of the pot, so 0.001 here goes out as 0.1.
+crate behind it (engine/crates/subgame). --target-exploitability is in percent of the pot,
+while RiverStrategy and solve_river count in shares of the pot, so 0.001 here goes out as
+0.1.
 """
 from __future__ import annotations
 
@@ -76,10 +76,11 @@ OVERHEAD_RESERVE_MS = 40.0
 # A RESULT rounds probabilities to 6 decimals, so a row may be this far from adding up to 1.
 ROW_TOLERANCE = 1e-4
 # A SPOT's bet sizes are written with the three keys data/SPOT_FORMAT.md describes (bets,
-# raises, allin), and a spot they can't say goes to the Python solver (plain_sizes). Set
-# this to True once subgame-solve reads BetSizes' three newer options (reraises,
-# allin_within, exact) the way app/solver/tree.py does: such a spot then goes out with its
-# sizes as they are (BetSizes.to_dict()). An answer for another tree is refused either way.
+# raises, allin), and a spot they can't say goes to the Python solver (plain_sizes).
+# subgame-solve refuses a spot with BetSizes' three newer options (reraises, allin_within,
+# exact). Set this to True once it reads them the way app/solver/tree.py does: such a spot
+# then goes out with its sizes as they are (BetSizes.to_dict()). An answer for another
+# tree is refused either way.
 EXTENDED_SIZES = False
 
 

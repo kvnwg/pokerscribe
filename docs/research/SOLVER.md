@@ -60,6 +60,7 @@ Scripts:
 ```
 .venv/bin/python tools/solver_timing.py --ranges all         # p50 / p95 against 400 ms, and answer quality
 .venv/bin/python tools/rust_solver_overhead.py               # what calling the Rust program costs per decision
+.venv/bin/python docs/research/runs/rust_solver_real.py      # the advice's river spots through the real Rust program
 .venv/bin/python tools/label_river.py --synthetic 100 --out river_labels.jsonl
 .venv/bin/python tools/build_preflop_equity.py --verify      # rebuild the equity table
 .venv/bin/python docs/research/runs/phase2_solver.py         # every table in experiments.md
@@ -265,8 +266,8 @@ new roadmap doesn't plan to.
 
 ## The Rust backend (`rust_backend.py`)
 
-The Rust river and turn solver (`engine/crates/subgame`) is a program, `subgame-solve`.
-`rust_backend.solve_river` takes what `solve_river` takes (a time budget, `max_iterations`,
+The Rust river and turn solver (`engine/crates/subgame`, see its README) is a program,
+`subgame-solve`. `rust_backend.solve_river` takes what `solve_river` takes (a time budget, `max_iterations`,
 a target exploitability) and returns the same `RiverStrategy`, with `backend` set to
 `"rust"` or `"python"`.
 
@@ -324,9 +325,9 @@ budget was passed, and the rules decide, as with any slow solver.
 
 A SPOT's `sizes` have three keys: `bets`, `raises`, `allin`. `BetSizes` has three more
 since the river solver learned to answer raises: `reraises`, `allin_within` and `exact`.
-`data/SPOT_FORMAT.md` doesn't describe them, so a program written from it doesn't know
-them, and the advice uses them on every spot (`allin_within` is 6 pots, and a bet already
-made is `exact`).
+`data/SPOT_FORMAT.md` doesn't describe them, and `subgame-solve` refuses a spot that has
+them (its README, "Things to know", 5). The advice uses them on every spot
+(`allin_within` is 6 pots, and a bet already made is `exact`).
 
 All the three do is decide where going all in is a choice, and which list a raise takes
 its sizes from. So `rust_backend.plain_sizes` says them with the three keys the format
@@ -351,26 +352,58 @@ Such a spot goes straight to the Python solver. The way out is on the Rust side:
 A spot the three keys can't say then goes out with its sizes as they are
 (`BetSizes.to_dict()`). An answer for another tree is refused either way.
 
-### Three things taken on trust until the real program is here
+### Checked against the real program
 
-`subgame-solve` was not in the repo when this was written, so the backend is tested
-against a stand-in (below). Check these three against the real program:
+The backend was written against the command line and the two formats alone, with a
+stand-in for the program (below). `subgame-solve` reached the repo the same day, and the
+backend works with it as written. What had been taken on trust, and how it turned out
+(`runs/rust_solver_real.py`, log `runs/rust_solver_real.log`: the advice's 394 river
+spots from 6,000 simulated hands, by the clock):
 
-- **`--target-exploitability` is taken to be in percent of the pot.** The `0.3` in the
-  usage line is read as the 0.3% the answer keys were solved to. `app/solver` counts in
-  shares of the pot, so a target of 0.001 goes out as `0.1`. If the program means a share,
-  it would stop far too early: change `TARGET_PERCENT` in `rust_backend.py` to 1. The
-  backend logs a warning when it sees this happen (the program says it converged, with an
-  answer over ten times further from an equilibrium than the target).
-- **`--time-ms` is taken to limit the solving.** Writing the answer comes on top, and
-  must fit in the 40 ms kept back.
-- **A size at or over the stack is taken to become all in**, as the format says. The
-  advice's spots rely on it (previous section). If the program does something else, its
-  tree differs, the answer is refused with a warning, and the Python solver answers.
+- **`--target-exploitability` is in percent of the pot**, as assumed
+  (`TARGET_PERCENT = 100`): a target of 0.001 here goes out as `0.1`. The program's
+  README says so, and its answers stop where the advice's target asks.
+- **`--time-ms` limits the solving**, as assumed. Writing the answer comes on top and fits
+  in the 40 ms kept back: no call went over the 300 ms budget.
+- **A size at or over the stack becomes all in**, as the format says. The advice's spots
+  rely on it (previous section): 302 spots went out that way and every answer came back
+  for exactly the spot's tree. None failed.
+- **The program's own exploitability is the Python checker's**: the largest difference
+  over the 302 answers is 0.00003% of the pot. So the advice's quality bar can go by the
+  number in the answer.
 
-`test_the_real_program_when_it_is_built` runs the real program once it is built, on a
-plain spot and on two spots with the advice's sizes, and checks each answer with the
-Python exploitability checker. It is skipped until then.
+| 394 river spots, by the clock | Python solver | `subgame-solve` |
+| --- | --- | --- |
+| Answered | 394 | 302 (the other 92 can't be written as a SPOT) |
+| The solve call, p50 / p95 / max | 287 / 290 / 303 ms | 56 / 154 / 228 ms |
+| Of that, solving | all of it | 44 / 136 / 207 ms |
+| Of that, everything else | | 15 / 23 / 30 ms |
+| Iterations, p50 | 179 | 218 |
+| From an equilibrium, % of the pot, p50 / p95 / max | 0.10 / 0.35 / 0.74 | 0.06 / 0.40 / 0.50 |
+| The whole decision through `advise()`, p50 / p95 / max | 294 / 299 / 441 ms | 79 / 297 / 311 ms |
+| Decisions the solver answered | 388 | 389 |
+
+(The Python column is over all 394 spots, the Rust column's solve lines over its 302. The
+last two lines are all 394 decisions with `rust_solver` off and on.)
+
+- The Python solver uses its whole 300 ms on most spots without reaching the target. The
+  Rust program reaches it and stops, after 44 ms of solving at the median, so the median
+  decision drops from 294 ms to 79 ms. The p95 doesn't move, because the 92 spots that
+  can't be written still go to the Python solver.
+- On 289 of the 297 spots where both solvers have an answer for the hero's hand, the
+  advice would act the same. The other 8 are close mixes, for example call 58% and fold
+  42% against 50% and 50% (all 8 are in the log). Two solvers stopped at different
+  moments don't land on the same mix, and the advice plays the most likely action, so a
+  hand near 50% can flip. Through `advise()`: the same instruction on 384 of 394.
+- In the simulator, with fixed work: `river_solver` with the Rust program against
+  `river_solver` with the Python solver, 1,000 hands at table mixed, seed 101: 1 hand
+  differs, -0.1 ± 0.1 bb/100, and a second run gives the same line
+  (`runs/rust_solver_switch_check.log`). This compares two solvers on the same spots. It
+  is not a test of either against B0.
+
+`test_the_real_program_when_it_is_built` runs the real program on a plain spot and on two
+spots with the advice's sizes, and checks each answer with the Python exploitability
+checker. It is skipped when the program isn't built.
 
 ### What the call costs
 
@@ -382,49 +415,56 @@ calls a spot, on two kinds of spots:
 - the benchmark spots (40 per range size);
 - the advice's own spots: every heads-up river decision of the app's seat in 6,000
   simulated hands (table mixed, seed 77), 394 in all. 92 of them can't be written as a
-  SPOT (previous section) and cost no call; the other 302 are measured.
+  SPOT (see above) and cost no call; the other 302 are measured.
 
-The program is a stand-in that does no solving (`tools/replay_solve.rs`): it reads the
-spot and hands back an answer solved beforehand, so the whole call is overhead. Log:
-`runs/rust_solver_overhead.log`.
+It was run twice. With `--binary engine/target/release/subgame-solve` the real program is
+timed, and the overhead of a call is its whole time less the solving time the program
+reports. Without it the program is a stand-in that does no solving
+(`tools/replay_solve.rs`): it hands back an answer solved beforehand, so the whole call is
+overhead, and what is left out is the program's own reading and writing of JSON. Both
+runs are in `runs/rust_solver_overhead.log`.
+
+Overhead per call with the real program:
 
 | Spots | Combos, both ranges | Answer file | p50 | p95 | max |
 | --- | --- | --- | --- | --- | --- |
-| narrow ranges | 219 to 340 | 18 to 123 kB | 5.7 ms | 7.2 ms | 17.3 ms |
-| medium ranges | 462 to 685 | 37 to 249 kB | 10.2 ms | 16.4 ms | 37.7 ms |
-| wide ranges | 909 to 1,145 | 71 to 415 kB | 13.4 ms | 20.7 ms | 35.9 ms |
-| **the advice's spots** | 110 to 1,401 (median 833) | 9 to 467 kB | **11.7 ms** | **19.7 ms** | 28.4 ms |
+| narrow ranges | 219 to 340 | 19 to 119 kB | 8.6 ms | 12.2 ms | 29.5 ms |
+| medium ranges | 462 to 685 | 39 to 242 kB | 13.3 ms | 17.8 ms | 33.1 ms |
+| wide ranges | 909 to 1,145 | 72 to 400 kB | 19.3 ms | 26.6 ms | 35.1 ms |
+| **the advice's spots** | 110 to 1,401 (median 833) | 9 to 453 kB | **16.8 ms** | **26.4 ms** | 36.0 ms |
 
-Where the median call goes:
+With the stand-in (start-up, files and Python's side only):
 
-| Spots | Writing the spot | The program, start to exit | Reading the answer |
-| --- | --- | --- | --- |
-| narrow ranges | 0.6 ms | 1.9 ms | 3.2 ms |
-| medium ranges | 1.0 ms | 3.5 ms | 5.3 ms |
-| wide ranges | 1.3 ms | 3.7 ms | 7.8 ms |
-| the advice's spots | 1.8 ms | 2.7 ms | 6.8 ms |
+| Spots | p50 | p95 | max | Writing the spot | The program | Reading the answer |
+| --- | --- | --- | --- | --- | --- | --- |
+| narrow ranges | 5.7 ms | 7.2 ms | 17.3 ms | 0.6 ms | 1.9 ms | 3.2 ms |
+| medium ranges | 10.2 ms | 16.4 ms | 37.7 ms | 1.0 ms | 3.5 ms | 5.3 ms |
+| wide ranges | 13.4 ms | 20.7 ms | 35.9 ms | 1.3 ms | 3.7 ms | 7.8 ms |
+| the advice's spots | 11.7 ms | 19.7 ms | 28.4 ms | 1.8 ms | 2.7 ms | 6.8 ms |
 
-- Starting a native program and waiting for it takes 1.5 ms (p95 2.0 ms). Most of the
-  cost is Python reading the answer: parsing the JSON, then building the arrays.
-- On the advice's spots the call costs about 12 ms, 20 ms at p95: 4.9% of the 400 ms
-  budget. Their ranges come from the betting and are wider than the benchmark's medium
-  ones. Writing the spot takes longer there too, because that is where the bet sizes are
-  put into the format's three keys (a few trees built, well under a millisecond each).
+(The last three columns are where the median call goes.)
+
+- On the advice's spots the call costs about 17 ms that is not solving, 26 ms at p95:
+  6.6% of the 400 ms budget. The stand-in's line says about 12 ms of that is there with
+  any program. The rest is mostly the real program reading the spot and writing its
+  answer.
+- Starting a native program and waiting for it takes 1.5 ms (p95 2.0 ms). The largest
+  part is Python reading the answer: parsing the JSON, then building the arrays (7 to
+  9 ms at the median on the advice's spots).
 - `rust_backend` keeps 40 ms back from the solver's 300 ms (`OVERHEAD_RESERVE_MS`), so the
-  program is given 260 ms. That is twice the p95. The largest single call measured
-  (37.7 ms, on a medium benchmark spot) just fits. A call that costs more than the reserve
-  loses nothing but that decision: the advice sees the budget passed and the rules decide.
-- Not measured: the real program's own time to read the spot and write the answer as
-  JSON (the stand-in copies bytes), and a Mac (this ran in a Linux cloud container, Intel
-  Xeon at 2.10 GHz). Run the script again with `--binary engine/target/release/subgame-solve`
-  once the program is built: it then takes the program's reported solving time off each
-  call. If the overhead turns out well under 40 ms, lower `OVERHEAD_RESERVE_MS` and the
-  solver gets the difference.
+  program is given 260 ms. The largest overhead measured in any run is 37.7 ms, so the
+  reserve is not generous. A call that costs more than the reserve loses nothing but
+  that decision: the advice sees the budget passed and the rules decide.
+- The reserve costs little: the program rarely needs its whole 260 ms (p95 of its solving
+  time on the advice's spots: 136 ms).
+- Not measured: a Mac. All of this ran in a Linux cloud container (Intel Xeon at
+  2.10 GHz, 4 cores).
 
 ### Tests
 
-`app/tests/test_solver_rust_backend.py` (59 tests), with `app/tests/fake_subgame_solve.py`
-as the program: a stand-in in Python that follows the command line and both file formats,
+`app/tests/test_solver_rust_backend.py` (59 tests; 58 and one skipped when
+`subgame-solve` isn't built), with `app/tests/fake_subgame_solve.py` as the program in all
+but the last: a stand-in in Python that follows the command line and both file formats,
 answers with the Python solver, and can be told to misbehave.
 
 - A spot goes out as a valid SPOT and reads back as the same spot.
