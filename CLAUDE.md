@@ -54,6 +54,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   tests it on planted flaws.
 - Held-out opponents: the `heldout`, `regulars`, `switchers` and `wildcards` tables in
   `tools/simulate.py` (`HELD_OUT_TABLES`). Never tune on them; judge promotions on them.
+- `app/solver/`: the Phase 2 solvers. `solve_river` (Discounted CFR on a river spot),
+  `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
+  format. See `docs/research/SOLVER.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
@@ -65,8 +68,8 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   on two comparisons with almost no differing hands. Kevin then chose to judge only comparisons
   where at least 1% of hands differ, confirmed on fresh seeds. Gate run 5 (pre-registered, seeds
   808 and 909): geometric mean 0.46 (bar 0.5), CPU 1.24 (bar 1.25), but `texture_sizing` 0.7507
-  is over the 0.75 bar, so the gate as written is not passed. Phase 2 waits for Kevin's next call
-  (`experiments.md`, Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of
+  is over the 0.75 bar, so the gate as written is not passed. What's left of Phase 2, its B0
+  comparison, waits for Kevin's next call (`experiments.md`, Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of
   classic on the four sizing comparisons and 0.16 on `push_chart`; a run of this size fails about
   one time in three by chance.
 - Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
@@ -78,6 +81,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   "Total pot = Pot + bets" and Call amount checks don't block advice yet.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
 - After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
+  Phase 2 status: the river solver and the push-or-fold solver are written and match the
+  closed-form and published results, with p95 decision time under 400 ms. The switch
+  `river_solver` is still off. Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1.
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
 
 ## Writing for Kevin

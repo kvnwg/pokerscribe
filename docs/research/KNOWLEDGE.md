@@ -10,10 +10,10 @@ justify it (see `experiments.md`); "planned" means a phase of the research roadm
 | --- | --- |
 | Call when your chance to win is above the price: call / (pot + call) | Rule (pot odds on every call) |
 | A bet's value adds the times they fold: EV = fold share x pot + call share x (equity x (pot + 2 x bet) - bet) | Setting `ev_sizing` |
-| Half-street game: a balanced bettor using s times the pot bluffs s/(1+2s) of its bets (one third at pot size); the caller defends 1/(1+s) of its range | Setting `balanced_river`; planned as a solver check (Phase 2) |
+| Half-street game: a balanced bettor using s times the pot bluffs s/(1+2s) of its bets (one third at pot size); the caller defends 1/(1+s) of its range | Setting `balanced_river`; the river solver reproduces it (`test_solver_answer_keys.py`) |
 | Checked to on the river in position (no raise possible): bet when you beat more than half of the hands that would call | Setting `river_ip_call_share` |
 | Polarized ranges over several streets: grow the pot by the same fraction each street so the stacks go in by the river (geometric sizing); very deep stacks cap it because worse hands stop calling | Setting `geometric` |
-| Jam-or-fold is close to optimal up to about 10 to 11 big blinds heads-up (12 to 13 out of position later); ranges are far looser than intuition; equity against the calling range matters more than against random hands | Setting `push_chart` (measured +0.6 +/- 0.9, stays off) |
+| Jam-or-fold is close to optimal up to about 10 to 11 big blinds heads-up (12 to 13 out of position later); ranges are far looser than intuition; equity against the calling range matters more than against random hands | Setting `push_chart` (measured +0.6 +/- 0.9, stays off); solved exactly in `app/solver/pushfold.py` (not wired in) |
 | Hand reading and opponent statistics are Bayesian: start from a prior, update with evidence, small samples shrink toward the prior | Rule (profiles start from a prior); planned in full (Phase 3) |
 
 ## Modern Poker Theory (Acevedo)
@@ -36,9 +36,9 @@ justify it (see `experiments.md`); "planned" means a phase of the research roadm
 
 | Paper | Idea | Status |
 | --- | --- | --- |
-| Zinkevich et al. 2007, CFR | Minimise counterfactual regret at every decision; the average strategy approaches equilibrium in two-player zero-sum games | Planned: river solver (Phase 2) |
+| Zinkevich et al. 2007, CFR | Minimise counterfactual regret at every decision; the average strategy approaches equilibrium in two-player zero-sum games | Done: river solver (`app/solver/cfr.py`), switch `river_solver` off |
 | Lanctot et al. 2009, Monte Carlo CFR | Sample chance or opponent actions so each iteration is cheap; external and outcome sampling | Planned: blueprint (Phase 4) |
-| Brown and Sandholm 2019, Discounted/Linear CFR; Tammelin 2014, CFR+ | Weight later iterations more; converges much faster in practice | Planned (Phase 2) |
+| Brown and Sandholm 2019, Discounted/Linear CFR; Tammelin 2014, CFR+ | Weight later iterations more; converges much faster in practice | Done: Discounted CFR is the default, about 3 times closer than CFR+ at equal iterations |
 | Brown et al. 2019, Deep CFR | Neural networks replace regret tables, no hand-made abstraction | Planned only if Phase 4 shows abstraction limits strength |
 | Moravcik et al. 2017, DeepStack; Brown and Sandholm 2017, Libratus | Search at decision time; nested safe subgame solving; patch the blueprint where opponents find holes | Planned (Phases 2 and 4) |
 | Brown and Sandholm 2019, Pluribus | Six-player: Linear MCCFR blueprint (12,400 core hours) plus depth-limited search with four continuation strategies; 1 to 33 s per search on two CPUs | The Phase 4 target |
