@@ -36,7 +36,7 @@ from .tree import GameTree
 FORMAT = "pokerscribe-river-label"
 VERSION = 1
 SOLVER_NAME = "pokerscribe-river"
-SOLVER_VERSION = "0"  # bump whenever the solver's answers can change
+SOLVER_VERSION = "1"  # bump whenever the solver's answers can change (1: Discounted CFR)
 
 
 def make_label(strategy: RiverStrategy, node: str, source: str, combos: Optional[Sequence] = None,

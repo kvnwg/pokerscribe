@@ -4,12 +4,18 @@ import time
 
 import pytest
 
-from app.solver import RiverStrategy, solve_river
+from app.solver import RiverStrategy
 from app.solver.labels import make_label, read_labels, validate_label, write_labels
-from app.solver.timing import SPRS, TimingReport, benchmark_spots, percentile, time_decisions
+from app.solver.timing import (SPRS, QualityReport, TimingReport, benchmark_spots, percentile,
+                               time_decisions)
 from tools import label_river, solver_timing
 
 from .solver_games import half_street_equilibrium
+
+
+def not_written(spot, budget_ms):
+    """Stands in for a solver that isn't there."""
+    raise NotImplementedError
 
 
 # ------------------------------------------------------------------- timing
@@ -52,10 +58,18 @@ def test_benchmark_spots_repeat_exactly():
         assert len(spot.oop_range) > 200 and len(spot.ip_range) > 200
 
 
+def test_quality_report_lists_the_spots_over_the_bar():
+    q = QualityReport((0.001, 0.004, 0.02, 0.0005), bar=0.01)
+    assert q.misses == [2] and not q.passed
+    assert q.p50 == 0.001 and q.max == 0.02
+    assert "1 of 4 over 1%" in str(q)
+    assert QualityReport((0.001, 0.002)).passed
+
+
 def test_timing_script(capsys):
-    assert solver_timing.main(["--spots", "3"]) == 2  # the stub
-    assert "isn't written yet" in capsys.readouterr().out
-    fast = lambda spot, ms: RiverStrategy.uniform(spot)  # noqa: E731
+    assert solver_timing.main(["--spots", "3"], solver=not_written) == 2
+    assert "isn't there" in capsys.readouterr().out
+    fast = lambda spot, ms: RiverStrategy.uniform(spot)  # noqa: E731 (no exploitability: time only)
     assert solver_timing.main(["--spots", "3"], solver=fast) == 0
     assert "p95" in capsys.readouterr().out
 
@@ -64,6 +78,17 @@ def test_timing_script(capsys):
         return None
 
     assert solver_timing.main(["--spots", "3", "--target-ms", "5"], solver=slow) == 1
+    assert "over 5 ms: spot 0" in capsys.readouterr().out
+
+
+def test_timing_script_with_the_real_solver(capsys):
+    # a short budget so the test is quick: the answers are rough, and the bar is set to match
+    assert solver_timing.main(["--spots", "4", "--ranges", "narrow", "--budget-ms", "40", "--bar", "0.5"]) == 0
+    out = capsys.readouterr().out
+    assert "exploitability when it stopped" in out and "0 of 4 over 50%" in out
+    # with an impossible bar, every spot is named with the reason it missed
+    assert solver_timing.main(["--spots", "2", "--ranges", "narrow", "--budget-ms", "20", "--bar", "0"]) == 1
+    assert "over the bar: spot 0" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------- labels
@@ -122,8 +147,8 @@ def test_terminal_nodes_cannot_be_labelled():
 
 def test_label_script(tmp_path, capsys):
     out = str(tmp_path / "labels.jsonl")
-    assert label_river.main(["--synthetic", "2", "--out", out]) == 2  # the stub
-    assert "isn't written yet" in capsys.readouterr().out
+    assert label_river.main(["--synthetic", "2", "--out", out], solver=not_written) == 2
+    assert "isn't there" in capsys.readouterr().out
     assert not (tmp_path / "labels.jsonl").exists()
     assert label_river.main(["--phh", "x.parquet", "--out", out]) == 2
     capsys.readouterr()
@@ -137,6 +162,11 @@ def test_label_script(tmp_path, capsys):
     assert sum(r["source"].endswith("spot=0") for r in recs) == nodes
 
 
-def test_the_solver_stub_says_it_is_not_written():
-    with pytest.raises(NotImplementedError):
-        solve_river(half_street_equilibrium(1.0).spot, 100)
+def test_label_script_with_the_real_solver(tmp_path, capsys):
+    out = str(tmp_path / "solved.jsonl")
+    assert label_river.main(["--synthetic", "1", "--ranges", "narrow", "--budget-ms", "60", "--out", out]) == 0
+    recs = list(read_labels(out))
+    assert recs and all(r["label_source"] == "solver" for r in recs)
+    solver = recs[0]["solver"]
+    assert solver["iterations"] >= 1 and solver["time_budget_ms"] == 60
+    assert 0 <= solver["exploitability_pot"] < 0.2 and solver["elapsed_ms"] > 0

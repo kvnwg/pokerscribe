@@ -166,6 +166,165 @@ every time.
   1/(1+s) and the game value, at four bet sizes) are skipped until `solve_river` stops
   raising `NotImplementedError`. There are no timing numbers yet.
 
+## Phase 2: river solver and push-or-fold (26 Nov 2026)
+
+`solve_river` now works. The `river_solver` switch is still off, and nothing was compared
+against B0 in simulation: that waits for Phase 1. Raw numbers:
+`runs/phase2_solver.log`, made by `runs/phase2_solver.py`.
+
+### Method: Discounted CFR, not CFR+
+
+Both are in `app/solver/cfr.py` and share one loop. Median (worst) exploitability in % of
+the pot over 12 benchmark spots per range size, at equal iterations:
+
+| Ranges | Method | 50 | 100 | 200 | 400 |
+|---|---|---|---|---|---|
+| narrow | Discounted CFR | 0.42 (1.99) | 0.15 (0.64) | 0.05 (0.18) | 0.01 (0.06) |
+| narrow | CFR+ | 0.98 (4.35) | 0.34 (1.58) | 0.13 (0.62) | 0.04 (0.27) |
+| medium | Discounted CFR | 0.45 (1.71) | 0.15 (0.44) | 0.05 (0.17) | 0.02 (0.07) |
+| medium | CFR+ | 0.82 (2.95) | 0.34 (1.14) | 0.13 (0.47) | 0.05 (0.19) |
+| wide | Discounted CFR | 0.42 (1.39) | 0.16 (0.38) | 0.05 (0.15) | 0.01 (0.06) |
+| wide | CFR+ | 0.82 (3.31) | 0.34 (1.22) | 0.13 (0.45) | 0.05 (0.20) |
+
+Discounted CFR is about 3 times closer at every count, so it is the default. An iteration
+costs the same for both. CFR+ is kept as `method="cfr+"`. On the tiny half-street game
+CFR+ is the quicker one early on (0.02% against 0.07% at 100 iterations), but that game
+is solved in milliseconds either way.
+
+### Answer keys: The Mathematics of Poker's half-street game
+
+Pot 100. "Test" is how the tests run it: it stops once exploitability is under 0.1% of the
+pot, after 64 to 128 iterations and about 10 ms. "Long" is 20,000 iterations.
+
+| Bet | Quantity | Book | Solver (test) | Solver (long) |
+|---|---|---|---|---|
+| 0.5 pot | bluff share s/(1+2s) | 0.2500 | 0.2513 | 0.2500 |
+| | call share 1/(1+s) | 0.6667 | 0.6704 | 0.6667 |
+| | bettor's value | 21.0526 | 21.0524 | 21.0526 |
+| 0.75 pot | bluff share | 0.3000 | 0.3024 | 0.3000 |
+| | call share | 0.5714 | 0.5719 | 0.5714 |
+| | bettor's value | 22.5564 | 22.5563 | 22.5564 |
+| 1 pot | bluff share | 0.3333 | 0.3341 | 0.3333 |
+| | call share | 0.5000 | 0.5030 | 0.5000 |
+| | bettor's value | 23.6842 | 23.6840 | 23.6842 |
+| 2 pots | bluff share | 0.4000 | 0.3999 | 0.4000 |
+| | call share | 0.3333 | 0.3349 | 0.3334 |
+| | bettor's value | 26.3158 | 26.3158 | 26.3158 |
+
+Value hands bet 100% in every row. Tolerances in the tests, unchanged from the groundwork
+session: frequencies within 0.02, exploitability at most 0.2% of the pot, value within 0.4
+chips. The largest frequency error at the test setting is 0.004. All five answer-key tests
+passed on the solver's first run; neither a book number nor a tolerance was changed.
+
+### Exploitability falls toward zero
+
+Exploitability in % of the pot (the solver's own number equals the independent checker's
+to 9 decimals):
+
+| Spot | Method | 10 | 30 | 100 | 300 | 1000 | 3000 |
+|---|---|---|---|---|---|---|---|
+| half-street, pot bet | Discounted CFR | 3.287 | 0.224 | 0.074 | 0.017 | 0.0061 | 0.0019 |
+| | CFR+ | 1.109 | 0.117 | 0.018 | 0.011 | 0.0026 | 0.0018 |
+| two ranges, default sizes | Discounted CFR | 6.762 | 1.531 | 0.097 | 0.0074 | 0.0006 | 0.0001 |
+| | CFR+ | 9.568 | 2.622 | 0.340 | 0.041 | 0.0040 | 0.0005 |
+| benchmark spot | Discounted CFR | 10.749 | 1.757 | 0.252 | 0.046 | 0.0073 | 0.0011 |
+| | CFR+ | 10.494 | 3.026 | 0.503 | 0.107 | 0.023 | 0.0045 |
+
+The test (`test_solver_cfr.py`) asserts, for all six rows, that exploitability at 10, 100
+and 1000 iterations strictly falls, by at least a factor of 3 each time, and is under 0.1%
+of the pot at 1000.
+
+### Push-or-fold, heads-up, 5 to 15 big blinds
+
+`app/solver/pushfold.py` solves the game on exact all-in equities for all 169 x 169
+starting hands, with card removal. `tools/build_preflop_equity.py` builds that table in
+101 s by going through 134,459 boards that stand for all 2,598,960. Checks on the table:
+
+- AA against KK is 0.819460505, the same to 9 decimals as enumerating all 1,712,304
+  boards combo by combo;
+- the per-board counting matches the slow pair-by-pair way, ranked by treys;
+- five matchups agree with the app's sampling equity engine.
+
+Published results to compare against:
+
+- **Chart**: HoldemResources, "HeadsUp Push/Fold Nash Equilibrium", no ante: for each
+  hand, the highest stack at which it is pushed or called
+  (https://www.holdemresources.net/hune). Same game and same stack definition as ours.
+- **Book**: the two jam shares this repo already quotes from The Mathematics of Poker
+  (about 62% at 8 big blinds, 58% at 10). The book's own table isn't online.
+- **Second table**: PokerStrategy's shares per stack
+  (https://www.pokerstrategy.com/strategy/sit-and-go/1779/).
+
+| Stack | Jam: chart | Jam: solver | Jam: book | Call: chart | Call: solver | SB result (bb/hand) | Hands that differ from the chart |
+|---|---|---|---|---|---|---|---|
+| 5 | 72.2% | 71.5% | | 62.3% | 62.1% | +0.056 | 96o (the solver mixes it, 17% jam) |
+| 8 | 62.3% | 61.9% | 62% | 45.4% | 45.0% | -0.004 | 84s, 43s (the solver folds both) |
+| 10 | 58.4% | 58.3% | 58% | 37.3% | 37.4% | -0.045 | none |
+| 12 | 53.2% | 53.2% | | 33.0% | 33.0% | -0.083 | none |
+| 15 | 45.7% | 45.7% | | 28.8% | 28.5% | -0.127 | none |
+
+Solver exploitability is under 0.000001 bb a hand at every stack, in 200 to 300 iterations
+and about 20 ms. Tolerances in the tests:
+
+- shares within 1.5 points of the chart (the largest gap is 0.7);
+- book shares within 1 point;
+- a hand may differ from the chart only where its two actions are worth within 0.01 bb of
+  each other.
+
+**The three hands that differ: the solver is right, and nothing was changed.** The
+reasoning:
+
+1. The chart and the solver describe the same game. Played in our game, the chart's
+   strategy can be exploited for at most 0.00009 bb a hand, and its value for the small
+   blind matches ours to 4 decimals at every stack. So the equities and the rules agree.
+2. The chart gives one cutoff per hand. Some suited hands switch between jam and fold
+   several times as the stack changes. The page notes this for 63s, 53s and 43s only.
+   Solving every half big blind from 7.5 to 10.5 shows 84s going jam, fold, jam, fold,
+   fold, jam, fold. From 8 to 10 it is worth within 0.006 bb of folding, and its sign
+   depends on which hand the big blind has just added to its calls. The chart's 10.1 is
+   the highest stack where 84s is a jam, not a promise for every stack below.
+3. At 8 big blinds, jamming 84s against the chart's own calling range loses 0.013 bb
+   compared with folding, and 43s loses 0.015. Against the equilibrium calling range they
+   lose 0.0015 and 0.0028. So folding is correct there, by a hair.
+4. 96o at 5 big blinds is a mixed hand at the edge of its cutoff (jamming and folding are
+   worth the same to 0.0003 bb).
+
+The second table differs from the chart itself at short stacks (at 5 big blinds it lists
+74.1% and 68.6% against the chart's 72.2% and 62.3%), so it isn't the same calculation. At
+15 big blinds it agrees with both (45.7% and 28.4%). It also says the small blind's result
+is positive under 7.5 big blinds and about -0.1 at 15 to 20, which matches the last column.
+
+### Decision time
+
+Budget 300 ms for the solver, target 400 ms for the decision. 200 benchmark spots per
+range size (`tools/solver_timing.py --ranges all`). The solver stops when its answer is
+under 0.1% of the pot or when the budget is nearly spent, so the time passes almost by
+construction. What tells spots apart is how exploitable the answer still is at that point.
+
+| Ranges (combos) | Time p50 | Time p95 | Time max | Exploitability p50 | p95 | max | Over 1% |
+|---|---|---|---|---|---|---|---|
+| narrow (about 120 v 180) | 100 ms | 290 ms | 291 ms | 0.06% | 0.10% | 0.15% | 0 of 200 |
+| medium (about 290 v 350) | 141 ms | 290 ms | 291 ms | 0.07% | 0.14% | 0.23% | 0 of 200 |
+| wide (about 500 v 550) | 288 ms | 290 ms | 299 ms | 0.08% | 0.31% | 0.53% | 0 of 200 |
+
+The whole decision through `advise()` (the switch turned on inside the measuring script
+only), on 150 random heads-up river spots: p50 155 ms, p95 313 ms, max 317 ms, none over
+400 ms. The solver's answer was used in all 150.
+
+No spot misses the bar of 1% of the pot. The weakest are wide ranges with stacks of 8
+pots: more combos make each iteration slower (about 2 ms against 0.6 ms), and the deeper
+tree needs more iterations, so only about 125 fit in the budget. In about 1 run in 600 on
+this machine a single slow moment pushed a solve a few ms past 300; the advice then uses
+the rules for that decision.
+
+### Not done, on purpose
+
+- The switch stays off; no B0 comparison (after Phase 1).
+- Ranges in the advice are still the placeholder (Phase 3). Facing a raise still uses the
+  rules.
+- The push-or-fold solver isn't wired into the advice. The `push_chart` option still
+  uses its hand-typed table.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

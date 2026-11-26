@@ -11,8 +11,6 @@ offline, so it can take a bigger time budget than the 400 ms a live decision get
 --phh will read heads-up river decisions from the hand history dataset (tools/phh), with
 the recorded action kept as "observed": an observation, never the label. That needs
 range estimates from the hand's history (the Phase 3 opponent model) and is not written.
-
-Stub: until the solver exists (Phase 2), this prints a message and exits 2.
 """
 from __future__ import annotations
 
@@ -53,7 +51,7 @@ def main(argv: Optional[List[str]] = None, solver: Callable = solve_river) -> in
     try:
         n = write_labels(args.out, synthetic_labels(args.synthetic, args.seed, args.ranges, args.budget_ms, solver))
     except NotImplementedError:
-        print("The river solver isn't written yet (Phase 2): nothing was labelled.")
+        print("The river solver isn't there: nothing was labelled.")
         return 2
     print(f"Wrote {n} labelled decisions to {args.out}")
     return 0

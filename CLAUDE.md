@@ -44,8 +44,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
 - `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons.
-- `app/solver/`: Phase 2 river solver groundwork (spot, tree, ranking, exploitability checker,
-  timing, label format). `solve_river` is still a stub; see `docs/research/SOLVER.md`.
+- `app/solver/`: the Phase 2 solvers. `solve_river` (Discounted CFR on a river spot),
+  `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
+  format. See `docs/research/SOLVER.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
@@ -60,7 +61,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   "Total pot = Pot + bets" and Call amount checks don't block advice yet.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
 - After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
-  Its groundwork is done (`app/solver/`, switch `river_solver` off); the solving algorithm is next.
+  Phase 2 status: the river solver and the push-or-fold solver are written and match the
+  closed-form and published results, with p95 decision time under 400 ms. The switch
+  `river_solver` is still off. Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1.
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
 
 ## Writing for Kevin

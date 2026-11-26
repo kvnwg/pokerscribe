@@ -2,6 +2,10 @@
 
 time_decisions(spots, decide) runs `decide` on every spot and measures each call.
 benchmark_spots(n, seed) makes a repeatable set of river spots for it.
+
+The solver stops on the clock, so time alone says little: QualityReport adds how close to
+an equilibrium each answer was when it stopped (its exploitability), and which spots are
+still over the bar.
 """
 from __future__ import annotations
 
@@ -14,6 +18,8 @@ from typing import Callable, List, Sequence
 from .spot import BetSizes, RiverSpot
 
 TARGET_MS = 400.0  # p95 decision time must stay under this (docs/research/README.md, Phase 2)
+# An answer misses when a perfect counter-strategy could still win more than this share of the pot.
+QUALITY_BAR = 0.01
 
 
 def percentile(values: Sequence[float], q: float) -> float:
@@ -79,6 +85,40 @@ def time_decisions(spots: Sequence[RiverSpot], decide: Callable[[RiverSpot], obj
         decide(spot)
         times.append(1000.0 * (clock() - start))
     return TimingReport(tuple(times), target_ms)
+
+
+@dataclass(frozen=True)
+class QualityReport:
+    """Exploitability (share of the pot) of each answer, in the order of the spots."""
+
+    exploitability: tuple
+    bar: float = QUALITY_BAR
+
+    @property
+    def p50(self) -> float:
+        return percentile(self.exploitability, 50)
+
+    @property
+    def p95(self) -> float:
+        return percentile(self.exploitability, 95)
+
+    @property
+    def max(self) -> float:
+        return max(self.exploitability)
+
+    @property
+    def misses(self) -> List[int]:
+        """Positions of the spots whose answer is still over the bar."""
+        return [i for i, e in enumerate(self.exploitability) if e > self.bar]
+
+    @property
+    def passed(self) -> bool:
+        return not self.misses
+
+    def __str__(self) -> str:
+        pct = lambda x: f"{100 * x:.3f}%"  # noqa: E731
+        return (f"exploitability when it stopped: p50 {pct(self.p50)}, p95 {pct(self.p95)}, max {pct(self.max)} "
+                f"of the pot; {len(self.misses)} of {len(self.exploitability)} over {100 * self.bar:g}%")
 
 
 # Stack-to-pot ratios of the benchmark spots: from nearly all in to deep.

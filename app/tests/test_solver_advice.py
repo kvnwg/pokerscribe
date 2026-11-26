@@ -64,10 +64,14 @@ def test_switch_off_never_calls_the_solver(make, monkeypatch):
 
 
 @pytest.mark.parametrize("make", SPOTS)
-def test_the_stub_falls_back_to_the_rules(make, monkeypatch):
+def test_a_missing_solver_falls_back_to_the_rules(make, monkeypatch):
+    def not_written(spot, budget_ms):
+        raise NotImplementedError
+
     before = go(make()).to_dict()
     monkeypatch.setitem(advice.TUNING, "river_solver", True)
-    assert go(make()).to_dict() == before  # solve_river raises NotImplementedError
+    monkeypatch.setattr(solver, "solve_river", not_written)
+    assert go(make()).to_dict() == before
 
 
 @pytest.mark.parametrize("make", SPOTS)
@@ -151,6 +155,36 @@ def test_the_solver_sees_the_real_spot(monkeypatch, switch_on):
     assert "b100" in GameTree(spot)["x"].actions  # their real bet is in the tree
     assert seen["budget"] == solver.DECISION_BUDGET_MS
     assert spot.index(OOP, ("Ah", "Kd")) >= 0  # the hero's hand is in the hero's range
+
+
+# ------------------------------------------------- the real solver, end to end
+def test_real_solver_through_the_advice(monkeypatch, switch_on):
+    # The real solver, given half its usual time so a slow moment on a busy machine can't
+    # push it past the budget the advice checks (that would be a correct fall back to the
+    # rules, but not what this test is about).
+    real = solver.solve_river
+    monkeypatch.setattr(solver, "solve_river", lambda spot, budget_ms: real(spot, budget_ms / 2))
+    # A set of eights facing a half-pot bet: the solver's instruction, never a fold.
+    st = table(["8h", "8s"], "BB", BOARD, bets={"BTN": 100}, pot=200, to_call=100,
+               last={"BTN": Action("bet", 100)},
+               actions=[Action("fold"), Action("call", 100), Action("raise", 200)], **HEADS_UP)
+    a = go(st)
+    assert a.basis == "solver" and a.action in ("call", "raise", "all-in")
+    assert "river solver" in a.reason and "%" in a.detail
+    # Seven high, checked to on the button: the solver may bluff or give up, but it decides.
+    air = table(["7c", "4d"], "BTN", BOARD, bets={}, pot=200, to_call=0, last={"BB": Action("check")},
+                actions=[Action("check"), Action("bet", 10)], **HEADS_UP)
+    a = go(air)
+    assert a.basis == "solver" and a.action in ("check", "bet", "all-in")
+
+
+def test_the_switch_is_still_off_with_the_real_solver(monkeypatch):
+    def never(spot, budget_ms):
+        raise AssertionError("the solver must not be called while the switch is off")
+
+    monkeypatch.setattr(solver, "solve_river", never)
+    assert advice.TUNING["river_solver"] is False
+    assert go(facing_bet()).basis != "solver"
 
 
 # ---------------------------------------------------------------- bridge
