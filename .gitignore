@@ -8,3 +8,6 @@ phh_data/
 uoftcprg/
 *.parquet
 .DS_Store
+
+# per-hand data from experiment runs (rebuilt exactly by the scripts in docs/research/runs)
+docs/research/runs/*/*.json
