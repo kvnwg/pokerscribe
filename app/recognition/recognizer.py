@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from app.state.model import Field, GameState, Player
-from app.state.positions import assign_positions
+from app.state.positions import assign_positions, posted_blinds
 from app.vision.card_recognizer import CardReading, CardRecognizer
 from app.vision.ocr import OcrEngine, TextBox
 
@@ -183,6 +183,14 @@ class TableRecognizer:
             # the timer bar or glow is on another seat and no buttons are showing
             st.hero_to_act = Field.auto(False, lay.acting_conf, T)
             st.available_actions = Field.auto([], lay.acting_conf, T)
+
+        if street == "preflop" and not st.blinds.known:
+            # no stakes printed (or not read): the chips the blinds put in front of them say
+            # what they are, so the big blind's own chips never look like a raise
+            posted = posted_blinds(players)
+            if posted is not None:
+                confs = [p.bet.confidence for p in players if p.bet.known and float(p.bet.value or 0) in posted]
+                st.blinds = Field.auto(posted, round(0.95 * min(confs), 3) if confs else 0.0, T)
 
         st.to_call = self._to_call(st, lay)
         return st

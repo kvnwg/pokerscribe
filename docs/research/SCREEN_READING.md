@@ -16,7 +16,11 @@ wireframe.
 - Blinds come only from a labelled line: "Blinds 1/2", "NL 2/4", a Stakes box.
 - Numbers in names, level badges (Lv), dates, hand numbers and table numbers are never blinds.
 - Confirm with the small and big blind chips posted at the start of the hand.
-- Status: done. Labelled text only; posted chips on the first read of a hand.
+- Status: done. Labelled text only; posted chips on the first read of a hand. With no stakes
+  printed, the chips in front of the small and big blind before the flop give them, found by the
+  button or, without it, as the smallest bet with twice it at the next seat. The big blind's own
+  chips are then never taken for a raise (Kevin on 247, 26 Nov: "the guy put down big blind and
+  u saw it as he reraised me").
 
 **3. New hand or same hand** (every read)
 - Signs of a new hand: a new hand number, new hole cards, an empty board, the button moved.
@@ -160,6 +164,26 @@ between a seat and the middle.
 | Chip icon before a bet | Read as "0 210" | The lone 0 is the icon |
 | Dealer button touching text | "$ 200D", "D19" (with a level badge) | The character the disc covers is dropped, from the nearer end |
 | Buttons | Stacked in a column at the right edge, or across the bottom of a phone | Both are your buttons. "All in" by your picture is your status, not a button |
+
+## Why a person reads it that way (26 Nov)
+
+Kevin asked why a person ties a number to a seat, a disc to the button, a bet to the big blind.
+What a person goes by, so the reader can go by the same things:
+
+| Question | What a person goes by |
+| --- | --- |
+| This number is that player's bet | It sits on its own on the felt, between that seat and the middle, nearer that seat than any other. Usually a chip picture beside it. It appeared when that player acted, their stack dropped by the same amount, and it slides into the pot when the round ends |
+| This number is not a bet | It touches a name plate or picture (level, badge, countdown), sits on the pot line in the middle ("Pot", "Total pot"), is a clock or a time bank, or is in a corner or menu |
+| This is the big blind | Before the flop, the second seat clockwise from the button (heads-up, the seat after the button). Its chips are there before anyone has acted, the size of the second number in "Blinds 1/2" (1 BB on tables that count in big blinds). The small blind is the seat right after the button, with half that |
+| This is a raise | Before the flop, a bet bigger than the big blind. The big blind's own chips are never a raise, nor a call of them |
+| This is the button | A round disc on the felt beside one seat, nearer that seat than any other, marked D. It moves one seat clockwise every hand |
+| Other forms of the button | A white puck with a black D, a gold or yellow coin with a D, "DEALER" written on it, a small D on the rim of a player's picture, a "BTN" or "D" tag on the name plate. A number on a picture's rim is a level badge, not the button |
+| Positions | Clockwise from the button: button, small blind, big blind, then the rest, skipping empty seats |
+
+Done in the reader: bets by the nearest seat toward the middle with the tracker checking the
+stack drop; badges, plates, pot lines and clocks never bets; the stakes from the chips the small
+and big blind posted (`posted_blinds`), and the big blind's own chips never a raise. Not done: a
+"BTN" or "Dealer" text tag on a plate as the button.
 
 ## Self-test (Phase 0)
 

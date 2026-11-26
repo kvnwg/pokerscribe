@@ -408,3 +408,16 @@ def test_a_dim_picture_between_hands_is_still_a_seat(rec):
     res, seats = read(rec, view, "portrait")
     assert sorted(seats) == [0, 1, 2, 3, 4, 5]
     assert seats[1].stack.value == 25400
+
+
+@needs_ocr
+def test_the_blinds_come_from_the_chips_the_blinds_posted(rec):
+    """No stakes printed on this table: the small and big blind's chips (25$ and 50$) are the
+    blinds, so the big blind's own chips are no raise and a raise has an amount in chips."""
+    view = table(bets={4: 5, 5: 10}, folded=(1, 2), button=3, acting=0, hero_cards=("Kh", "Qs"),
+                 buttons=["Fold", "Call 50$", "Raise"])
+    res, seats = read(rec, view, "avatars")
+    assert tuple(res.state.blinds.value) == (25, 50)
+    from app.poker.advice import advise
+    adv = advise(res.state)
+    assert adv.action == "raise" and adv.amount is not None

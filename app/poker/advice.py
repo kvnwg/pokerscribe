@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from app.state.model import GameState, Player
-from app.state.positions import label as position_label
+from app.state.positions import label as position_label, posted_blinds
 from app.state.text_format import card_symbol, fmt_amount
 
 from . import charts, exploits, hands
@@ -634,12 +634,24 @@ def _vs_committed_raise(s: _Spot, raiser: Player, raiser_pos: Optional[str], nam
                                   f"{_top(share)} they raise with but needs {_pct(need)}.", basis="math")
 
 
+def _at_most(p, bb: float) -> bool:
+    """This player's chips in front are no more than the big blind."""
+    try:
+        return p.bet.known and float(p.bet.value) <= 1.01 * bb
+    except (TypeError, ValueError):
+        return False
+
+
 def _posted_bb(s: _Spot) -> Optional[float]:
     """The big blind when the stakes weren't read: the smallest bet in front of an opponent
     (everyone still in has put in at least the big blind, the small blind aside), or twice
     the small blind's chips (even faint reads). Not the big blind's chips alone: they may be
     a re-raise, and then a re-raise would look like nobody raised. Only to tell whether
-    someone raised: without it, a raise to 99 could look like nobody raised."""
+    someone raised: without it, a raise to 99 could look like nobody raised. First of all the
+    blinds' own chips, when they can be told apart (posted_blinds)."""
+    posted = posted_blinds(s.state.players)
+    if posted is not None:
+        return posted[1]
     found = []
     for p in s.state.players:
         v = p.bet.value if p.bet.known else p.bet.guess
@@ -678,8 +690,12 @@ def _preflop(s: _Spot) -> Advice:
         # blind means someone raised, even when their chips weren't read
         max_bet = s.to_call + (s.hero_bet or 0.0)
     bb = s.bb or _posted_bb(s)
+    if bb:
+        # posting the big blind is no raise, whatever a tag on the plate says ("Bet 2")
+        raisers = [p for p in raisers if _last(p) == "all-in" or not _at_most(p, bb)]
     raised = max_bet > 1.01 * bb if (bb and max_bet is not None) else bool(raisers)
-    hero_raised = bool(s.hero_bet and bb and s.hero_bet > 1.01 * bb) or _last(s.state.hero) in ("raise", "bet")
+    hero_raised = bool(s.hero_bet and bb and s.hero_bet > 1.01 * bb) or (
+        _last(s.state.hero) in ("raise", "bet") and not (bb and s.hero_bet is not None and s.hero_bet <= 1.01 * bb))
     my_bb = s.hero_bb  # your own stack, read reliably; None when unsure
     all_in_vs = any(_last(p) == "all-in" for p in raisers) or (
         s.to_call is not None and s.stack is not None and s.to_call >= 0.98 * s.stack and raised)
