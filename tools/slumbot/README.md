@@ -98,7 +98,7 @@ python -m tools.slumbot stats docs/research/runs/slumbot/my_run.jsonl
 | `client.py` | `SlumbotClient`: login, new hand, act; rate limiting and retries (standard library only) |
 | `bots.py` | `Bot`, `BotState` (chips and big blinds), `Decision`, `CheckCallBot`, the `B0Bot` stub |
 | `session.py` | the hand loop, the JSONL log, resuming, bb/100 with standard error |
-| `tests/` | the tests, and `recorded_hands.jsonl` (real hands from the first run) |
+| `tests/` | the tests, and `recorded_hands.jsonl` (33 real hands from the first run, one per distinct action string) |
 
 ### The hand log
 
@@ -131,6 +131,13 @@ it. Don't share it.
   wouldn't, so the baseline can then be noisier than the raw number. In the check/call run its
   standard error was higher. Report both.
 - **Breakdowns** by seat are reported too.
+
+## First run
+
+On 26 Nov 2026 the check/call bot played 200 hands: -257.8 ± 83.5 bb/100, or -206.5 ± 88.8 on the
+baseline. All 200 results matched our recomputation. The log is
+`docs/research/runs/slumbot/checkcall_200.jsonl`, and the details are in
+`docs/research/experiments.md`. At the default pace a hand takes about 6 seconds.
 
 ## Wiring up B0 later
 
