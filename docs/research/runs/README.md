@@ -19,3 +19,19 @@ Phase 1 (26 Nov 2026), run from the repo root:
 - Gate run 5: `phase1_gate5.sh` (the same summary script, `phase1_gate5/summary.md`), and
   `phase1_gate5_noise.py`, written after its result, on how much one run's ratios move by
   chance (`phase1_gate5/noise.md`).
+- The replays against the raw difference (after the merge with the Phase 2 work):
+  `phase1_replay_explore/run.sh` rebuilds every look at `bet_size: 0.5` (every play of each
+  hand that differs, on the gate runs' seeds and on seeds 41 to 48, and the tests on them, one
+  `.txt` per test), and `phase1_replay_check.sh`, with its rule in the header before it ran,
+  the confirming check on seeds 51 to 66 (`phase1_replay_check/summary.md`).
+
+Phase 2 (26 Nov 2026):
+
+- `phase2_solver_b0.sh`: `river_solver` against B0, with the four stages' rule in its header
+  before any of its seeds were played; `phase2_solver_b0_summary.py <stage>` rebuilds
+  `phase2_solver_b0/stage*.md`. It ran before the merge with main's river ranges, so running it
+  again now gives different numbers (see its header).
+- `phase2_solver.py`: the numbers behind "river solver and push-or-fold"; `phase2_ranges.py`:
+  how well the river ranges from the betting predict real cards, and their cost;
+  `phase2_budget.py`: the solver's time by pot size, and whether a simulator run repeats
+  exactly. Each with its `.log` (`experiments.md`, Phase 2).

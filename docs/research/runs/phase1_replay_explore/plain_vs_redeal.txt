@@ -1,0 +1,16 @@
+gate seeds:
+plain - redeal 2 players   +0.497 ±  0.345 bb per hand (+1.44 SE)  n=405  +145/-124
+plain - redeal 3 players   +2.334 ±  1.283 bb per hand (+1.82 SE)  n=99  +46/-37
+plain - redeal 4 players  +11.270 ±  7.059 bb per hand (+1.60 SE)  n=9  +6/-3
+plain - redeal all         +1.041 ±  0.390 bb per hand (+2.67 SE)  n=513  +197/-164
+plain - redeal street 3    +1.225 ±  0.595 bb per hand (+2.06 SE)  n=293  +130/-93
+plain - redeal street 4    +1.412 ±  0.623 bb per hand (+2.27 SE)  n=135  +48/-40
+plain - redeal street 5    -0.187 ±  0.529 bb per hand (-0.35 SE)  n=85  +19/-31
+seeds 41-48:
+plain - redeal 2 players   +0.455 ±  0.233 bb per hand (+1.95 SE)  n=800  +307/-238
+plain - redeal 3 players   +0.610 ±  0.764 bb per hand (+0.80 SE)  n=205  +77/-90
+plain - redeal 4 players   -0.291 ±  1.461 bb per hand (-0.20 SE)  n=15  +6/-7
+plain - redeal all         +0.476 ±  0.241 bb per hand (+1.98 SE)  n=1020  +390/-335
+plain - redeal street 3    +0.655 ±  0.334 bb per hand (+1.96 SE)  n=638  +280/-214
+plain - redeal street 4    +0.224 ±  0.445 bb per hand (+0.50 SE)  n=228  +75/-73
+plain - redeal street 5    +0.104 ±  0.416 bb per hand (+0.25 SE)  n=154  +35/-48

@@ -518,6 +518,9 @@ tuning bots.
   not for paired comparisons.
 - The keyed-only runs for seed 404 were dropped to save time: cross-method ratios are too
   noisy at this size to say anything (point 1 above).
+- A heads-up simulator mode (`--players 2`, each deal played twice with the seats swapped),
+  which the new roadmap's Phase 1 adds, with the check that B0 plays heads-up.
+  `tools/simulate.py` is six-max only.
 
 ## Phase 2 groundwork: river solver (26 Nov 2026)
 

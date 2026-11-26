@@ -1,0 +1,11 @@
+all       base fold  / other fold : real hands  374, class shares add to   359.9  (per bot +0.0239 ± 0.0160, +1.49 SE)  n=592
+all       base call  / other call : real hands  176, class shares add to   189.8  (per bot -0.0276 ± 0.0185, -1.49 SE)  n=501
+all       base fold  / other call : real hands   12, class shares add to    14.7  (per bot -0.0205 ± 0.0214, -0.96 SE)  n=134
+all       base raise / other raise: real hands    4, class shares add to     1.5  (per bot +0.0878 ± 0.0598, +1.47 SE)  n=28
+heads-up  base fold  / other fold : real hands  238, class shares add to   225.9  (per bot +0.0319 ± 0.0205, +1.56 SE)  n=378
+heads-up  base call  / other call : real hands  117, class shares add to   127.6  (per bot -0.0329 ± 0.0241, -1.36 SE)  n=323
+heads-up  base fold  / other call : real hands    6, class shares add to    10.2  (per bot -0.0462 ± 0.0227, -2.03 SE)  n=90
+heads-up  base raise / other raise: real hands    4, class shares add to     1.3  (per bot +0.1361 ± 0.0817, +1.67 SE)  n=20
+multiway  base fold  / other fold : real hands  136, class shares add to   133.9  (per bot +0.0097 ± 0.0255, +0.38 SE)  n=214
+multiway  base call  / other call : real hands   59, class shares add to    62.2  (per bot -0.0180 ± 0.0288, -0.63 SE)  n=178
+multiway  base fold  / other call : real hands    6, class shares add to     4.6  (per bot +0.0320 ± 0.0459, +0.70 SE)  n=44
