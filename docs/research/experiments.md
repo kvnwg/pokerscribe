@@ -525,6 +525,97 @@ about 293 ms. p95 stays under 400 ms.
 - Real river raises: 2 in 24,000 hands.
 - Hands with three or more players on the river: the rules still decide those.
 
+## Phase 2: the same answer every run, and time by pot size (26 Nov 2026)
+
+The two smaller jobs left after the ranges. The `river_solver` switch is still off, B0
+plays as before, and nothing was compared against B0. Raw numbers:
+`runs/phase2_budget.log`, made by `runs/phase2_budget.py` (seed 77, 6000 hands a table,
+the first 200 heads-up river decisions of each; the simulator only deals the hands).
+Both settings below were chosen on seed 31.
+
+### The same answer every run
+
+By the clock, the same spot gets a different number of iterations on every run, so a
+simulator run with the solver on could not be repeated, and two variants could not be
+compared hand for hand.
+
+- **New setting `river_solver_fixed_work`: off.** `tools/simulate.py` turns it on for
+  every variant, the way it already fixes the number of equity samples. The solver then
+  has no clock. It runs the iterations its 300 ms buys on the reference machine
+  (`reference_iterations`): 300 / (0.064 + 0.00007 x combos of both players x ends of the
+  hand in the tree), a fit on 272 spots from seed 31 (within 11% for half of them, 24% for
+  nine in ten). The early stop is the same as by the clock. Nothing is ever "late".
+- **`baseline_tuning.json`**: `"river_solver_fixed_work": false` was added (only added to,
+  nothing edited). With `river_solver` off the setting is never read.
+
+| Check | mixed | fish247 |
+|---|---|---|
+| The same spot solved twice gives the same strategy, bit for bit | 200 of 200 | 200 of 200 |
+| A fresh process gives the same strategy | 60 of 60 | 60 of 60 |
+| `advise()` twice in the simulator's mode gives the same instruction | 60 of 60 | 60 of 60 |
+| Within 1% of the pot of an equilibrium | 200 of 200 | 200 of 200 |
+| Iterations, fixed work / by the clock on this machine, p10 / p50 / p90 | 0.85 / 1.04 / 1.21 | 0.79 / 0.96 / 1.28 |
+| The same action as by the clock | 197 of 197 | 200 of 200 |
+
+So the simulator's solver is the app's solver to within about a fifth of the work either
+way, and it picked the same action every time. On a faster or slower machine than this
+one the app itself gets more or fewer iterations than the simulator assumes. Bit for bit
+holds on one machine; another machine's maths library may round differently.
+
+### Time by pot size
+
+The solver stopped early once its answer was within 0.1% of the pot, whatever the pot.
+Measured on seed 31: pots over 50 big blinds were done in about 40 ms and then stopped,
+while pots of 2 to 3 big blinds, a quarter of all river spots, used the whole 300 ms. And
+giving the big pots a longer limit changed nothing (the same answer at 100 ms and at
+1200 ms), because the early stop ended them, not the clock.
+
+So the early stop now follows the pot (`solve.target_for`): a hundredth of a big blind,
+the same accuracy in chips for every pot. That is 0.1% of a pot of 10 big blinds, 0.4% of
+2.5 and 0.02% of 50, and never looser than 0.5% of the pot or tighter than 0.01%. The 300
+ms limit is unchanged. Each spot solved under both rules:
+
+| Pot, big blinds | Spots | Old: time p50 | Old: % of pot | Old: big blinds | New: time p50 | New: % of pot | New: big blinds |
+|---|---|---|---|---|---|---|---|
+| mixed, up to 3 | 35 | 288 ms | 0.077 | 0.0019 | 144 ms | 0.242 | 0.0056 |
+| 3 to 8 | 60 | 288 ms | 0.088 | 0.0083 | 263 ms | 0.114 | 0.0096 |
+| 8 to 20 | 40 | 288 ms | 0.112 | 0.0158 | 288 ms | 0.103 | 0.0156 |
+| 20 to 50 | 46 | 139 ms | 0.060 | 0.0211 | 289 ms | 0.023 | 0.0097 |
+| over 50 | 19 | 71 ms | 0.067 | 0.0437 | 209 ms | 0.009 | 0.0065 |
+| fish247, up to 3 | 68 | 288 ms | 0.081 | 0.0022 | 139 ms | 0.219 | 0.0055 |
+| 3 to 8 | 49 | 268 ms | 0.089 | 0.0072 | 271 ms | 0.101 | 0.0082 |
+| 8 to 20 | 48 | 288 ms | 0.098 | 0.0153 | 288 ms | 0.102 | 0.0158 |
+| 20 to 50 | 24 | 188 ms | 0.058 | 0.0223 | 288 ms | 0.023 | 0.0115 |
+| over 50 | 11 | 76 ms | 0.061 | 0.0427 | 213 ms | 0.010 | 0.0071 |
+
+"% of pot" is the median distance from an equilibrium, "big blinds" the mean.
+
+| All 200 spots | mixed, old | mixed, new | fish247, old | fish247, new |
+|---|---|---|---|---|
+| Time, mean | 219 ms | 227 ms | 239 ms | 222 ms |
+| Time, p95 | 289 ms | 290 ms | 290 ms | 290 ms |
+| From an equilibrium, big blinds, mean | 0.0150 | 0.0098 | 0.0112 | 0.0095 |
+| The same, worst spot | 0.0777 | 0.0466 | 0.0805 | 0.0859 |
+| Over 1% of the pot | 0 | 0 | 0 | 0 |
+
+- The smallest pots answer in half the time (288 ms to about 140) and end up about 3
+  times further from an equilibrium, which is still half a hundredth of a big blind.
+- Pots over 20 big blinds are solved 2 to 6 times closer, with the time they used to
+  leave unused.
+- Over all spots the mean distance in chips falls by a third on the mixed table and by
+  15% on fish247, for about the same total time. The worst single spot on fish247 did not
+  improve.
+- The whole decision through `advise()`: p50 285 and 257 ms, p95 296 and 296 ms, max 303
+  and 304 ms. 197 and 200 of 200 answered by the solver.
+
+Keep the size of this in view: these are hundredths of a big blind. What the solver loses
+by guessing the ranges wrong is far bigger. This change spends the same time better; it
+is not a reason to expect better play on its own.
+
+Not done: a longer limit than 300 ms for the biggest pots. It would break the 400 ms rule
+(pots over 50 big blinds are about 1 river decision in 12), and the early stop, not the
+clock, was what ended those solves.
+
 ## Slumbot harness check (26 Nov 2026)
 
 A test of `tools/slumbot`, not a strategy experiment. The check/call bot played 200 hands
