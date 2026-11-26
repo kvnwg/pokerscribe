@@ -5,6 +5,7 @@ import shutil
 import sys
 from typing import Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -197,6 +198,36 @@ class SettingsDialog(QDialog):
         kf.addRow("Equity calculation time (ms)", self.math_ms)
         tabs.addTab(cap, "Capture and math")
 
+        # Send reads -------------------------------------------------------
+        snd = QWidget()
+        sl = QVBoxLayout(snd)
+        how = QLabel(
+            "Save last reads can also send the folder to a private GitHub repository, so Claude can "
+            "fetch it without you dragging it into the chat. Set up once:<br>"
+            "1. On github.com make a new <b>private</b> repository, e.g. <i>pokerscribe-reads</i>.<br>"
+            "2. Make a fine-grained token (GitHub, Settings, Developer settings, Personal access tokens, "
+            "Fine-grained tokens): only that repository, permission <b>Contents: Read and write</b>.<br>"
+            "3. Write the repository as owner/name below and paste the token. Press Test.<br>"
+            "The pictures show other players' names: a public repository is refused.")
+        how.setWordWrap(True)
+        how.setTextFormat(Qt.TextFormat.RichText)
+        sl.addWidget(how)
+        sf = QFormLayout()
+        self.reads_repo = QLineEdit(settings.reads_repo)
+        self.reads_repo.setPlaceholderText("you/pokerscribe-reads")
+        sf.addRow("Repository", self.reads_repo)
+        self.reads_token = _KeyRow("github_reads")
+        sf.addRow("Token", self.reads_token)
+        test = QPushButton("Test")
+        test.clicked.connect(self._test_send)
+        self.send_status = QLabel()
+        self.send_status.setObjectName("muted")
+        self.send_status.setWordWrap(True)
+        sf.addRow(labeled_row(test), self.send_status)
+        sl.addLayout(sf)
+        sl.addStretch(1)
+        tabs.addTab(snd, "Send reads")
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -210,8 +241,24 @@ class SettingsDialog(QDialog):
         self.forgot = True
         QMessageBox.information(self, "Learned cards", "Learned card templates were removed.")
 
+    def _test_send(self) -> None:
+        from app.capture.send import SendError, check_repo, github_http
+
+        token, _ = secrets.get_api_key("github_reads")
+        if not token:
+            self.send_status.setText("Paste the token and press Save key first.")
+            return
+        repo = self.reads_repo.text().strip()
+        try:
+            branch = check_repo(repo, github_http(token, timeout=15))
+        except SendError as exc:
+            self.send_status.setText(str(exc))
+            return
+        self.send_status.setText(f"Ready: {repo} is private and the token can write to it (branch {branch}).")
+
     def apply(self) -> None:
         s = self.settings
+        s.reads_repo = self.reads_repo.text().strip()
         s.ai_provider = self.provider.currentData()
         s.max_tokens = self.max_tokens.value()
         s.claude_model = self.claude_model.currentText().strip() or "claude-haiku-5-5"

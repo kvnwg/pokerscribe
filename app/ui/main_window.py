@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QGroupBox,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from app import APP_NAME
 from app.capture.history import ReadLog, default_folder
+from app.capture.send import send_folder
 from app.ai.base import AIError
 from app.ai.registry import create_provider
 from app.capture import CaptureError, ImageSource, ScreenGrabber, ScreenSource, list_screens, load_image_file
@@ -716,20 +718,42 @@ class MainWindow(QMainWindow):
         run_task(work, on_done=done, on_error=failed)
 
     def save_reads(self) -> None:
-        """Write the last reads to a folder on this Mac and show it in Finder."""
-        if not len(self.read_log):
+        """Write the last reads to a folder on this Mac, with a note on what went wrong, and send
+        it to the private GitHub repository from Settings, Send reads, if one is set up."""
+        items = self.read_log.snapshot()  # now: watching goes on while the note is typed
+        if not items:
             self.simple.show_warning("Nothing to save yet: start watching first, then press Save last reads "
                                      "right after something goes wrong.")
             return
+        note, ok = QInputDialog.getText(
+            self, "Save last reads",
+            "What went wrong? (optional, e.g. \"said I was re-raised, he only posted the big blind\")")
+        if not ok:
+            return
         folder = default_folder()
         try:
-            n = self.read_log.save(folder)
+            n = self.read_log.save(folder, items=items, note=note)
         except OSError as exc:
             self.simple.show_warning(f"Couldn't save the reads: {exc}")
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
-        self.simple.show_warning(f"Saved the last {n} reads to Documents/PokerScribe reads. "
-                                 "Drag that folder into the chat with Claude to get the misread fixed.")
+        repo = (self.settings.reads_repo or "").strip()
+        token, _ = get_api_key("github_reads")
+        if not (repo and token):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            self.simple.show_warning(f"Saved the last {n} reads to Documents/PokerScribe reads. Drag that folder "
+                                     "into the chat with Claude, or set up Settings, Send reads to have them sent.")
+            return
+        self.simple.show_warning(f"Saved the last {n} reads. Sending them to {repo}...")
+
+        def sent(url):
+            self.simple.show_warning(f"Sent the last {n} reads to {repo}. Tell Claude \"check my saved reads\".")
+
+        def failed(msg):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            self.simple.show_warning(f"Saved the last {n} reads on this Mac (Documents/PokerScribe reads), but "
+                                     f"sending failed: {msg}")
+
+        run_task(send_folder, folder, repo, token, on_done=sent, on_error=failed)
 
     def _on_watch_result(self, payload: dict) -> None:
         res: RecognitionResult = payload["result"]

@@ -16,6 +16,8 @@ Built for practice with simulators, reviewing recorded sessions, and platforms t
 
 **Read now.** The button next to Start watching reads the table right away, even if nothing seems to have changed.
 
+**Save last reads.** Something looked wrong? Press it right away. It asks what went wrong (one line, optional) and saves the last 30 reads (the pictures of the table box, what was read and the instruction shown) to Documents/PokerScribe reads. Set up Settings, Send reads once and it also sends the folder to your own private GitHub repository, so Claude can fetch it (`tools/fetch_reads.py`) without you dragging it into the chat. Setting up: make a private repository (e.g. pokerscribe-reads), make a fine-grained token for only that repository with Contents: Read and write, write owner/name and paste the token in Settings, Send reads, and press Test. A public repository is refused, because the pictures show other players' names. For 247 Free Poker and other play-money tables only (see the ground rules).
+
 **Never a wrong kind of move.** It never says FOLD when checking is free (when it can't tell, it says CHECK OR FOLD), never mistakes your own raise for someone raising you (it says WAIT until someone acts), and trusts the Check and Call buttons on screen over its own chip maths. Your hand is judged against what the board already gives everyone: a pair, straight or flush lying in the middle is shared, and the instruction says so. A simulator (`tools/simulate.py`) plays thousands of hands against different kinds of opponents and flags any of these.
 
 **All in only when it makes sense.** It goes all in only when your own stack is short or the bet would be most of your stack anyway, and only when your stack was read reliably (while watching, when the chips that left the stacks add up to the pot). A short-stacked opponent never makes it shove your whole stack.
@@ -129,7 +131,7 @@ All providers receive only the structured text and the fixed instructions in `ap
 
 ## Privacy, in detail
 
-- **Screenshots stay in memory.** They are never written to disk unless you save one yourself, and never sent anywhere.
+- **Screenshots stay in memory.** They are never written to disk unless you save one yourself or press Save last reads, and never sent anywhere, except a saved reads folder to your own private GitHub repository when you set up Settings, Send reads.
 - **Recognition is local.** OpenCV, RapidOCR's bundled models, Apple Vision and Tesseract all run on your machine. A test runs capture, recognition, math and text generation with networking disabled.
 - **The text is built only from fixed vocabulary and numbers.** Card names, positions, actions and statuses come from enumerations; no free text read from the screen (player names, table titles, logos) is ever rendered.
 - **A privacy check runs before every request.** The outgoing text must match the expected line structure and use only the app's vocabulary. A URL, path, e-mail address, unknown word or unexpected character blocks the request. Tests try player names, site names, URLs, file paths and e-mail addresses.

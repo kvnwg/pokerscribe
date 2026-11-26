@@ -41,6 +41,11 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   Start here for any reader work.
 - `docs/research/`: the research report link, `KNOWLEDGE.md` (book and paper principles),
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
+- `tools/fetch_reads.py`: Kevin's "Save last reads" folders, sent by the app to his private repository
+  (Settings, Send reads; default `kvnwg/pokerscribe-reads`). Attach it with add_repo, then
+  `python tools/fetch_reads.py` lists them with Kevin's notes and `--replay` replays the newest.
+  Work only on reads from 247 or other play-money tables (rule 4): a buy-in, prize pool or real
+  currency in the title means a real-money table, and those reads are not worked on.
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
 - `tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`, six
