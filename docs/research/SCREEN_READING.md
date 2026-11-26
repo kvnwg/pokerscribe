@@ -38,7 +38,8 @@ wireframe.
 - Your two cards, then the board. The board count sets the street: 0 preflop, 3 flop, 4 turn,
   5 river. Within a hand it only grows.
 - Who's still in: seats showing card backs. No cards means folded.
-- Status: done. 247's deck by template, unclear cards by the Claude card reader, card backs by colour.
+- Status: done. 247's deck by template, unclear cards by the Claude card reader, card backs by colour
+  (plain grey backs by shape beside a player's picture), face-up cards at showdown.
 
 **6. Money**
 - The bet in front of a seat is that player's total for this betting round, not the size of the
@@ -59,7 +60,8 @@ wireframe.
   lower left, "Fold" lower right) but far apart: they are not buttons. A single button counts
   only in the bottom right corner.
 - Status: done for the first three. Each seat's plate is found from its text outwards; a thin
-  bright bar under it or a bright ring on both sides marks the seat acting. Only a seat that
+  bright bar under it or a bright ring on both sides marks the seat acting. On tables with
+  round pictures, a thin coloured arc round the picture. Only a seat that
   clearly stands out counts; two lit seats means unknown. Another seat acting and no buttons:
   not your turn (WAIT). Buttons and the timer on your seat strengthen each other. Not done: the
   rule-based prediction as a check.
@@ -135,6 +137,30 @@ awarded) come from the tracker's stack changes (step 9). Still to do from the gu
 predicted next actor as a check, and the Total pot and Call amount checks blocking advice
 (step 10).
 
+## Round pictures and numbers that are not chips (26 Nov)
+
+Many tables (apps, phone tables) show a round picture for each player and numbers that are
+neither stacks nor bets. From three screenshots Kevin sent: a free-play app, a stock table design
+and a phone table. The rule behind all of them: a number is a bet only when it sits on its own
+between a seat and the middle.
+
+| Thing | Where | Rule |
+| --- | --- | --- |
+| Player picture | Round, a few text heights across | Found as a circle whose whole outline is an edge (two circle finders propose, the outline decides). Dim pictures of folded players count |
+| Level | A badge on the picture's rim, a box on the name's line, or a bare number beside the name | Text on a picture or in a badge on its rim is never a name, stack or bet. A number on the same line as a name or a stack, next to it, is never a bet |
+| Countdown | Big digits on the acting player's picture | On the picture: never a bet. The ring round the picture is the turn |
+| Turn ring | A thin coloured arc round the acting picture; its length is the time left | Measured outside the picture; solid shapes beside it (card backs, chips) don't count. A short arc still counts |
+| Card backs | Beside the picture, coloured or plain grey | Must be card-shaped and solid: hair, shoulders, level boxes, the table's rim and the dealer button are not backs. Plain grey backs are looked for only when no coloured ones are on the table |
+| Face-up cards at showdown | Beside a player | That player is still in. Beside a seat off to the side, they are not yours |
+| Your hand's strength | "High Card" beside your picture | Never your name |
+| Your name | Can be missed (drawn across the table's edge) | A stack just under your cards is then your seat |
+| Experience counter, bonus, notification count | Corners | "300512 / 512000", "+100%", a lone "3" are no player and no amount |
+| Currency after the number | "12,400$", "20 €" | An amount |
+| A point with three digits after it | "2.035$" | 2,035: money never has three decimals (OCR reads a small comma as a point) |
+| Chip icon before a bet | Read as "0 210" | The lone 0 is the icon |
+| Dealer button touching text | "$ 200D", "D19" (with a level badge) | The character the disc covers is dropped, from the nearer end |
+| Buttons | Stacked in a column at the right edge, or across the bottom of a phone | Both are your buttons. "All in" by your picture is your status, not a button |
+
 ## Self-test (Phase 0)
 
 `tools/selftest.py` plays hands on our own table (`app/tests/demo_table.py`, no real client)
@@ -144,7 +170,12 @@ true table. Six layouts: the annotated wireframe (grey felt, Total pot with bets
 green (Pot without bets, glow only, four-colour deck, no "$"), compact (bets never printed,
 smaller window), nine seats with three empty, sizing buttons and pre-action boxes, tags (last
 action replaces the name, scaled down and saved as JPEG), and wide, held out from the fixes to
-check they generalise (big window, other seat spots, orange timer, no glow). See the run log in
+check they generalise (big window, other seat spots, orange timer, no glow). Five more with round
+pictures and decoy numbers (the section above): avatars (green app, level badges, "1,000$"
+stacks, an experience counter), stock (blue room, "Seat" on free places, bare bets, buttons in
+a column, "Bonus +100%"), portrait (phone, names above pictures, a countdown, grey card backs,
+buttons across the bottom), levels (a level box on each plate) and lvtext, held out (a bare gold
+level number beside every name, toward the middle). See the run log in
 `docs/research/runs/selftest.md`.
 
     python tools/selftest.py --hands 20 --seed 3 --drop 0.1 --out "<folder for examples>"

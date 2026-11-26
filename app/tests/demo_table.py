@@ -86,7 +86,8 @@ class Layout:
     amount_fmt: str = "prefix"  # "prefix" $1,234 | "suffix" 1,234$ | "spaced" $ 1,234 | "nocomma" $ 1234
     stack_box: str = "none"  # avatar: "pill" (dark), "outline" (outlined box) or "coin" (pill with a coin)
     bet_fmt: str = "chip"  # "chip": a chip and the amount | "bare": a chip stack and the number, no currency
-    level: str = "none"  # player level: "badge" (disc on the picture), "corner" (box on the plate), "text" ("Lv 12")
+    level: str = "none"  # player level: "badge" (disc on the picture), "corner" (box on the plate), "text"
+    # (a bare number in gold right beside the name, outside the plate, toward the middle)
     countdown: bool = False  # seconds left, in big digits on the acting player's picture
     acting_ring: bool = False  # avatar: a coloured ring around the acting player's picture
     pot_style: str = "label"  # "label" ("Pot: $X"), "tight" ("Pot:X"), "stacked" ("Pot Amt." over the amount)
@@ -256,6 +257,12 @@ def avatar_layouts() -> List[Layout]:
         Layout("levels", felt=(52, 78, 96), felt_edge=(30, 46, 60), background=(20, 24, 30), level="corner",
                pot_mode="pot", header="Blinds {sb}/{bb} · NL Hold'em", text_font=find_font("Carlito-Regular.ttf"),
                deck=Theme(card_w=58, card_h=82, rank_font=_rank_font(8)), back=(150, 90, 30)),
+        # held out (added after the fixes above, never tuned on): each player's level as a bare
+        # gold number right beside the name, outside the plate toward the middle, where a bet
+        # could be; no stakes shown
+        Layout("lvtext", felt=(84, 44, 92), felt_edge=(50, 24, 56), background=(16, 14, 22), level="text",
+               pot_mode="pot", header="", text_font=find_font("DejaVuSans.ttf"),
+               deck=Theme(card_w=60, card_h=84, rank_font=_rank_font(9)), back=(30, 120, 160)),
     ]
 
 
@@ -674,6 +681,11 @@ def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
         stack = "All in" if s.all_in and s.stack <= 0 else amount_text(s.stack, lay)
         d.text((sx, y0 + ph * 0.72), stack, font=font, fill=(120, 120, 115) if dim else lay.stack_color,
                anchor="mm")
+        if lay.level == "text":  # a bare number beside the name, on the side toward the middle
+            lv = str(level_of(s.name, lay))
+            right = sx <= cx
+            d.text((x0 + pw + 6 if right else x0 - 6, y0 + ph * 0.30), lv, font=bold,
+                   fill=(150, 125, 50) if dim else (236, 196, 70), anchor="lm" if right else "rm")
         if lay.level == "corner":  # the player's level in a small box on the name's line
             lv = str(level_of(s.name, lay))
             lw = max(ts * 1.3, small.getlength(lv) + ts * 0.5)
