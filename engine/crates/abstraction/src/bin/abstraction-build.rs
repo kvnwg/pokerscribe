@@ -14,6 +14,8 @@ abstraction-build check DIR                   load the tables in DIR and run the
 abstraction-build bucket DIR HOLE [BOARD]     the bucket of a hand, for example: AhKh QhJh2c
 abstraction-build gap DIR [HANDS]             how far the fast earth mover's distance is from the
                                               exact one, on HANDS random turn hands (default 300)
+abstraction-build stats DIR                   how much of the hands' equity, and of how much it can
+                                              still change, the buckets in DIR tell apart
 
 build options:
   --buckets N              buckets on each street (default 200)
@@ -53,6 +55,7 @@ fn main() {
         Some("check") => check(&args[1..]),
         Some("bucket") => bucket(&args[1..]),
         Some("gap") => gap(&args[1..]),
+        Some("stats") => stats(&args[1..]),
         Some("--help") | Some("-h") | None => print!("{USAGE}"),
         Some(other) => fail(&format!("unknown command {other}\n\n{USAGE}")),
     }
@@ -335,6 +338,34 @@ fn check(args: &[String]) {
             table.checksum()
         );
     }
+    // Lookup speed: random hands, timed in bulk.
+    {
+        let mut rng = abstraction::rng::Rng::new(1);
+        let deck: Vec<u8> = abstraction.deck().cards().collect();
+        let hands: Vec<[u8; 7]> = (0..1_000_000)
+            .map(|_| {
+                let mut cards = deck.clone();
+                for i in 0..7 {
+                    let j = i + rng.below((cards.len() - i) as u64) as usize;
+                    cards.swap(i, j);
+                }
+                cards[..7].try_into().unwrap()
+            })
+            .collect();
+        for board in [3usize, 4, 5] {
+            let started = Instant::now();
+            let mut sum = 0u64;
+            for hand in &hands {
+                sum += abstraction.bucket(&hand[..2], &hand[2..2 + board]) as u64;
+            }
+            println!(
+                "{}: {:.0} ns to look up a random hand's bucket (average bucket {:.1})",
+                Street::from_board_cards(board).unwrap().name(),
+                started.elapsed().as_nanos() as f64 / hands.len() as f64,
+                sum as f64 / hands.len() as f64
+            );
+        }
+    }
     let results = checks::run(&abstraction);
     let mut failed = 0;
     for r in &results {
@@ -470,6 +501,121 @@ fn gap(args: &[String]) {
             (worst[which] - 1.0) * 100.0,
             bound / hands as f64,
             bound / exact * 100.0
+        );
+    }
+}
+
+/// How much of the variation of `value` the buckets explain: 1 minus the variance inside
+/// buckets over the total variance.
+fn explained(value: &[f64], weight: &[u8], bucket: &(dyn Fn(usize) -> usize + Sync), k: usize) -> f64 {
+    let mut sums = vec![[0f64; 3]; k]; // weight, sum, sum of squares
+    for i in 0..value.len() {
+        let (w, v) = (weight[i] as f64, value[i]);
+        let s = &mut sums[bucket(i)];
+        s[0] += w;
+        s[1] += w * v;
+        s[2] += w * v * v;
+    }
+    let all = sums.iter().fold([0f64; 3], |a, s| [a[0] + s[0], a[1] + s[1], a[2] + s[2]]);
+    let total = all[2] - all[1] * all[1] / all[0];
+    let inside: f64 = sums.iter().filter(|s| s[0] > 0.0).map(|s| s[2] - s[1] * s[1] / s[0]).sum();
+    1.0 - inside / total
+}
+
+/// Buckets cut from `value` alone: `k` slices holding the same number of deals each.
+fn slices(value: &[f64], weight: &[u8], k: usize) -> Vec<u16> {
+    use rayon::prelude::*;
+    let mut order: Vec<u32> = (0..value.len() as u32).collect();
+    order.par_sort_unstable_by(|&a, &b| {
+        value[a as usize].partial_cmp(&value[b as usize]).unwrap().then(a.cmp(&b))
+    });
+    let total: f64 = weight.iter().map(|&w| w as f64).sum();
+    let mut bucket = vec![0u16; value.len()];
+    let mut below = 0.0;
+    for i in order {
+        bucket[i as usize] = ((below / total * k as f64) as usize).min(k - 1) as u16;
+        below += weight[i as usize] as f64;
+    }
+    bucket
+}
+
+/// For every canonical flop or turn hand: the mean and the standard deviation, over the
+/// cards that can come, of `next_value` of the hand it becomes.
+fn outlook(
+    deck: abstraction::Deck,
+    board: usize,
+    next_value: &(dyn Fn(u64) -> f64 + Sync),
+) -> (Vec<f64>, Vec<f64>, Vec<u8>) {
+    use abstraction::HandIndexer;
+    use rayon::prelude::*;
+    let indexer = HandIndexer::with_deck(deck, &[2, board as u8]);
+    let next = HandIndexer::with_deck(deck, &[2, board as u8 + 1]);
+    let rows: Vec<(f64, f64, u8)> = (0..indexer.size())
+        .into_par_iter()
+        .map(|i| {
+            let mut cards = [0u8; 7];
+            indexer.unindex(i, &mut cards[..2 + board]);
+            let (mut sum, mut squares, mut count) = (0.0, 0.0, 0.0);
+            for c in deck.cards() {
+                if cards[..2 + board].contains(&c) {
+                    continue;
+                }
+                cards[2 + board] = c;
+                let v = next_value(next.index(&cards[..3 + board]));
+                sum += v;
+                squares += v * v;
+                count += 1.0;
+            }
+            let mean = sum / count;
+            (mean, (squares / count - mean * mean).max(0.0).sqrt(), indexer.multiplicity(i) as u8)
+        })
+        .collect();
+    (
+        rows.iter().map(|r| r.0).collect(),
+        rows.iter().map(|r| r.1).collect(),
+        rows.iter().map(|r| r.2).collect(),
+    )
+}
+
+/// Prints, for each street, how much of the hands' equity the buckets tell apart, and for
+/// the flop and turn how much of the equity's spread over the next card (made hands
+/// against draws). For comparison: the same number of buckets cut from the average equity
+/// alone.
+fn stats(args: &[String]) {
+    use abstraction::HandIndexer;
+    let dir = Path::new(args.first().unwrap_or_else(|| fail("stats needs the tables' directory")));
+    let abstraction = Abstraction::load_unchecked(dir).unwrap_or_else(|e| fail(&e.to_string()));
+    let deck = abstraction.deck();
+    let equity = builder::river_equity(deck);
+
+    let river = abstraction.table(Street::River).unwrap();
+    let weights = builder::multiplicities(&HandIndexer::with_deck(deck, &[2, 5]));
+    let values: Vec<f64> = equity.numerators.iter().map(|&q| q as f64 / equity.denominator as f64).collect();
+    println!(
+        "river: {} buckets explain {:.1}% of the equity",
+        river.buckets(),
+        explained(&values, &weights, &|i| river.bucket(i as u64) as usize, river.buckets()) * 100.0
+    );
+    drop(values);
+
+    let (turn_mean, turn_spread, turn_weight) = outlook(deck, 4, &|i| equity.equity(i) as f64);
+    let (flop_mean, flop_spread, flop_weight) = outlook(deck, 3, &|i| turn_mean[i as usize]);
+    for (street, mean, spread, weight) in [
+        (Street::Turn, &turn_mean, &turn_spread, &turn_weight),
+        (Street::Flop, &flop_mean, &flop_spread, &flop_weight),
+    ] {
+        let table = abstraction.table(street).unwrap();
+        let k = table.buckets();
+        let bucket = |i: usize| table.bucket(i as u64) as usize;
+        let cut = slices(mean, weight, k);
+        println!(
+            "{}: {k} buckets explain {:.1}% of the equity and {:.1}% of its spread over the next card; \
+             {k} slices of the equity explain {:.1}% and {:.1}%",
+            street.name(),
+            explained(mean, weight, &bucket, k) * 100.0,
+            explained(spread, weight, &bucket, k) * 100.0,
+            explained(mean, weight, &|i| cut[i] as usize, k) * 100.0,
+            explained(spread, weight, &|i| cut[i] as usize, k) * 100.0,
         );
     }
 }

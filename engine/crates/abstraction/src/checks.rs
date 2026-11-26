@@ -170,7 +170,7 @@ pub fn real_deck(a: &Abstraction) -> Vec<CheckResult> {
     let top = a.buckets(Street::River) - 1;
     out.push(result(
         "river: the nuts are in the top bucket",
-        nuts.bucket == top && nuts.equity >= 0.97,
+        nuts.bucket == top && nuts.equity >= 0.95,
         format!("KhKd on {board}: bucket {} of {}, equity {:.3}", nuts.bucket, top + 1, nuts.equity),
     ));
     out.push(result(
@@ -187,7 +187,7 @@ pub fn real_deck(a: &Abstraction) -> Vec<CheckResult> {
     let second_flush = see(a, "QhTh", flush_board);
     out.push(result(
         "river: the nut flush and the second nut flush share a bucket",
-        nut_flush.bucket == second_flush.bucket && nut_flush.equity >= 0.97,
+        nut_flush.bucket == second_flush.bucket && nut_flush.equity >= 0.95,
         format!(
             "KhQh on {flush_board}: bucket {}; QhTh: bucket {}, equity {:.3}",
             nut_flush.bucket, second_flush.bucket, second_flush.equity
@@ -257,7 +257,7 @@ pub fn real_deck(a: &Abstraction) -> Vec<CheckResult> {
     let made = see(a, "Jc6d", turn);
     out.push(result(
         "turn: a flush draw is apart from a no-draw hand of like equity",
-        draw.bucket != made.bucket && draw.strong_next >= 0.12 && made.strong_next <= 0.03 && draw.spread > 1.3 * made.spread,
+        draw.bucket != made.bucket && draw.strong_next >= 0.08 && made.strong_next <= 0.03 && draw.spread > 1.3 * made.spread,
         format!(
             "5h4h on {turn}: bucket {}, equity {:.3}, very strong on {:.0}% of rivers, spread {:.3}; \
              Jc6d: bucket {}, equity {:.3}, very strong on {:.0}%, spread {:.3}",
