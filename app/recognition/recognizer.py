@@ -55,6 +55,7 @@ class TableRecognizer:
                 boxes += self._big_amounts(image, boxes)
                 boxes += self._big_light_text(image, boxes)
                 boxes += self._short_amounts(image, boxes)
+                boxes += self._stacks_under_names(image, boxes)
                 boxes = self._verify_amounts(image, boxes)
             except Exception as exc:
                 warnings.append(f"OCR failed: {exc}")
@@ -235,7 +236,8 @@ class TableRecognizer:
                 if agreed:
                     same = [r for r in reads if r[0] == agreed[0]]
                     text = b.text if b.text in [r[1] for r in same] else max(same, key=lambda r: r[2])[1]
-                    decided = TextBox(text, max(r[2] for r in same), b.x, b.y, b.w, b.h)
+                    # two reads agreeing is the proof: more certain than either read alone
+                    decided = TextBox(text, min(0.9, max(r[2] for r in same) + 0.15), b.x, b.y, b.w, b.h)
                     break
             out.append(decided or TextBox(b.text, min(b.confidence, 0.2), b.x, b.y, b.w, b.h))
         return out
@@ -287,10 +289,43 @@ class TableRecognizer:
                 out.append(TextBox(line[0], line[1], x, y, w, h))
         return out
 
+    def _stacks_under_names(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:
+        """A folded player's plate is dimmed, and its stack (grey on dark) can be missed by the
+        text finder. A name with nothing under it: read the spot under it directly. Without
+        its stack the seat would be lost, and every position after it would shift."""
+        import re
+        import unicodedata
+
+        from .amounts import parse_amount
+        from .layout import ACTION_RE, HAND_ID_RE, POT_RE, PRE_ACTION_RE, STATUS_RE
+
+        H, W = image.shape[:2]
+        out: List[TextBox] = []
+        for b in boxes:
+            t = b.text.strip()
+            if (not re.search(r"[A-Za-z]", t) or len(t) > 18 or parse_amount(t) is not None or ACTION_RE.match(t)
+                    or STATUS_RE.search(t) or PRE_ACTION_RE.search(t) or POT_RE.search(t) or HAND_ID_RE.search(t)
+                    or b.cy < 0.08 * H):
+                continue
+            x0, x1 = int(b.x - 0.4 * b.w), int(b.right + 0.4 * b.w)
+            y0, y1 = int(b.bottom - 0.1 * b.h), int(b.bottom + 1.4 * b.h)
+            if any(o is not b and o.x < x1 and x0 < o.right and o.y < y1 and y0 < o.bottom for o in boxes + out):
+                continue  # something was read there already
+            crop = image[max(0, y0): min(H, y1), max(0, x0): min(W, x1)]
+            line = self.ocr.read_line(crop) if crop.size else None
+            if not line:
+                continue
+            text = unicodedata.normalize("NFKC", line[0]).strip()
+            if parse_amount(text) is not None and any(ch.isdigit() for ch in text):
+                out.append(TextBox(text, line[1], max(0, x0), max(0, y0), min(W, x1) - max(0, x0),
+                                   min(H, y1) - max(0, y0)))
+        return out
+
     def _short_amounts(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:
         """Short amounts on the felt that the text finder skipped ("$2", a lone "6" by a bet's
         chip): light text of the usual height that no box covers, read directly. A bet that
         isn't found counts as no bet at all, so a missed "6" would turn a raise into nothing."""
+        import re
         import unicodedata
 
         import cv2
@@ -333,14 +368,26 @@ class TableRecognizer:
             if w > 6 * h or any(x < b.x + b.w and b.x < x + w and y < b.y + b.h and b.y < y + h for b in boxes):
                 continue
             px, py = int(0.6 * h), int(0.35 * h)
-            crop = image[max(0, y - py): min(H, y + h + py), max(0, x - px): min(W, x + w + px)]
-            line = self.ocr.read_line(crop) if crop.size else None
+            cx0, cy0 = max(0, x - px), max(0, y - py)
+            crop = image[cy0: min(H, y + h + py), cx0: min(W, x + w + px)].copy()
+            if crop.size == 0:
+                continue
+            # only the text: the chip beside it would read as a "1" or a "0" ("19" for a 9)
+            border = np.concatenate([crop[0], crop[-1], crop[:, 0], crop[:, -1]])
+            keep = np.zeros(crop.shape[:2], bool)
+            keep[max(0, y - cy0 - 1): y - cy0 + h + 1, max(0, x - cx0 - 1): x - cx0 + w + 1] = True
+            crop[~keep] = np.median(border, axis=0).astype(crop.dtype)
+            line = self.ocr.read_line(crop)
             if not line:
                 continue
             text = unicodedata.normalize("NFKC", line[0]).strip()
             amount = parse_amount(text)
-            if amount is not None and amount.value > 0 and any(ch.isdigit() for ch in text):
-                out.append(TextBox(text, line[1], x, y, w, h))
+            if amount is None or amount.value <= 0 or not any(ch.isdigit() for ch in text):
+                continue
+            conf = line[1]
+            if not re.search(r"[$€£]", text) and len(re.sub(r"\D", "", text)) == 1:
+                conf = min(conf, 0.45)  # a lone digit: never sure enough to count on its own
+            out.append(TextBox(text, conf, x, y, w, h))
         return out
 
     def _big_amounts(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:

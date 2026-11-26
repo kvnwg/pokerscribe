@@ -583,6 +583,24 @@ def _top_pair_plus(hero: Tuple[str, ...], board: Tuple[str, ...]) -> bool:
     return top in mine
 
 
+def _posted_bb(s: _Spot) -> Optional[float]:
+    """The big blind when the stakes weren't read: what the big blind put in front of them
+    (even a faint read), or else the smallest bet on the table. Only to tell whether someone
+    raised: without it, a raise to 99 could look like nobody raised."""
+    bets = []
+    for p in s.state.players:
+        v = p.bet.value if p.bet.known else p.bet.guess
+        try:
+            v = float(v) if v is not None else None
+        except (TypeError, ValueError):
+            v = None
+        if v and v > 0:
+            if p.position.known and p.position.value == "BB":
+                return v
+            bets.append(v)
+    return min(bets) if bets else None
+
+
 def _preflop(s: _Spot) -> Advice:
     cls = hands.preflop_class(s.hero)
     pct = preflop_percentile(cls)
@@ -604,8 +622,9 @@ def _preflop(s: _Spot) -> Advice:
         # the price alone shows the biggest bet is at least this much: owing more than a big
         # blind means someone raised, even when their chips weren't read
         max_bet = s.to_call + (s.hero_bet or 0.0)
-    raised = max_bet > 1.01 * s.bb if (s.bb and max_bet is not None) else bool(raisers)
-    hero_raised = bool(s.hero_bet and s.bb and s.hero_bet > 1.01 * s.bb) or _last(s.state.hero) in ("raise", "bet")
+    bb = s.bb or _posted_bb(s)
+    raised = max_bet > 1.01 * bb if (bb and max_bet is not None) else bool(raisers)
+    hero_raised = bool(s.hero_bet and bb and s.hero_bet > 1.01 * bb) or _last(s.state.hero) in ("raise", "bet")
     my_bb = s.hero_bb  # your own stack, read reliably; None when unsure
     all_in_vs = any(_last(p) == "all-in" for p in raisers) or (
         s.to_call is not None and s.stack is not None and s.to_call >= 0.98 * s.stack and raised)

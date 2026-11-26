@@ -140,10 +140,11 @@ predicted next actor as a check, and the Total pot and Call amount checks blocki
 `tools/selftest.py` plays hands on our own table (`app/tests/demo_table.py`, no real client)
 and runs every picture through exactly what watch mode does: reader, tracker, hand memory,
 advice. It compares each read with the truth and each instruction with the one given from the
-true table. Five layouts: the annotated wireframe (grey felt, Total pot with bets, timer bars),
+true table. Six layouts: the annotated wireframe (grey felt, Total pot with bets, timer bars),
 green (Pot without bets, glow only, four-colour deck, no "$"), compact (bets never printed,
-smaller window), nine seats with three empty, sizing buttons and pre-action boxes, and tags
-(last action replaces the name, scaled down and saved as JPEG). See the run log in
+smaller window), nine seats with three empty, sizing buttons and pre-action boxes, tags (last
+action replaces the name, scaled down and saved as JPEG), and wide, held out from the fixes to
+check they generalise (big window, other seat spots, orange timer, no glow). See the run log in
 `docs/research/runs/selftest.md`.
 
     python tools/selftest.py --hands 20 --seed 3 --drop 0.1 --out "<folder for examples>"

@@ -140,23 +140,40 @@ class HandTracker:
         pot: (its position, chips per seat, whether the pot includes this round's bets)."""
         targets = [(pot, True)] + ([(pot + shown_bets, False)] if shown_bets > 0 else [])
         for idx in range(len(self._history) - 1, -1, -1):
-            snap = self._history[idx]
-            contrib: Dict[Key, float] = {}
-            grew = False
-            for k, now in current.items():
-                if k not in snap:
-                    continue
-                c = snap[k] - now
-                if c < -0.5:
-                    grew = True  # a stack grew since then: a hand ended in between
-                    break
-                contrib[k] = max(0.0, c)
-            if grew or HERO not in contrib or len(contrib) < 2:
+            found = self._adds_up(idx, current, targets)
+            if found is None:
                 continue
-            total = sum(contrib.values())
-            for target, includes in targets:
-                if target > 0 and abs(total - target) <= max(1.0, 0.02 * target):
-                    return self._dropped + idx, contrib, includes
+            contrib, includes = found
+            if includes and shown_bets > 0 and self._start_at is not None and self._start_at - self._dropped != idx:
+                # This adds up to the middle pot alone, with bets printed in front of the players.
+                # If the start already found adds up to the pot plus those bets, keep it: a bet
+                # the size of the pot makes a later set of stacks add up to the pot by chance.
+                kept = self._adds_up(self._start_at - self._dropped, current, targets[1:])
+                if kept is not None:
+                    return self._start_at, kept[0], False
+            return self._dropped + idx, contrib, includes
+        return None
+
+    def _adds_up(self, idx: int, current: Dict[Key, float], targets):
+        """(chips per seat, whether the pot includes this round's bets) when the stacks that
+        left since snapshot `idx` add up to one of the targets."""
+        if not 0 <= idx < len(self._history):
+            return None
+        snap = self._history[idx]
+        contrib: Dict[Key, float] = {}
+        for k, now in current.items():
+            if k not in snap:
+                continue
+            c = snap[k] - now
+            if c < -0.5:
+                return None  # a stack grew since then: a hand ended in between
+            contrib[k] = max(0.0, c)
+        if HERO not in contrib or len(contrib) < 2:
+            return None
+        total = sum(contrib.values())
+        for target, includes in targets:
+            if target > 0 and abs(total - target) <= max(1.0, 0.02 * target):
+                return contrib, includes
         return None
 
     def _fill(self, info: TrackInfo, state: GameState, seen: Dict[Key, Tuple[int, float]],

@@ -21,12 +21,13 @@ def rec():
 
 def table(folded=(), bets: Optional[Dict[int, float]] = None, tags: Optional[Dict[int, str]] = None,
           all_in=(), shown: Optional[Dict[int, tuple]] = None, hero_cards=("As", "Kh"), board=(),
-          collected=0.0, button=0, acting: Optional[int] = None, buttons: List[str] = ()) -> TableView:
-    bets = bets or {}
+          collected=0.0, button=0, acting: Optional[int] = None, buttons: List[str] = (),
+          stacks: Optional[Dict[int, float]] = None) -> TableView:
+    bets, stacks = bets or {}, stacks or {}
     seats = []
     for i, name in enumerate(NAMES):
-        s = SeatView(name, 0.0 if i in all_in else 200.0 - bets.get(i, 0.0), bets.get(i, 0.0),
-                     has_cards=i not in folded, all_in=i in all_in)
+        stack = 0.0 if i in all_in else stacks.get(i, 200.0 - bets.get(i, 0.0))
+        s = SeatView(name, stack, bets.get(i, 0.0), has_cards=i not in folded, all_in=i in all_in)
         s.tag = (tags or {}).get(i)
         s.shown = (shown or {}).get(i)
         seats.append(s)
@@ -189,3 +190,70 @@ def test_ocr_dropping_spaces_in_the_pot_label_and_raise_button():
     assert POT_RE.search("Jackpot 500") is None
     assert ACTION_RE.match("Raiseto$46") and Action.parse("Raiseto$46") == Action("raise", 46)
     assert not ACTION_RE.match("Betty")
+
+
+def test_the_collected_pot_by_the_board_is_not_your_bet():
+    """The pot from earlier rounds, drawn just below the board (76% of the way from your seat
+    to the middle), was read as your bet of 4. Bets lie about halfway at most."""
+    import numpy as np
+
+    from app.recognition.layout import analyse
+    from app.vision.ocr import TextBox
+
+    spots = [(800, 860), (256, 700), (162, 362), (672, 152), (1343, 240), (1440, 620)]
+    boxes = []
+    for (x, y), name in zip(spots, NAMES):
+        boxes.append(TextBox(name, 0.85, x - 35, y - 30, 70, 28))
+        boxes.append(TextBox("$200", 0.85, x - 35, y + 2, 70, 28))
+    boxes.append(TextBox("Total pot: $4", 0.9, 853, 372, 162, 27))
+    boxes.append(TextBox("$4", 0.8, 714, 551, 58, 30))  # the collected pot, t = 0.76 for your seat
+    res = analyse(np.zeros((1000, 1600, 3), np.uint8), [], boxes)
+    assert all(s.bet is None for s in res.seats)
+    boxes[-1] = TextBox("$4", 0.8, 771, 677, 58, 30)  # a real bet of yours, t = 0.44
+    res = analyse(np.zeros((1000, 1600, 3), np.uint8), [], boxes)
+    assert next(s for s in res.seats if s.name == "You").bet.value == 4
+
+
+def test_a_raise_is_seen_without_the_stakes():
+    """Found on the held-out layout: the blinds weren't read ("$1/s2"), your 33 faced a raise
+    to 99, and it said to open-raise to about 250. The big blind's own chips (even a faint
+    read of them) show the stakes."""
+    from app.poker.advice import advise
+    from app.state.model import Action, Field, GameState, Player
+
+    def player(seat, pos, stack, bet, hero=False, faint=False):
+        p = Player(seat=seat, is_hero=hero, position=Field.manual(pos), stack=Field.manual(stack),
+                   in_hand=Field.manual(True))
+        p.bet = Field(None, 0.69, "auto", guess=bet) if faint else Field.manual(bet)
+        return p
+
+    players = [player(0, "CO", 172, 33, hero=True), player(1, "BTN", 48, 99), player(2, "SB", 200, 1, faint=True),
+               player(3, "BB", 294, 2, faint=True), player(4, "UTG", 207.5, 0), player(5, "HJ", 128.5, 15)]
+    for p in players[2:]:
+        p.in_hand = Field.manual(False)
+    st = GameState(hero_cards=[Field.manual("Ac"), Field.manual("Kh")], players=players)
+    st.street, st.pot, st.pot_includes_bets = Field.manual("preflop"), Field.manual(150.0), True
+    st.to_call, st.hero_to_act = Field.manual(66.0), Field.manual(True)
+    st.available_actions = Field.manual([Action("fold"), Action("call", 66), Action("raise", 165)])
+    adv = advise(st)
+    assert "open" not in adv.reason.lower()
+    assert adv.action in ("call", "raise", "all-in")
+
+
+@needs_ocr
+def test_a_dimmed_stack_under_a_folded_name_keeps_the_seat(rec):
+    """Rhea folded: her plate is dimmed and "209" (grey on dark) wasn't found as text, so her
+    seat was lost. The spot under a name with nothing under it is now read directly."""
+    view = table(folded=(1, 4, 5), stacks={0: 198, 1: 198, 2: 194, 3: 236, 4: 209, 5: 165}, hero_cards=(),
+                 acting=2, button=3)
+    res, seats, _ = read(rec, view, "green")
+    assert sorted(seats) == [0, 1, 2, 3, 4, 5]
+    assert seats[4].stack is not None and seats[4].stack.value == 209
+
+
+@needs_ocr
+def test_a_lone_nine_beside_its_chip_is_not_nineteen(rec):
+    """The chip beside a lone "9" read as a "1": a bet of 9 became 19."""
+    res, seats, _ = read(rec, table(bets={4: 1, 5: 9}, folded=(1, 2, 3), hero_cards=(), acting=1, button=3),
+                         "green")
+    assert seats[5].bet is None or seats[5].bet.value == 9

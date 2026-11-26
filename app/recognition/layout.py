@@ -446,7 +446,7 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
             if L2 <= 1:
                 continue
             t = ((b.cx - sx) * vx + (b.cy - sy) * vy) / L2
-            if not 0.05 <= t <= 0.9:
+            if not 0.05 <= t <= BET_REACH:
                 continue
             px, py = sx + t * vx, sy + t * vy
             d = math.hypot(b.cx - px, b.cy - py)
@@ -461,6 +461,11 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
         seat.bet, seat.bet_box = amt, b
         seat.bet_conf = round(min(0.95, 0.2 + 0.8 * b.confidence) * amt.confidence_factor * (1.0 if d < 0.06 * diag else 0.85), 3)
         used.add(id(b))
+
+
+# A bet lies between its seat and the middle, at most this share of the way. Further in, by the
+# board, is the collected pot (chips from earlier rounds): never a seat's bet.
+BET_REACH = 0.65
 
 
 def _next_to(b: TextBox, label: TextBox) -> bool:

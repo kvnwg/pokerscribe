@@ -131,6 +131,7 @@ def parse_blinds(text: str) -> Optional[Tuple[float, float]]:
     """'Blinds 5/10', 'NLH $0.05/$0.10', '25/50 ante 5' -> (sb, bb)."""
     if "pot" in text.lower():
         return None  # bet-sizing buttons such as "1/2 Pot"
+    text = re.sub(r"(?<=/)\s*[sS](?=\d)", "$", text)  # "$1/s2": OCR read the second "$" as an s
     for m in BLINDS_RE.finditer(text):
         if _NOT_BLINDS_BEFORE.search(text[:m.start()]):
             continue

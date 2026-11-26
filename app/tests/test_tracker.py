@@ -153,3 +153,38 @@ def test_missed_end_of_a_round_doesnt_turn_old_chips_into_new_bets():
     info = t.update(st)
     assert info.valid
     assert [p.bet.value for p in st.players] == [0, 0, 0, 0, 0]
+
+
+def test_a_pot_sized_bet_does_not_look_like_a_new_hand():
+    """On a client whose pot leaves out this round's bets, a bet the size of the pot makes the
+    stacks since the flop add up to the pot by chance. The hand start already found still
+    adds up (to the pot plus the bet), so it stays."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    t.update(capture(dict(FULL, John=999, Mike=998), pot=3))  # blinds
+    t.update(capture(dict(FULL, hero=994, John=999, Mike=998), pot=9))  # hero raises to 6
+    t.update(capture(dict(FULL, hero=994, John=999, Mike=994), board=("Kh", "9d", "2c"), pot=13))
+    st = capture(dict(FULL, hero=994, John=999, Mike=981), board=("Kh", "9d", "2c"), pot=13)
+    st.players[SEATS.index("Mike")].bet = Field.manual(13.0)  # printed in front of Mike
+    info = t.update(st)
+    assert info.valid and not info.new_hand and info.pot_includes_bets is False
+    assert st.to_call.value == 13 and info.hero_invested == 6
+
+
+def test_last_hands_start_doesnt_carry_into_the_next_hand():
+    """Found by tools/selftest.py: the stacks from where the last hand began added up to the
+    new hand's pot by chance, the old start was kept, and your blind from the last hand
+    counted as a bet in this one: "someone raised", fold. The newest set of stacks that adds
+    up is the start, unless only the old one adds up with the printed bets."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    st = capture(dict(FULL, hero=999, Deja=998), pot=3)  # last hand: you posted 1, Deja 2
+    st.players[0].bet, st.players[1].bet = Field.manual(1.0), Field.manual(2.0)
+    t.update(st)
+    t.update(capture(dict(FULL, hero=999, Deja=1001), cards=None))  # you folded, Deja won 3
+    t.update(capture(dict(FULL, hero=999, Deja=1001), cards=None))  # between hands
+    st = capture(dict(FULL, hero=999, Deja=1001, John=999, Mike=998), pot=3)  # new hand: blinds
+    st.players[SEATS.index("John")].bet = Field.manual(1.0)
+    st.players[SEATS.index("Mike")].bet = Field.manual(2.0)
+    info = t.update(st)
+    assert info.valid and info.hero_invested == 0 and st.to_call.value == 2
