@@ -15,15 +15,15 @@ import pytest
 
 from tools.gtowizard import client as client_mod
 from tools.gtowizard.__main__ import main
-from tools.gtowizard.client import (KEY_ENV, AuthError, GTOWizardClient, MissingKey, NotFound,
-                                    RateLimited, Rejected, Transport, Unsure, iso_utc)
-from tools.gtowizard.limits import (PUBLISHED, Caps, CapReached, HandBudget, Ledger, next_resets,
-                                    window_starts)
+from tools.gtowizard.client import (KEY_ENV, AuthError, GTOWizardClient, GTOWizardError, MissingKey,
+                                    NotFound, RateLimited, Rejected, Transport, Unsure, iso_utc)
+from tools.gtowizard.limits import (PUBLISHED, Caps, CapReached, HandBudget, Ledger, LedgerLock,
+                                    next_resets, window_starts)
 from tools.gtowizard.mock_server import MockBenchmark, MockServer
 from tools.gtowizard.protocol import (ProtocolError, Reader, parse_history, read_state,
                                       slumbot_action, split_cards)
-from tools.gtowizard.session import (NOTICE, format_summary, hands_in, read_log, results_path,
-                                     run_session, save_results, summary, tidy_results)
+from tools.gtowizard.session import (NOTICE, SOURCE, USE, format_summary, hands_in, read_log,
+                                     results_path, run_session, save_results, summary, tidy_results)
 from tools.slumbot.bots import Bot, CheckCallBot, Decision
 from tools.slumbot.protocol import BB_SEAT, SB_SEAT
 
@@ -108,6 +108,12 @@ def play(url, tmp_path, hands, *, bot=None, log="run.jsonl", clock=None, **kw):
     out = run_session(client, bot or CheckCallBot(), path, hands, accept_terms=True,
                       echo=lines.append, **kw)
     return out, client, lines, path
+
+
+def stamped(log):
+    """Every line of the log says where it comes from and that it is for benchmarking only."""
+    recs = read_log(log)
+    return bool(recs) and all(r.get("use") == USE and r.get("source") == SOURCE for r in recs)
 
 
 def first_state(mock):
@@ -387,6 +393,20 @@ def test_text_from_the_server_is_scrubbed_of_the_key(serve):
     assert KEY not in str(e.value) and "<api key>" in str(e.value)
 
 
+@pytest.mark.parametrize("status", [502, 200, 400])
+def test_a_key_echoed_in_a_page_that_is_not_json_is_cut_out_whole(serve, status):
+    # Error text is shortened to 300 characters. The key is cut out first: shortening first could
+    # leave the front half of a key that straddles the cut, which nothing would recognise any more.
+    mock, url = serve()
+    page = "<html>" + "x" * 270 + f" bad gateway for {KEY} </html>"
+    assert page.index(KEY) < 300 < page.index(KEY) + len(KEY)
+    mock.fail(status=status, text=page, method="GET")
+    with pytest.raises(GTOWizardError) as e:
+        make_client(url, retries=0).in_progress()
+    shown = str(e.value)
+    assert "bad gateway" in shown and not any(KEY[i:i + 6] in shown for i in range(len(KEY) - 5))
+
+
 def test_pacing_and_rate_limits(serve):
     clock = FakeClock()
     mock, url = serve(rate_limit=(3, 10.0), ticker=clock)
@@ -566,7 +586,50 @@ def test_an_action_whose_reply_is_lost_is_never_applied_twice(serve, tmp_path, a
     sent = [(h["hand_id"], d["incr"]) for h in hands for d in h["decisions"]]
     assert sent == mock.applied and len(sent) == 12  # four checks or calls a hand, each applied once
     assert mock.count("POST", "/act") == 12 + (0 if applied else 1)  # sent again only if it wasn't applied
-    assert mock.count("GET", "/hands/in-progress") == 2  # one at the start, one to find out
+    # One look at the start. Applied: one more look shows it. Not applied: three patient looks
+    # show nothing, and only then is the action sent again.
+    assert mock.count("GET", "/hands/in-progress") == (2 if applied else 4)
+
+
+@pytest.mark.parametrize("late", [1, 2])
+def test_an_action_the_server_applies_late_is_waited_for_not_sent_again(serve, tmp_path, late):
+    mock, url = serve(policy=passive)
+    mock.fail(status=504, late=late, path="/act")  # no answer, and it lands only after ``late`` looks
+    out, client, _, log = play(url, tmp_path, 2)
+    hands = hands_in(read_log(log))
+    assert out["hands"] == 2 and out["stopped"] is None and out["fallbacks"] == 0
+    sent = [(h["hand_id"], d["incr"]) for h in hands for d in h["decisions"]]
+    assert sent == mock.applied and mock.count("POST", "/act") == 8  # never sent a second time
+    assert mock.count("GET", "/hands/in-progress") == 1 + late + 1
+    pauses = [x for x in client.sleep.__self__.slept if x >= 2]
+    assert pauses == [2.0, 4.0, 8.0][:late + 1]  # the pause before each look grows
+
+
+def test_an_action_that_lands_twice_is_caught_and_the_session_stops(serve, tmp_path):
+    # Later than the runner waits: our preflop check lands after the last look, then its repeat
+    # lands too, as a check on the flop that the bot never chose.
+    mock, url = serve(policy=passive, first_seat=BB_SEAT)
+    mock.fail(status=504, late=3, path="/act")
+    out, _, _, log = play(url, tmp_path, 3)
+    hand = hands_in(read_log(log))[0]
+    assert [a for _, a in mock.applied[:2]] == ["k", "k"] and hand["action"].startswith("ck/kk/")
+    assert out["hands"] == 1 and out["stopped"]["reason"] == "fallback"
+    assert "applied one twice" in hand["fallback"] and "applied one twice" in out["stopped"]["detail"]
+    assert len(mock.applied) == len(hand["decisions"]) + 1  # one more landed than we chose to send
+    assert [d.get("fallback", False) for d in hand["decisions"]] == [False, True, True]
+    assert all(m.finished is not None for m in mock.hands()) and stamped(log)
+
+
+def test_a_repeat_refused_because_the_first_one_landed_is_not_held_against_the_bot(serve, tmp_path):
+    # In the small blind the late call ends the preflop round, so the repeat (a call with nothing
+    # to call) is refused. The hand's own history shows why, and play goes on.
+    mock, url = serve(policy=passive, first_seat=SB_SEAT)
+    mock.fail(status=504, late=3, path="/act")
+    out, _, _, log = play(url, tmp_path, 2)
+    hands = hands_in(read_log(log))
+    assert out["hands"] == 2 and out["stopped"] is None and out["fallbacks"] == 0
+    sent = [(h["hand_id"], d["incr"]) for h in hands for d in h["decisions"]]
+    assert sent == mock.applied and mock.count("POST", "/act") == 8 + 1
 
 
 def test_a_hand_whose_final_reply_is_lost_is_logged_as_lost(serve, tmp_path):
@@ -583,6 +646,17 @@ def test_a_hand_whose_final_reply_is_lost_is_logged_as_lost(serve, tmp_path):
     # GTO Wizard's count includes the lost hand, and the saved results say the window isn't the log's.
     assert recs[-1]["this_log"]["hands"] == 4 and recs[-1]["this_log"]["matches_log"] is False
     assert "not this log's result alone" in format_summary(out)
+
+
+def test_a_hand_the_bot_could_not_play_stops_the_session_even_when_its_result_is_lost(serve, tmp_path):
+    mock, url = serve(policy=passive)
+    mock.fail(status=504, after=True, path="/act", skip=3)  # the action that ends hand 1
+    out, _, _, log = play(url, tmp_path, 5, bot=Breaks(2, error=RuntimeError("solver blew up")))
+    recs = read_log(log)
+    lost = [r for r in recs if r["type"] == "lost"]
+    assert len(lost) == 1 and "solver blew up" in lost[0]["fallback"] and lost[0]["unanswered"] == "k"
+    assert out["hands"] == 0 and out["lost"] == 1 and out["stopped"]["reason"] == "fallback"
+    assert "solver blew up" in out["stopped"]["detail"] and len(mock.hands()) == 1  # no hand after it
 
 
 @pytest.mark.parametrize("dealt", [True, False])
@@ -607,6 +681,68 @@ def test_three_unanswered_new_hand_requests_stop_the_session(serve, tmp_path):
     assert out["stopped"]["reason"] == "error" and out["hands"] == 0
     assert mock.requests.count(("POST", "/hands")) == 3
     assert read_log(log)[-1]["event"] == "stopped"
+    # A hand dealt by one of those requests and over at once would be in no line of the log,
+    # so the summary says how many requests went unanswered.
+    assert out["unanswered_new_hands"] == 3 and "3 new-hand request(s) got no answer" in format_summary(out)
+
+
+def test_every_line_of_the_log_is_marked_benchmark_only_notes_included(serve, tmp_path):
+    mock, url = serve(policy=passive, postflop_first=SB_SEAT)
+    log = str(tmp_path / "run.jsonl")
+    with open(log, "w") as f:
+        f.write('{"type": "hand", "hand": 1, "winn')  # a record cut by a crash
+    mock.fail(status=422, method="GET", path="/results", detail="start_date: not understood")
+    mock.fail(status=503, method="POST", path="/hands")
+    mock.fail(status=503, times=99, method="POST", skip=12)  # two hands go through, then nothing does
+    out, client, _, _ = play(url, tmp_path, 9)
+    save_results(client, log)  # a session that stops on an error leaves this to the "results" command
+    recs = read_log(log)
+    notes = {r["event"] for r in recs if r["type"] == "note"}
+    assert notes == {"cut_line", "no_server_count", "new_hand_unanswered", "betting_order", "stopped"}
+    assert {"session", "hand", "results"} <= {r["type"] for r in recs}
+    assert stamped(log) and out["stopped"]["reason"] == "error"
+
+
+def test_only_one_session_runs_at_a_time(serve, tmp_path):
+    mock, url = serve(policy=passive)
+    other = LedgerLock(str(tmp_path / "ledger.jsonl"))  # another session, on the same ledger
+    assert other.acquire()
+    with pytest.raises(SystemExit, match="another session is running"):
+        play(url, tmp_path, 2)
+    assert mock.requests == [] and not os.path.exists(tmp_path / "run.jsonl")
+    other.release()
+    out, _, _, _ = play(url, tmp_path, 2)
+    assert out["hands"] == 2
+    out, _, _, _ = play(url, tmp_path, 3, resume=True)  # a session lets go of the lock when it ends
+    assert out["hands"] == 3
+
+
+def _no_raise_range(state):
+    if state["raise_range"]:
+        state["raise_range"] = {"min": None, "max": None}
+
+
+@pytest.mark.parametrize("damage,reason,why", [
+    (_no_raise_range, None, "no bet is offered"),
+    (lambda s: s.update(total_pot="lots"), "fallback", "is not a number"),
+    (lambda s: s.update(action_history=None), "fallback", "could not be read"),
+    (lambda s: s.update(players="nobody"), "fallback", "could not be read"),
+    (lambda s: s.update(winnings="plenty"), "problems", "no readable winnings"),
+    (lambda s: s.update(legal_actions=7), "error", "no check, fold or call"),
+])
+def test_a_reply_off_the_spec_never_crashes_a_session_or_the_resume_after_it(serve, tmp_path, damage,
+                                                                           reason, why):
+    mock, url = serve(policy=passive, mutate=damage)
+    for run in range(2):  # the second run resumes whatever the first one left
+        out, _, _, log = play(url, tmp_path, 2, resume=run > 0)
+        got = out["stopped"] and out["stopped"]["reason"]
+        assert got == reason, out["stopped"]
+        assert stamped(log)
+        text = json.dumps(read_log(log)) + json.dumps(out["stopped"])
+        assert why in text
+    if reason is None:
+        assert out["hands"] == 2 and out["fallbacks"] == 0
+    format_summary(out)
 
 
 def test_a_hand_waiting_for_the_opponent_is_polled_not_played_blind(serve, tmp_path):
@@ -749,6 +885,10 @@ def test_ledger_counts_hands_once_and_is_shared(tmp_path):
     with open(path, "a") as f:
         f.write('{"time": "2026-11-26T12:0')  # a line cut by a crash is skipped, not fatal
     assert len(Ledger(path)) == 5
+    # The next hand must not be glued onto the cut line and lost with it.
+    after = Ledger(path)
+    assert after.add(6, now()) and after.add(None, now())
+    assert len(Ledger(path)) == 7 and 6 in Ledger(path) and budget.used()["day"] == 7
     assert KEY not in open(path).read()
 
 
@@ -833,6 +973,21 @@ def test_tidy_results_names_the_standard_error_honestly():
     assert t["aivat_standard_error_bb_per_100"] == api["aivat_std_bb_per_100"] and t["api"] is api
     assert t["aivat_ci95_bb_per_100"][0] == pytest.approx(0.2164, abs=1e-4)  # what the leaderboard ranks by
     assert tidy_results(None) is None and tidy_results({}) is None
+
+
+@pytest.mark.parametrize("api", [
+    {"total_hands": 12, "aivat_score_bb_per_100": 3.5, "aivat_std_bb_per_100": None, "bb_per_100": 9.0},
+    {"total_hands": 1, "aivat_score_bb_per_100": 3.5, "aivat_std_bb_per_100": "NaN", "bb_per_100": None},
+    {"total_hands": None, "aivat_score_bb_per_100": 3.5},
+])
+def test_results_with_figures_missing_are_shown_not_crashed_on(api):
+    t = tidy_results(api)
+    assert t["aivat_standard_error_bb_per_100"] is None and t["aivat_ci95_bb_per_100"] is None
+    s = summary([])
+    s["results"] = {"time": "2026-11-26T12:00:00+00:00", "all_time": t,
+                    "this_log": {"start_date": "2026-11-26T11:00:00+00:00", **t}}
+    text = format_summary(s)
+    assert "AIVAT +3.50 bb/100, standard error n/a, 95% interval n/a to n/a" in text
 
 
 def test_results_command_and_stats_without_a_network(serve, tmp_path, capsys, monkeypatch):

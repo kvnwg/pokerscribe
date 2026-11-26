@@ -140,7 +140,7 @@ class Reply:
     status: int
     headers: Mapping[str, str]
     body: Any  # parsed JSON, or None when the body isn't JSON
-    text: str  # the start of the raw body, for error messages
+    text: str  # the raw body, for error messages (the client cuts the key out, then shortens it)
 
 
 class Transport:
@@ -178,7 +178,7 @@ class Transport:
         except ValueError:
             parsed = None
         return Reply(status, {k.lower(): v for k, v in (hdrs.items() if hdrs else [])}, parsed,
-                     raw[:300].decode("utf-8", "replace"))
+                     raw.decode("utf-8", "replace"))
 
 
 class GTOWizardClient:
@@ -211,20 +211,30 @@ class GTOWizardClient:
 
     # --- the four endpoints ---
     def new_hand(self) -> dict:
-        return self._call("POST", "/hands", body={"game_name": self.game})
+        return self._hand("POST /hands", self._call("POST", "/hands", body={"game_name": self.game}))
+
+    @staticmethod
+    def _hand(what: str, reply) -> dict:
+        """A hand, or ``Unsure``: the request may well have been applied, but the answer is no use."""
+        if not isinstance(reply, dict):
+            raise Unsure(f"{what}: the reply is {type(reply).__name__}, not a hand")
+        return reply
 
     def act(self, hand_id: int, action: str, amount: Optional[int] = None) -> dict:
         if action not in ("f", "k", "c", "b"):
             raise ValueError(f"unknown action {action!r}")
         if (action == "b") != (amount is not None):
             raise ValueError("a bet needs an amount, and only a bet takes one")
-        return self._call("POST", f"/hands/{int(hand_id)}/act",
-                          body={"action": action, "amount": None if amount is None else int(amount)})
+        path = f"/hands/{int(hand_id)}/act"
+        return self._hand(f"POST {path}", self._call(
+            "POST", path, body={"action": action, "amount": None if amount is None else int(amount)}))
 
     def in_progress(self) -> List[dict]:
         r = self._call("GET", "/hands/in-progress", params={"game_name": self.game})
         if not isinstance(r, list):
             raise GTOWizardError(f"/hands/in-progress returned {type(r).__name__}, not a list")
+        if not all(isinstance(h, dict) and h.get("hand_id") is not None for h in r):
+            raise GTOWizardError("/hands/in-progress returned an entry that is not a hand with a hand_id")
         return r
 
     def results(self, start: Optional[_dt.datetime] = None, end: Optional[_dt.datetime] = None,
@@ -272,7 +282,8 @@ class GTOWizardClient:
                 status = reply.status
                 if 200 <= status < 300:
                     if reply.body is None:
-                        problem = Unsure(f"{what}: HTTP {status} without JSON: {self.scrub(reply.text)!r}")
+                        problem = Unsure(f"{what}: HTTP {status} without JSON: "
+                                         f"{self.scrub(reply.text)[:300]!r}")
                     else:
                         return reply.body
                 elif status in (401, 403):
@@ -311,7 +322,7 @@ class GTOWizardClient:
                     parts.append(str(item))
             d = "; ".join(parts)
         text = str(d) if d else reply.text
-        return self.scrub(text)[:300] or "no details"
+        return self.scrub(text)[:300] or "no details"  # scrub first: a cut could split the key
 
     def _wait_turn(self) -> None:
         now = self._clock()
