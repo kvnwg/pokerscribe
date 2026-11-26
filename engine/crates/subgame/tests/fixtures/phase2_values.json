@@ -1,0 +1,246 @@
+{
+ "source": "app/solver solve (dcfr)",
+ "spots": {
+  "r01": {
+   "exploitability_pot": 0.00097482,
+   "iterations": 16,
+   "value": [
+    100.158739,
+    -0.158739
+   ]
+  },
+  "r02": {
+   "exploitability_pot": 0.00021773,
+   "iterations": 64,
+   "value": [
+    -0.043494,
+    100.043494
+   ]
+  },
+  "r03": {
+   "exploitability_pot": 0.00036208,
+   "iterations": 16,
+   "value": [
+    50.035898,
+    49.964102
+   ]
+  },
+  "r04": {
+   "exploitability_pot": 0.00051103,
+   "iterations": 128,
+   "value": [
+    40.787181,
+    59.212819
+   ]
+  },
+  "r05": {
+   "exploitability_pot": 0.00084806,
+   "iterations": 128,
+   "value": [
+    38.377822,
+    61.622178
+   ]
+  },
+  "r06": {
+   "exploitability_pot": 0.00065514,
+   "iterations": 64,
+   "value": [
+    47.155765,
+    52.844235
+   ]
+  },
+  "r07": {
+   "exploitability_pot": 0.00068411,
+   "iterations": 256,
+   "value": [
+    45.580845,
+    54.419155
+   ]
+  },
+  "r08": {
+   "exploitability_pot": 0.00086289,
+   "iterations": 128,
+   "value": [
+    37.307694,
+    62.692306
+   ]
+  },
+  "r09": {
+   "exploitability_pot": 0.00031774,
+   "iterations": 256,
+   "value": [
+    30.756046,
+    69.243954
+   ]
+  },
+  "r10": {
+   "exploitability_pot": 0.00026701,
+   "iterations": 128,
+   "value": [
+    10.859551,
+    89.140449
+   ]
+  },
+  "r11": {
+   "exploitability_pot": 0.00041517,
+   "iterations": 256,
+   "value": [
+    26.670937,
+    73.329063
+   ]
+  },
+  "r12": {
+   "exploitability_pot": 0.00044116,
+   "iterations": 128,
+   "value": [
+    43.825829,
+    56.174171
+   ]
+  },
+  "r13": {
+   "exploitability_pot": 0.0009908,
+   "iterations": 128,
+   "value": [
+    6.084477,
+    93.915523
+   ]
+  },
+  "r14": {
+   "exploitability_pot": 0.00077824,
+   "iterations": 64,
+   "value": [
+    9.627304,
+    90.372696
+   ]
+  },
+  "r15": {
+   "exploitability_pot": 0.00067743,
+   "iterations": 128,
+   "value": [
+    15.266213,
+    84.733787
+   ]
+  },
+  "r16": {
+   "exploitability_pot": 0.0006228,
+   "iterations": 128,
+   "value": [
+    53.987774,
+    46.012226
+   ]
+  },
+  "r17": {
+   "exploitability_pot": 0.0004787,
+   "iterations": 128,
+   "value": [
+    -0.053562,
+    100.053562
+   ]
+  },
+  "r18": {
+   "exploitability_pot": 0.00063621,
+   "iterations": 128,
+   "value": [
+    42.986966,
+    57.013034
+   ]
+  },
+  "r19": {
+   "exploitability_pot": 0.00044156,
+   "iterations": 128,
+   "value": [
+    81.975359,
+    18.024641
+   ]
+  },
+  "r20": {
+   "exploitability_pot": 0.00020759,
+   "iterations": 128,
+   "value": [
+    -0.031988,
+    100.031988
+   ]
+  },
+  "r21": {
+   "exploitability_pot": 0.00059298,
+   "iterations": 128,
+   "value": [
+    39.778692,
+    60.221308
+   ]
+  },
+  "r22": {
+   "exploitability_pot": 0.00053227,
+   "iterations": 256,
+   "value": [
+    68.634138,
+    31.365862
+   ]
+  },
+  "r23": {
+   "exploitability_pot": 0.00082538,
+   "iterations": 64,
+   "value": [
+    26.559627,
+    73.440373
+   ]
+  },
+  "r24": {
+   "exploitability_pot": 0.0005179,
+   "iterations": 256,
+   "value": [
+    55.580164,
+    44.419836
+   ]
+  },
+  "r25": {
+   "exploitability_pot": 0.00042932,
+   "iterations": 128,
+   "value": [
+    42.901223,
+    57.098777
+   ]
+  },
+  "r26": {
+   "exploitability_pot": 0.00081987,
+   "iterations": 64,
+   "value": [
+    -0.115973,
+    100.115973
+   ]
+  },
+  "r27": {
+   "exploitability_pot": 0.00085236,
+   "iterations": 64,
+   "value": [
+    22.125243,
+    77.874757
+   ]
+  },
+  "r28": {
+   "exploitability_pot": 0.00034305,
+   "iterations": 256,
+   "value": [
+    17.133427,
+    82.866573
+   ]
+  },
+  "r29": {
+   "exploitability_pot": 0.0006327,
+   "iterations": 256,
+   "value": [
+    94.570562,
+    5.429438
+   ]
+  },
+  "r30": {
+   "exploitability_pot": 0.00054494,
+   "iterations": 128,
+   "value": [
+    47.774197,
+    52.225803
+   ]
+  }
+ },
+ "target_exploitability": 0.001
+}

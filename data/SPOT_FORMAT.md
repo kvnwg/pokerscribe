@@ -177,10 +177,10 @@ Header:
 | `solver.exploitability_trace` | `[iteration, percent of the pot]` as the solver printed it. |
 | `solver.converged` | The last exploitability is at or under the target. |
 | `solver.reading`, `solver.notes` | How TexasSolver's amounts were read, and anything odd found reading its output (`data/answer_keys/README.md`, "Quirks"). |
-| `checks.exploitability_pot` | River spots: exploitability of this answer worked out by `app/solver/exploitability.py`, independent of the solver. `null` for turn spots. |
+| `checks.exploitability_pot` | Exploitability of this answer worked out again by an exact best response, apart from the solve. In TexasSolver's keys: by `app/solver/exploitability.py` for river spots, `null` for turn spots (Python has no turn checker). In a RESULT written by `subgame-solve` (`engine/crates/subgame`): by that crate's own best response on the answer as written, for river and turn spots. On river answers the two give the same numbers. |
 | `checks.filled_rows` | Combos the solver left out at some node, given a uniform row for that check. |
-| `checks.values` | River spots: chips a hand each player wins when both follow this answer, counting the starting pot as nobody's yet (the two add up to the pot; `SOLVER.md`, "Payoffs"). `null` for turn spots. |
-| `checks.oop_value_bounds` | River spots: `[low, high]`, where the spot's true value for OOP must lie. The spot has one true value v (two players, zero sum). OOP's best response to IP's part of the answer wins at least v, and IP's best response to OOP's part wins at least pot - v, so pot - (IP's best response) <= v <= OOP's best response. The width is twice the exploitability. `null` for turn spots. |
+| `checks.values` | Chips a hand each player wins when both follow this answer, counting the starting pot as nobody's yet (the two add up to the pot; `SOLVER.md`, "Payoffs"). `null` in TexasSolver's turn keys. |
+| `checks.oop_value_bounds` | River spots: `[low, high]`, where the spot's true value for OOP must lie. The spot has one true value v (two players, zero sum). OOP's best response to IP's part of the answer wins at least v, and IP's best response to OOP's part wins at least pot - v, so pot - (IP's best response) <= v <= OOP's best response. The width is twice the exploitability. `null` in TexasSolver's turn keys. |
 | `checks.expected_failures` | The spot's expected checks that fail (always empty in a saved result). |
 
 Node lines, in the order of `spots.decision_nodes`:
@@ -215,5 +215,9 @@ equilibrium. But every equilibrium of a spot has the same value. So, for river s
 5. then, as a softer check, its action frequencies are close to the key's at the nodes both
    players reach often.
 
-For turn spots only 4 and 5 can be checked against a key today, plus the new solver's own
-exploitability.
+A turn key stores no values or bounds, and Python can't work them out. The Rust crate
+(`engine/crates/subgame`) can: its best response is exact on turn spots, so its tests run 1
+to 4 on the 10 turn spots too, with the key's value and bounds worked out there. By that
+measure TexasSolver's turn answers are 0.42% to 0.71% of the pot exploitable, not the 0.17%
+to 0.28% in their headers (the crate's README, "Things to know", 2). So a turn key's bounds
+are wider than a river key's, and its frequencies are a loose reference.

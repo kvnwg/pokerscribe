@@ -1,0 +1,16 @@
+[package]
+name = "subgame"
+version = "0.1.0"
+edition = "2021"
+description = "River and turn subgame solver for PokerScribe: Discounted CFR over all combos, exact best response, SPOT in, RESULT out."
+publish = false
+
+[dependencies]
+eval = { path = "../eval" }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "subgame-solve"
+path = "src/bin/subgame-solve.rs"

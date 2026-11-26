@@ -14,8 +14,16 @@ Reference answers the PokerScribe solvers are checked against: today the Python 
 All 40 spots are solved, with status `ok`: TexasSolver's tree matched the spot's on
 every one, every answer is under 0.3% of the pot exploitability, and the three trivial
 spots pass their checks. On all 30 river spots our own exploitability check gives the
-same number as TexasSolver's, to the third decimal. The turn spots have only
-TexasSolver's own number until a turn checker exists (the Rust solver's).
+same number as TexasSolver's, to the third decimal. The turn keys carry only
+TexasSolver's own number.
+
+A turn checker now exists: the Rust solver (`engine/crates/subgame`), with exact card
+removal on every river card. By its measure the 10 turn answers are 0.42% to 0.71% of the
+pot exploitable, not the 0.17% to 0.28% TexasSolver reports. Weighing each river card 1/46
+where 1/44 is right gives TexasSolver's own number to the third decimal on all 10, so that
+is the likely cause. The answers are still close: their values are within 0.23% of the pot
+of the Rust solver's. The river keys are not affected. Numbers for each spot:
+`engine/crates/subgame/README.md`, "TexasSolver's turn answers".
 
 River results also carry each answer's value and bounds on the true value (`checks.values`,
 `checks.oop_value_bounds`, `SPOT_FORMAT.md`), for the Phase 4 gate "TexasSolver within 0.5%
