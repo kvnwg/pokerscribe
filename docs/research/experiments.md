@@ -332,9 +332,9 @@ third condition only.
   - Of 6000 new-way hands, 4 differ and 2 differ by more than 3 bb (+16 and +65).
   - Both SEs come from those few hands, so their ratio carries almost no information.
   - The rule left out only comparisons in which no hand differs, so it counts.
-- `semibluff_turn: "never"`: about 1 hand in 200 differs (47 new, 86 old). What's left is
-  how much the true effect varies from hand to hand given the split. No method that
-  conditions on the split can take that out.
+- `semibluff_turn: "never"`: about 1 hand in 130 differs (47 of 6000 new, 86 of 12000 old).
+  What's left is how much the true effect varies from hand to hand given the split. No
+  method that conditions on the split can take that out.
 - On the six comparisons where many hands differ, the SE is 0.12 to 0.51 of classic: more
   than halved everywhere except `texture_sizing` (0.51).
 - Even with `commit` left out, `semibluff_turn: "never"` (0.80) fails the third condition;
@@ -345,6 +345,13 @@ third condition only.
 - Which reading counts, or whether to change the rule (for example, judge only comparisons
   in which at least 1% of hands differ, or drop the per-comparison condition), is Kevin's
   decision, to be written down before any further gate run.
+- Share of hands that differ in run 4 (new / old): `ev_sizing` fish247 5.6% / 5.1%,
+  `bet_size: 0.5` 4.1% / 4.2%, `texture_sizing` 4.1% / 4.2%, `ev_sizing` mixed 3.9% / 4.0%,
+  `push_chart` 1.4% / 1.1%, `semibluff_turn: "never"` 0.8% / 0.7%, `stab: 0.0` 0.5% / 0.7%,
+  `commit: 1.0` 0.07% / 0.06%.
+- A 1% cutoff would set aside three comparisons. Two are the failing ones; the third,
+  `stab: 0.0`, passes anyway (0.12). Any such rule is chosen after seeing run 4, so it should
+  be confirmed by a run on fresh seeds before Phase 2.
 
 
 ### Held-out opponents
