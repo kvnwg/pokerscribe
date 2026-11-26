@@ -6,6 +6,7 @@ them (docs/research/PHASE4.md).
     python -m tools.answer_keys config r04              # print the TexasSolver config of a spot
     python -m tools.answer_keys solve --solver ~/answer-keys/TexasSolver/console_solver [ids ...]
     python -m tools.answer_keys parse r04 --dump r04.json [--log r04.log]   # a dump you ran yourself
+    python -m tools.answer_keys recheck [ids ...]       # our checks again on saved river results
     python -m tools.answer_keys report                  # rewrite the solve table in the README
 
     python -m tools.answer_keys export-python           # river spots by app/solver -> data/answer_keys/python_solver/
@@ -36,7 +37,7 @@ from tools.answer_keys import compare as cmp  # noqa: E402
 from tools.answer_keys import python_solver, runner  # noqa: E402
 from tools.answer_keys import texassolver as ts  # noqa: E402
 from tools.answer_keys.build import write_spots  # noqa: E402
-from tools.answer_keys.checks import check_expected, river_exploitability  # noqa: E402
+from tools.answer_keys.checks import check_expected, river_checks  # noqa: E402
 from tools.answer_keys.result import (make_header, read_result, result_path, validate_result,  # noqa: E402
                                       write_result)
 from tools.answer_keys.spot_defs import SPOTS  # noqa: E402
@@ -56,15 +57,16 @@ def save_parsed(spot: Mapping, parsed: ts.Parsed, solver_info: Mapping, results_
     problems, warnings = [], []
     if parsed.differences:
         problems.append("TexasSolver's tree differs from the spot's: " + "; ".join(parsed.differences))
-    checks = {"exploitability_pot": None, "filled_rows": 0, "expected_failures": []}
+    checks = {"exploitability_pot": None, "filled_rows": 0, "values": None, "oop_value_bounds": None,
+              "expected_failures": []}
     if not problems:
         failures = check_expected(spot, parsed.nodes)
         checks["expected_failures"] = failures[:20]
         if failures:
             problems.append(f"{len(failures)} expected checks fail, e.g. {failures[0]}")
         if spot["street"] == "river":
-            expl, filled = river_exploitability(spot, parsed.nodes)
-            checks["exploitability_pot"], checks["filled_rows"] = round(expl, 8), filled
+            checks.update(river_checks(spot, parsed.nodes))
+            expl = checks["exploitability_pot"]
             if expl > CHECK_SLACK * accuracy_pct / 100:
                 warnings.append(f"our own check finds {expl:.3%} of the pot")
     if not solver_info.get("converged"):
@@ -74,7 +76,8 @@ def save_parsed(spot: Mapping, parsed: ts.Parsed, solver_info: Mapping, results_
     entry = {"status": status, "problems": problems + warnings, "spot_sha256": sha, "street": spot["street"],
              "nodes": len(parsed.nodes), "elapsed_s": solver.get("elapsed_s"), "iterations": solver.get("iterations"),
              "exploitability_pot": solver.get("exploitability_pot"),
-             "checked_exploitability_pot": checks["exploitability_pot"]}
+             "checked_exploitability_pot": checks["exploitability_pot"],
+             "oop_value": (checks["values"] or {}).get("oop")}
     if problems:
         return entry
     expected = decision_nodes(spot)
@@ -220,15 +223,46 @@ def cmd_parse(args) -> int:
     return 1 if entry["status"] == "fail" else 0
 
 
+def cmd_recheck(args) -> int:
+    """Work the checks out again on saved river results (after the checks change), without
+    solving again. Only the header's "checks" block and the index entry change."""
+    index = load_index(args.results_dir)
+    done = 0
+    for spot in load_spots(args.spots_dir, args.ids or None):
+        path = result_path(args.results_dir, spot["id"])
+        if spot["street"] != "river" or path is None:
+            continue
+        header, nodes = read_result(path)
+        sha = spot_hash(spot)
+        expected = decision_nodes(spot)
+        validate_result(header, nodes, spot, sha, expected)
+        header["checks"] = dict(header.get("checks", {}), **river_checks(spot, nodes))
+        records = [nodes[k] for k in expected]
+        write_result(args.results_dir, header, records)
+        entry = index["spots"].setdefault(spot["id"], {})
+        entry["checked_exploitability_pot"] = header["checks"]["exploitability_pot"]
+        entry["oop_value"] = header["checks"]["values"]["oop"]
+        done += 1
+        lo, hi = header["checks"]["oop_value_bounds"]
+        print(f"{spot['id']:4} OOP value {header['checks']['values']['oop']:9.4f}  true value in [{lo:.4f}, {hi:.4f}]")
+    save_index(args.results_dir, index)
+    write_report(args.results_dir)
+    print(f"Rechecked {done} river results")
+    return 0
+
+
 def report_table(index: Mapping) -> str:
-    rows = ["| Spot | Street | Status | Solve time (s) | Iterations | TexasSolver exploitability | Our check | Nodes | File |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"]
+    rows = ["| Spot | Street | Status | Solve time (s) | Iterations | TexasSolver exploitability | Our check "
+            "| OOP value | Nodes | File |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
     pct = lambda x: "" if x is None else f"{x:.3%}"  # noqa: E731
     for spot_id in sorted(index.get("spots", {})):
         e = index["spots"][spot_id]
         rows.append(f"| {spot_id} | {e.get('street', '')} | {e['status']} | {e.get('elapsed_s') or ''} | "
                     f"{e.get('iterations') or ''} | {pct(e.get('exploitability_pot'))} | "
-                    f"{pct(e.get('checked_exploitability_pot'))} | {e.get('nodes', '')} | {e.get('file', '')} |")
+                    f"{pct(e.get('checked_exploitability_pot'))} | "
+                    f"{'' if e.get('oop_value') is None else format(e['oop_value'], '.3f')} | "
+                    f"{e.get('nodes', '')} | {e.get('file', '')} |")
     return "\n".join(rows)
 
 
@@ -375,6 +409,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     q.add_argument("--reading", choices=sorted(ts.READINGS))
     solver_options(q, False)
     q.set_defaults(fn=cmd_parse)
+    q = sub.add_parser("recheck")
+    q.add_argument("ids", nargs="*")
+    q.set_defaults(fn=cmd_recheck)
     sub.add_parser("report").set_defaults(fn=cmd_report)
 
     q = sub.add_parser("export-python", help="solve the river spots with app/solver: the Phase 2 reference answers")

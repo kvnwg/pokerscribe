@@ -49,10 +49,14 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons.
 - `app/solver/`: the Phase 2 solvers. `solve_river` (Discounted CFR on a river spot),
   `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
-  format. See `docs/research/SOLVER.md`.
+  format. `ranges.py` works out both players' river ranges from the betting so far, which
+  `app/poker/history.py` records while watching. See `docs/research/SOLVER.md`.
 - `engine/`: the Rust core (Phase 3 on), a Cargo workspace with crates in `engine/crates/*`. Speed
   critical code (rules engine, hand evaluator, CFR, subgame solver, blueprint) goes here. Python
   stays for the app, analysis and experiment scripts, not for speed-critical loops.
+- `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
+  keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
+  built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
@@ -70,6 +74,13 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
 - Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
   closed-form and published results, with p95 decision time under 400 ms. They are now the
   reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.
+  Also there, built under the old roadmap on the day it was replaced: river ranges from the
+  betting so far (on held-out simulated hands the opponent's real cards are in the range 89% to
+  98% of the time, 59% to 81% before, mostly thanks to the profile), an answer to a raise of
+  your bet (checked on made-up raises only: the simulator's bots almost never raise the river),
+  a fixed amount of work in place of the clock in the simulator so runs repeat exactly, and an
+  accuracy that follows the pot. The old roadmap's comparison of `river_solver` against B0 was
+  never run, and the new roadmap doesn't ask for it.
 - Phase 3 is under way: the Rust core on toy games in `engine/`. Crates so far: `cfr` (CFR
   library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
   Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all

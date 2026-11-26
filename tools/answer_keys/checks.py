@@ -2,9 +2,15 @@
 
 - check_expected: the "expected" list of a spot (the trivial spots have one), e.g. "at
   every node facing a bet, nobody folds".
-- river_exploitability: for a river spot, the exploitability of the answer worked out by
-  app/solver/exploitability.py, our own exact best response. TexasSolver reports its own
-  number; this one is independent of it.
+- river_checks: for a river spot, worked out by app/solver/exploitability.py (our own exact
+  best response, independent of the solver that made the answer):
+  - the answer's exploitability;
+  - the answer's value for each player (chips a hand, adding up to the pot);
+  - bounds on the game's true value for OOP. The spot has one true value v (two players,
+    zero sum). OOP's best response to IP's part of the answer wins at least v, and IP's
+    best response to OOP's part wins at least pot - v, so
+        pot - (IP's best response) <= v <= OOP's best response.
+    The bounds are as wide as twice the exploitability.
 """
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from typing import Dict, List, Mapping, Tuple
 import numpy as np
 
 from app.solver.exploitability import exploitability
-from app.solver.spot import PLAYER_NAMES, combo_text
+from app.solver.spot import IP, OOP, PLAYER_NAMES, combo_text
 from app.solver.strategy import RiverStrategy
 from app.solver.tree import GameTree
 
@@ -74,6 +80,17 @@ def river_exploitability(spot: Mapping, nodes: Mapping[str, Mapping]) -> Tuple[f
     """(exploitability as a share of the pot, rows filled in uniformly)."""
     strategy, filled = river_strategy(spot, nodes)
     return exploitability(strategy).pot_share, filled
+
+
+def river_checks(spot: Mapping, nodes: Mapping[str, Mapping]) -> Dict:
+    """The "checks" block of a river result header (data/SPOT_FORMAT.md, "RESULT")."""
+    strategy, filled = river_strategy(spot, nodes)
+    e = exploitability(strategy)
+    pot = e.pot
+    r = lambda x: round(float(x), 6)  # noqa: E731
+    return {"exploitability_pot": round(e.pot_share, 8), "filled_rows": filled,
+            "values": {"oop": r(e.value[OOP]), "ip": r(e.value[IP])},
+            "oop_value_bounds": [r(pot - e.best_response[IP]), r(e.best_response[OOP])]}
 
 
 def nodes_from_river_strategy(strategy: RiverStrategy) -> Dict[str, dict]:

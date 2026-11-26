@@ -8,7 +8,8 @@ import pytest
 from app.poker import hands
 from app.poker.hands import DECK
 from app.solver.ranking import (FLUSH, FULL_HOUSE, HIGH_CARD, PAIR, QUADS, STRAIGHT, STRAIGHT_FLUSH, TRIPS,
-                                TWO_PAIR, RiverRanker, category, dense_ranks, hand_value, matchups, rank_range)
+                                TWO_PAIR, BoardRanker, RiverRanker, category, dense_ranks, hand_value, matchups,
+                                rank_range)
 
 SPECIAL_BOARDS = [
     ("As", "Ks", "7s", "4s", "2s"),  # a flush on the board
@@ -75,6 +76,20 @@ def test_table_lookup_equals_the_plain_evaluator():
         ranker = RiverRanker(board)
         for combo in rng.sample(_all_combos(board), 100):
             assert ranker.value(combo) == hand_value(list(combo) + list(board))
+
+
+def test_flop_and_turn_boards_rank_the_hand_made_so_far():
+    rng = random.Random(8)
+    for n in (3, 4):
+        for _ in range(10):
+            board = tuple(rng.sample(DECK, n))
+            ranker = BoardRanker(board)
+            for combo in rng.sample(_all_combos(board), 100):
+                assert ranker.value(combo) == hand_value(list(combo) + list(board))
+    with pytest.raises(ValueError):
+        BoardRanker(("As", "Kd"))
+    with pytest.raises(ValueError):
+        RiverRanker(("As", "Kd", "7c", "2h"))  # the river ranker still wants five cards
 
 
 def test_categories_and_known_orders():

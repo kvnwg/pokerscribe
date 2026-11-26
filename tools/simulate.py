@@ -254,6 +254,7 @@ class variant:
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 60.0, ITERATIONS
         adv_mod.TUNING["allin_budget_s"] = 60.0
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 60.0, ITERATIONS
+        adv_mod.TUNING["river_solver_fixed_work"] = True  # the river solver, when a variant turns it on
         return self
 
     def __exit__(self, *exc):
@@ -263,6 +264,7 @@ class variant:
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 0.12, 60000
         adv_mod.TUNING["allin_budget_s"] = 0.35
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 0.03, 4000
+        adv_mod.TUNING["river_solver_fixed_work"] = False
 
 
 def decision(h: Hand, me: int, overrides: Optional[dict], st: Optional[GameState] = None):

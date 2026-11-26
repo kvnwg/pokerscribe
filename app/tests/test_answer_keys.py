@@ -298,6 +298,39 @@ print("Iter: 0\\nTotal exploitability 30.0 precent\\nIter: 10\\nTotal exploitabi
     assert cli.main(["--results-dir", str(results), "validate"]) == 0
 
 
+# ------------------------------------------------------ the committed answer keys
+def _saved(spot_id):
+    from tools.answer_keys.result import result_path
+    from tools.answer_keys.spots import RESULTS_DIR
+    return read_result(result_path(RESULTS_DIR, spot_id))
+
+
+def test_every_saved_answer_key_is_valid_and_its_values_add_up(spots):
+    for s in spots.values():
+        header, nodes = _saved(s["id"])
+        validate_result(header, nodes, s, spot_hash(s), decision_nodes(s))
+        assert header["solver"]["converged"] and header["solver"]["exploitability_pot"] <= 0.003
+        assert check_expected(s, nodes) == []
+        if s["street"] != "river":
+            continue
+        c = header["checks"]
+        assert c["values"]["oop"] + c["values"]["ip"] == pytest.approx(s["pot"], abs=1e-4)
+        lo, hi = c["oop_value_bounds"]
+        assert lo - 1e-6 <= c["values"]["oop"] <= hi + 1e-6
+        assert hi - lo == pytest.approx(2 * c["exploitability_pot"] * s["pot"], abs=1e-4)
+    assert _saved("r03")[0]["checks"]["values"]["oop"] == pytest.approx(50, abs=1e-6)  # the board plays
+
+
+@pytest.mark.parametrize("spot_id", ["r04", "r13", "r24", "r28"])
+def test_app_solver_agrees_with_texassolver(spots, spot_id):
+    """The true value lies inside both answers' bounds, so the two intervals must meet."""
+    s = spots[spot_id]
+    e = exploitability(solve_river(river_spot(s), time_budget_ms=30000, target_exploitability=0.0005))
+    lo, hi = _saved(spot_id)[0]["checks"]["oop_value_bounds"]
+    assert max(lo, s["pot"] - e.best_response[1]) <= min(hi, e.best_response[0]) + 1e-6
+    assert abs(e.value[0] - _saved(spot_id)[0]["checks"]["values"]["oop"]) < 0.005 * s["pot"]  # the Phase 4 bar
+
+
 # ============================================================ Phase 4: the comparison harness
 # values.py (EV, reach, frequencies, best response), compare.py, the Python reference answers
 # (python_solver.py, data/answer_keys/python_solver/) and runner.py (docs/research/PHASE4.md).
