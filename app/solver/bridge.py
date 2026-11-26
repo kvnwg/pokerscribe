@@ -26,9 +26,11 @@ from .spot import IP, OOP, BetSizes, Combo, RiverSpot, canonical, normalize_rang
 from .strategy import RiverStrategy
 from .tree import GameTree, action_amount
 
-DEFAULT_SIZES = BetSizes()
+# All in is a choice of its own up to six pots. Measured on the tuning hands (experiments.md):
+# with it always on offer, answers are fine to about 10 pots deep and useless past 20 (the
+# median answer 2.7% of the pot from an equilibrium, against 0.1% without it).
+DEFAULT_SIZES = BetSizes(allin_within=6.0)
 EPS = 0.01
-ALL_IN = 1e6  # a size this big is capped at the stack: going all in, written as a size
 MIN_REACH = 0.002  # less of the opponent's range than this gets to the node: the solver has no answer there
 OWN_REACH = 0.05  # the hero's hand gets to the node less often than this: its mix there means little
 
@@ -123,13 +125,14 @@ def river_decision(hero_cards: Sequence[str], board: Sequence[str], *, pot_now: 
             max_raises = max(max_raises, n_raises + 1)  # the hero may raise again: all in
         by_player = {OOP: sizes, IP: sizes}
         if path:
-            shove = (ALL_IN,) if sizes.allin else ()
             for p in (OOP, IP):
                 by_player[p] = BetSizes(
-                    (made[p]["bets"],) if "bets" in made[p] else tuple(sizes.bets) + shove,
-                    (made[p]["raises"],) if "raises" in made[p] else tuple(sizes.raises) + shove,
-                    False,  # all in is written as a size (ALL_IN) wherever it stays a choice
-                    tuple(again[p]) + (ALL_IN,) if n_raises else None)
+                    (made[p]["bets"],) if "bets" in made[p] else sizes.bets,
+                    (made[p]["raises"],) if "raises" in made[p] else sizes.raises,
+                    sizes.allin,
+                    tuple(again[p]) if n_raises else sizes.reraises,  # after those: all in, if at all
+                    sizes.allin_within,
+                    tuple(k for k in ("bets", "raises") if k in made[p]))  # no all in next to the bet made
         ranges = {hero: mine, villain: villain_range}
         spot = RiverSpot(tuple(board), river_pot, (eff, eff), ranges[OOP], ranges[IP], by_player[OOP],
                          by_player[IP], max_raises)

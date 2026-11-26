@@ -8,7 +8,8 @@ raise to 150, call.
 
 Bets are shares of the pot; raises are shares of the pot after calling; sizes at or over
 the effective stack become all in, and equal amounts are offered once. A raise is at
-least the size of the bet or raise it answers, unless it is all in.
+least the size of the bet or raise it answers, unless it is all in. Where all in is added
+as a choice of its own is the sizes' business (BetSizes.adds_allin).
 """
 from __future__ import annotations
 
@@ -125,7 +126,8 @@ class GameTree:
                 self._add(Node(k, -1, (), (), put, SHOWDOWN))
             else:
                 self._build(k, other, put, raises, checked=True)
-            for amount in _amounts([f * spot.pot for f in sizes.bets], stack, sizes.allin, floor=0.0):
+            allin = sizes.adds_allin("bets", stack / spot.pot)
+            for amount in _amounts([f * spot.pot for f in sizes.bets], stack, allin, floor=0.0):
                 new = list(put)
                 new[player] = amount
                 k = go("b" + fmt_amount(amount))
@@ -141,7 +143,8 @@ class GameTree:
                 after_call = spot.pot + 2 * theirs
                 least = theirs + (theirs - mine)  # a raise is at least the bet it answers
                 wanted = [max(least, theirs + f * after_call) for f in sizes.raise_sizes(raises)]
-                for amount in _amounts(wanted, stack, sizes.allin, floor=theirs):
+                allin = sizes.adds_allin(sizes.raise_list(raises), (stack - theirs) / after_call)
+                for amount in _amounts(wanted, stack, allin, floor=theirs):
                     new = list(put)
                     new[player] = amount
                     k = go("r" + fmt_amount(amount))

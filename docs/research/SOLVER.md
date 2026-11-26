@@ -62,7 +62,9 @@ Scripts:
   is at least the bet it answers. Sizes at or over the effective stack become all in, and
   equal amounts are offered once. `max_raises` counts raises after the first bet.
   `BetSizes.reraises` gives a raise of a raise its own sizes (`()` with all in: a raise
-  can only be answered by going all in).
+  can only be answered by going all in). `BetSizes.allin_within` adds all in as a choice
+  of its own only where it is a bet of at most that many pots (for a raise: pots after
+  calling). `BetSizes.exact` names the lists of sizes that get no all in beside them.
 - Ranges:
   - combos that use a board card are removed;
   - combos that use the same card twice are removed;
@@ -183,7 +185,8 @@ ranges for hands with three or more players on the river.
 2. Make the solver repeat exactly in the simulator (a fixed number of iterations, not a
    time limit), so paired comparisons are paired.
 3. More time for big pots, less for small ones.
-4. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo).
+4. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo). Only the all in follows
+   it so far.
 5. Try `solve_push_fold` in place of the `push_chart` table, as its own experiment.
 6. A showdown pass that sorts by hand value in place of the full table would cut the cost
    per iteration, if bigger ranges or trees are needed.
@@ -200,6 +203,10 @@ builds the spot through `bridge.river_decision`:
   happened. Offering other sizes there lets the solution put every betting hand on a size
   nobody chose, and then it has nothing to say about the real one.
 - Facing a raise, the hero may fold, call or go all in.
+- All in is a choice of its own only up to six pots (`bridge.DEFAULT_SIZES`). In a limped
+  pot of 2 big blinds with 100 behind, all in is a bet of 40 pots: next to never right, and
+  with it on offer the solver doesn't get near an equilibrium in its 300 ms. A bet or raise
+  that was really made is in the tree whatever its size.
 - The most likely action in the solver's mix becomes the instruction. The small print
   gives the mix and what the hands were judged from.
 

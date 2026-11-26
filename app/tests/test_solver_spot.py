@@ -119,6 +119,49 @@ def test_a_raise_of_a_raise_can_have_its_own_sizes():
         BetSizes(reraises=(0.5, -1))
 
 
+def test_all_in_only_within_so_many_pots():
+    # pot 100, stacks 1000: all in is a bet of 10 pots
+    within = BetSizes(allin_within=6.0)
+    t = GameTree(spot(oop_sizes=within, ip_sizes=within))
+    assert t.root.actions == ("x", "b50", "b100") and t["x"].actions == ("x", "b50", "b100")
+    # as a raise of a pot-sized bet it is (1000 - 100) / (100 + 2 x 100) = 3 pots, of a bet
+    # of 50 it is (1000 - 50) / (100 + 2 x 50) = 4.75 pots: both offered
+    assert t["b100"].actions == ("f", "c", "r400", "r1000")
+    assert t["b50"].actions == ("f", "c", "r250", "r1000")
+    tight = BetSizes(allin_within=4.0)
+    t = GameTree(spot(oop_sizes=tight, ip_sizes=tight))
+    assert t["b100"].actions == ("f", "c", "r400", "r1000") and t["b50"].actions == ("f", "c", "r250")
+    # exactly at the limit is within it: stacks of 600 are 6 pots
+    t = GameTree(spot(stacks=(600, 600), oop_sizes=within, ip_sizes=within))
+    assert t.root.actions == ("x", "b50", "b100", "b600")
+    # a size that reaches the stack is all in whatever the limit says
+    t = GameTree(spot(oop_sizes=BetSizes((0.5, 20.0), (1.0,), True, allin_within=6.0)))
+    assert t.root.actions == ("x", "b50", "b1000")
+    assert BetSizes.from_dict(within.to_dict()) == within
+    assert "allin_within" not in BetSizes().to_dict()
+    for bad in (0, -2, float("inf")):
+        with pytest.raises(ValueError):
+            BetSizes(allin_within=bad)
+
+
+def test_exact_lists_get_no_all_in():
+    only = BetSizes((0.7,), (1.0,), True, exact=("bets",))
+    t = GameTree(spot(oop_sizes=only, ip_sizes=only))
+    assert t.root.actions == ("x", "b70")  # the one bet, no all in beside it
+    assert t["b70"].actions == ("f", "c", "r310", "r1000")  # 70 + 1.0 x (100 + 2 x 70) = 310; raises keep all in
+    both = BetSizes((0.7,), (1.0,), True, exact=("raises", "bets"))
+    assert GameTree(spot(oop_sizes=both, ip_sizes=both))["b70"].actions == ("f", "c", "r310")
+    again = BetSizes((0.5,), (1.0,), True, reraises=(1.0,), exact=("reraises",))
+    t = GameTree(spot(oop_sizes=again, ip_sizes=again, max_raises=2))
+    assert t["b50"].actions == ("f", "c", "r250", "r1000")
+    assert t["b50 r250"].actions == ("f", "c", "r850")  # 250 + 1.0 x (100 + 2 x 250) = 850, and no all in
+    for sizes in (only, both, again):
+        assert BetSizes.from_dict(sizes.to_dict()) == sizes
+    assert both.exact == ("bets", "raises") and "exact" not in BetSizes().to_dict()
+    with pytest.raises(ValueError):
+        BetSizes(exact=("river",))
+
+
 def test_no_stacks_means_check_down():
     t = GameTree(spot(stacks=(0, 500)))
     assert t.root.actions == ("x",) and t["x"].actions == ("x",)

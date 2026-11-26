@@ -338,6 +338,26 @@ def test_bridge_facing_a_raise():
     assert GameTree(d.spot)[d.node].actions == ("f", "c") and d.node == "b100 r700"
 
 
+def test_bridge_leaves_out_an_all_in_of_many_pots():
+    # a limped pot of 5 with 198 behind: all in would be a bet of 40 pots
+    d = _decision(pot_now=5, hero_stack=198, villain_stack=198)
+    tree = GameTree(d.spot)
+    assert tree[""].actions == ("x", "b2.5", "b5") and tree["x"].actions == ("x", "b2.5", "b5")
+    # raising a pot-sized bet all in is (198 - 5) / (5 + 2 x 5) = 12.9 pots: left out too
+    assert tree["b5"].actions == ("f", "c", "r20")
+    # the usual 200 pot with 1000 behind is 5 pots deep: all in stays a choice
+    assert GameTree(_decision().spot)[""].actions == ("x", "b100", "b200", "b1000")
+    # a bet they did make is in the tree however big it is
+    d = _decision(pot_now=203, villain_bet=198, hero_stack=198, villain_stack=0)
+    assert d.node == "x b198" and GameTree(d.spot)[d.node].actions == ("f", "c")
+    # the hero bet 5 and was raised to 20: all in is (198 - 20) / (5 + 2 x 20) = 3.96 pots, a choice
+    d = _decision(pot_now=30, hero_bet=5, villain_bet=20, hero_stack=193, villain_stack=178)
+    assert d.node == "b5 r20" and GameTree(d.spot)[d.node].actions == ("f", "c", "r198")
+    # five times deeper it is 21.8 pots: fold or call
+    d = _decision(pot_now=30, hero_bet=5, villain_bet=20, hero_stack=995, villain_stack=980)
+    assert GameTree(d.spot)[d.node].actions == ("f", "c")
+
+
 def test_bridge_follows_the_recorded_river_bets():
     # the hero checked, they bet 50, the hero raised to 150, they raised again to 400
     path = ((VILLAIN, 50.0), (HERO, 150.0), (VILLAIN, 400.0))

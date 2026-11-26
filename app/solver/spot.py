@@ -93,6 +93,9 @@ def normalize_range(spec: RangeInput, board: Sequence[str]) -> WeightedRange:
     return tuple(out)
 
 
+SIZE_LISTS = ("bets", "raises", "reraises")
+
+
 @dataclass(frozen=True)
 class BetSizes:
     """The sizes one player may use on the river.
@@ -102,6 +105,11 @@ class BetSizes:
     allin: going all in is always one of the choices.
     reraises: the sizes for a raise of a raise, when they differ from `raises` (None: the
     same; () with allin: a raise can only be answered by going all in).
+    allin_within: with allin, going all in is only added where it is a bet of at most this
+    many pots (for a raise: the raise, in pots after calling). None: everywhere. An all in
+    of 40 pots is next to never right, and offering it makes a solve many times rougher.
+    exact: the lists ("bets", "raises", "reraises") that all in is not added to, whatever
+    allin says: their sizes are the only choices there.
     Sizes at or above the stack become all in; equal amounts are offered once.
     """
 
@@ -109,9 +117,11 @@ class BetSizes:
     raises: Tuple[float, ...] = (1.0,)
     allin: bool = True
     reraises: Optional[Tuple[float, ...]] = None
+    allin_within: Optional[float] = None
+    exact: Tuple[str, ...] = ()
 
     def __post_init__(self):
-        for name in ("bets", "raises", "reraises"):
+        for name in SIZE_LISTS:
             if getattr(self, name) is None:
                 continue
             vals = tuple(sorted({float(x) for x in getattr(self, name)}))
@@ -119,22 +129,47 @@ class BetSizes:
                 raise ValueError(f"Bet sizes must be positive shares of the pot: {vals}")
             object.__setattr__(self, name, vals)
         object.__setattr__(self, "allin", bool(self.allin))
+        if self.allin_within is not None:
+            within = float(self.allin_within)
+            if not math.isfinite(within) or within <= 0:
+                raise ValueError(f"allin_within is a positive number of pots: {self.allin_within!r}")
+            object.__setattr__(self, "allin_within", within)
+        exact = tuple(sorted(set(self.exact)))
+        if any(name not in SIZE_LISTS for name in exact):
+            raise ValueError(f"exact names lists of sizes {SIZE_LISTS}: {self.exact!r}")
+        object.__setattr__(self, "exact", exact)
+
+    def raise_list(self, raises_so_far: int) -> str:
+        """Which list holds the sizes for the next raise, after this many raises of the first bet."""
+        return "raises" if raises_so_far == 0 or self.reraises is None else "reraises"
 
     def raise_sizes(self, raises_so_far: int) -> Tuple[float, ...]:
         """The sizes for the next raise, after this many raises of the first bet."""
-        return self.raises if raises_so_far == 0 or self.reraises is None else self.reraises
+        return getattr(self, self.raise_list(raises_so_far))
+
+    def adds_allin(self, which: str, pots: float) -> bool:
+        """Whether all in is added to the sizes of this list ("bets", "raises" or
+        "reraises") where going all in is a bet or raise of this many pots."""
+        if not self.allin or which in self.exact:
+            return False
+        return self.allin_within is None or pots <= self.allin_within + 1e-9
 
     def to_dict(self) -> dict:
         d = {"bets": list(self.bets), "raises": list(self.raises), "allin": self.allin}
         if self.reraises is not None:
             d["reraises"] = list(self.reraises)
+        if self.allin_within is not None:
+            d["allin_within"] = self.allin_within
+        if self.exact:
+            d["exact"] = list(self.exact)
         return d
 
     @staticmethod
     def from_dict(d: Mapping) -> "BetSizes":
         again = d.get("reraises")
         return BetSizes(tuple(d.get("bets", ())), tuple(d.get("raises", ())), bool(d.get("allin", False)),
-                        tuple(again) if again is not None else None)
+                        tuple(again) if again is not None else None, d.get("allin_within"),
+                        tuple(d.get("exact", ())))
 
 
 @dataclass(frozen=True)

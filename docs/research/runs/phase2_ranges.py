@@ -16,10 +16,13 @@ really hold when a hand reaches the river heads-up. Then:
    bits: log2 of (probability given to the real combo / probability with no information),
    with 5% of the weight spread evenly so a miss costs a lot, not everything. 0 bits =
    knowing nothing; every bit halves the field.
-2. Cost. Every river decision of those hands (also the later ones, such as facing a raise)
-   through advise() with the switch on in this process only: time for the whole decision,
-   how many the solver answered and why not the others, and how far its answers were from
-   an equilibrium.
+2. Cost. The first river decisions of those hands (also the later ones of a hand, such as
+   facing a raise) through advise() with the switch on in this process only: time for the
+   whole decision, how many the solver answered and why not the others, and how far its
+   answers were from an equilibrium. Then the same for the decisions facing a raise alone.
+3. Facing a raise. The bots next to never raise a river bet, so each river bet the app
+   made is answered by a made-up raise the size of the pot and given to the solver: time,
+   distance from an equilibrium, and whether it has an answer.
 """
 from __future__ import annotations
 
@@ -61,6 +64,9 @@ def collect(table: str, hands: int, seed: int):
                                 "hero": canonical(h.seats[me].cards), "style": h.seats[v].style,
                                 "first": h.number not in seen})
                 seen.add(h.number)
+                adv = original(h, me, overrides, st)
+                samples[-1]["did"] = (adv.action, adv.amount)  # what the baseline did (an observation)
+                return adv
         return original(h, me, overrides, st)
 
     sim.decision = spy
@@ -117,6 +123,11 @@ def range_report(samples) -> None:
                   f"{sum(c for _, _, c in r) / n:6.2f}")
 
 
+def faces_raise(st) -> bool:
+    """The app has chips in front on the river and must act again: its bet was raised."""
+    return bool(st.hero and st.hero.bet.known and st.hero.bet.value > 0)
+
+
 def cost_report(samples, limit: int) -> None:
     """The decisions through advise() with the switch on: time, and who answered."""
     times, solves, counts = [], [], defaultdict(int)
@@ -130,7 +141,10 @@ def cost_report(samples, limit: int) -> None:
     def recommend(strategy, decision):
         got = real_recommend(strategy, decision)
         counts["no answer (a bet the solution has no hands for)"] += got is None
-        counts["best action for a hand the solution never brings here"] += got is not None and max(got[1].values()) == 1.0
+        if got is not None:
+            mine = strategy.spot.index(decision.hero, decision.combo)
+            unreached = float(strategy.reach(decision.hero)[decision.node][mine]) < bridge.OWN_REACH
+            counts["best action for a hand the solution never brings here"] += unreached
         return got
 
     solver.solve_river, bridge.recommend = solve, recommend
@@ -139,7 +153,7 @@ def cost_report(samples, limit: int) -> None:
         for x in samples[:limit]:
             st = copy.deepcopy(x["state"])
             computed = sim.sim_compute(st)
-            raised = bool(st.hero and st.hero.bet.known and st.hero.bet.value > 0)
+            raised = faces_raise(st)
             start = time.perf_counter()
             adv = advice.advise(st, computed=computed, numbers_checked=True)
             times.append(1000 * (time.perf_counter() - start))
@@ -165,6 +179,59 @@ def cost_report(samples, limit: int) -> None:
               f"max {max(size)}")
 
 
+def raise_report(samples, limit: int) -> None:
+    """The bots next to never raise a river bet, so there are no real raises to measure.
+    Instead each river bet the app really made is answered here by a made-up raise the
+    size of the pot, and the solver is asked what to do about it: is its answer in time,
+    close enough to an equilibrium, and there at all? Nothing is played out."""
+    rows, counts, answers = [], defaultdict(int), defaultdict(int)
+    bets = [x for x in samples if x["did"][0] == "bet" and x["did"][1]]
+    for x in bets[:limit]:
+        st = x["state"]
+        a = spot_of(st)
+        hero = tuple(c.value for c in st.hero_cards)
+        s = advice._spot(st, {}, hero, a["board"], True)
+        opp = advice._only_opponent(s)
+        bet = float(x["did"][1])
+        raise_to = min(bet + (s.pot + 2 * bet), float(opp.stack.value))  # the pot after calling, or all in
+        if raise_to <= bet or bet > s.stack:
+            counts["they can't raise (too few chips)"] += 1
+            continue
+        d = bridge.river_decision(hero, a["board"], pot_now=s.pot + bet + raise_to, hero_bet=bet,
+                                  villain_bet=raise_to, hero_stack=s.stack - bet,
+                                  villain_stack=float(opp.stack.value) - raise_to,
+                                  hero_in_position=a["hero_in_position"], line=a["line"], big_blind=s.bb,
+                                  hero_seat=a["hero_seat"], villain_seat=a["villain_seat"],
+                                  villain_style=a["villain_style"], villain_rates=a["villain_rates"])
+        if d is None:
+            counts["not a spot the bridge takes"] += 1
+            continue
+        start = time.perf_counter()
+        strategy = solver.solve_river(d.spot, solver.DECISION_BUDGET_MS)
+        ms = 1000 * (time.perf_counter() - start)
+        rows.append((ms, strategy.exploitability))
+        if ms > solver.DECISION_BUDGET_MS:
+            counts["late"] += 1
+        elif strategy.exploitability > QUALITY_BAR:
+            counts[f"too rough (over {100 * QUALITY_BAR:.0f}% of the pot)"] += 1
+        else:
+            got = bridge.recommend(strategy, d)
+            if got is None:
+                counts["no answer (a raise the solution has no hands for)"] += 1
+            else:
+                answers[{"f": "fold", "c": "call", "r": "all in"}[got[0][:1]]] += 1
+    print(f"  the app bet the river {len(bets)} times; a made-up raise the size of the pot after each of "
+          f"the first {min(limit, len(bets))}:")
+    if rows:
+        t, e = [r[0] for r in rows], [100 * r[1] for r in rows]
+        print(f"    solver: p50 {percentile(t, 50):.0f} ms, p95 {percentile(t, 95):.0f} ms, max {max(t):.0f} ms; "
+              f"distance from an equilibrium, % of the pot: p50 {percentile(e, 50):.2f}, "
+              f"p95 {percentile(e, 95):.2f}, max {max(e):.2f}")
+    print(f"    answered {sum(answers.values())}: " + ", ".join(f"{k} {v}" for k, v in sorted(answers.items())))
+    for name, k in counts.items():
+        print(f"    {name}: {k}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--hands", type=int, default=4000)
@@ -184,6 +251,11 @@ def main(argv=None) -> int:
         range_report(samples)
         if args.decisions:
             cost_report(decisions, args.decisions)
+            raised = [x for x in decisions if faces_raise(x["state"])]
+            print(f"  decisions where the app's river bet was really raised: {len(raised)}")
+            if raised:
+                cost_report(raised, args.decisions)
+            raise_report(decisions, args.decisions)
         print()
     return 0
 
