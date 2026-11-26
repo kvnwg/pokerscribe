@@ -49,6 +49,7 @@ and time by pot size".
 | `labels.py` | The saved format for solver-labelled decisions (JSON Lines). |
 | `ranges.py` | `river_ranges`: both players' ranges at the start of the river, from the betting so far. |
 | `bridge.py` | From the advice's view of the table to a spot and a node, and back to one action. |
+| `rust_backend.py` | The Rust solver as a second way to solve a spot: writes the spot to a file, runs the program `subgame-solve`, reads its answer back as a `RiverStrategy`. The Python solver answers when the program is missing or fails. See "The Rust backend" below. |
 
 Outside the package: `app/poker/history.py` keeps the betting of the hand being played
 (`BettingRecord`, `Line`). `app/poker/profiles.py` feeds it every read and puts the line on
@@ -58,6 +59,7 @@ Scripts:
 
 ```
 .venv/bin/python tools/solver_timing.py --ranges all         # p50 / p95 against 400 ms, and answer quality
+.venv/bin/python tools/rust_solver_overhead.py               # what calling the Rust program costs per decision
 .venv/bin/python tools/label_river.py --synthetic 100 --out river_labels.jsonl
 .venv/bin/python tools/build_preflop_equity.py --verify      # rebuild the equity table
 .venv/bin/python docs/research/runs/phase2_solver.py         # every table in experiments.md
@@ -143,6 +145,8 @@ Scripts:
   - the equity table against full enumeration and against sampling;
   - the solution against the published chart at 5, 8, 10, 12 and 15 big blinds.
 - `tools/solver_timing.py`: time and answer quality on 600 benchmark spots.
+- `test_solver_rust_backend.py`: the Rust backend, against a stand-in for the program
+  (see "The Rust backend").
 
 ## Push-or-fold
 
@@ -258,6 +262,177 @@ the opponent's solved strategy.
 
 Turning it on by default needs the B0 bar like any option (README.md, rule 1), and the
 new roadmap doesn't plan to.
+
+## The Rust backend (`rust_backend.py`)
+
+The Rust river and turn solver (`engine/crates/subgame`) is a program, `subgame-solve`.
+`rust_backend.solve_river` takes what `solve_river` takes (a time budget, `max_iterations`,
+a target exploitability) and returns the same `RiverStrategy`, with `backend` set to
+`"rust"` or `"python"`.
+
+The advice uses it only when `TUNING["rust_solver"]` is on. It is off, and it matters
+only where `river_solver` (also off) already sends a decision to the solver. So B0 does not
+change. The advice asks it exactly as it asks the Python solver
+(`decision_settings`): by the clock in the app, and with a fixed number of iterations and
+no clock in the simulator (`river_solver_fixed_work`).
+
+Only the program's command line and file formats are used, nothing from its crate:
+
+```
+subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
+              [--max-iterations N] [--time-ms N] [--threads N]
+```
+
+The spot goes in as a SPOT file and the answer comes back as a RESULT file. Both formats
+are in `data/SPOT_FORMAT.md`. The program is looked for in the environment variable
+`POKERSCRIBE_SUBGAME_SOLVE` (its path), and otherwise in `engine/target/release`, where
+`cargo build --release` puts it.
+
+One call:
+
+1. The spot is written as a SPOT with the id `live`. Whole amounts are written as whole
+   numbers. A range with a weight over 1 is scaled down as a whole, because a SPOT's
+   weights are at most 1; that changes nothing in the answer. The bet sizes are written
+   with the three keys the format has (next section).
+2. The program runs with `--out`, the target exploitability, and whichever limits were
+   given: `--time-ms` set to the budget less 40 ms (see "What the call costs"), and
+   `--max-iterations`. With a budget it is stopped at the budget.
+3. The RESULT is read and checked against the spot's own tree: the same decision nodes,
+   the same actions in the same order, the same player to act, and every combo of that
+   player's range with one probability per action. The file rounds probabilities to 6
+   decimals, so each row is made to add up to exactly 1 again.
+4. The strategy's exploitability is the program's own number
+   (`solver.exploitability_pot`). When the program gives none, the Python checker works
+   it out (3 to 4 ms on a spot of 500 to 650 combos), because the advice drops an answer
+   that is over 1% of the pot from an equilibrium and must not take silence for "exact".
+
+The Python solver answers instead, in what is left of the time budget, when:
+
+- the program isn't built (this is normal and logs nothing above INFO);
+- the spot's bet sizes can't be written in a SPOT (next section; also normal, logged at
+  DEBUG, and the program isn't started, so the whole budget is left);
+- it can't be started, exits with an error, writes no result, or is still running at the
+  budget;
+- its result is not a RESULT, is for another spot, or does not fit the spot's tree in any
+  of the ways above.
+
+Each of the last two logs a warning with the reason. After a slow failure nothing is left
+of the budget; the Python solver still runs one iteration, the advice sees that the
+budget was passed, and the rules decide, as with any slow solver.
+
+### Bet sizes a SPOT can't say
+
+A SPOT's `sizes` have three keys: `bets`, `raises`, `allin`. `BetSizes` has three more
+since the river solver learned to answer raises: `reraises`, `allin_within` and `exact`.
+`data/SPOT_FORMAT.md` doesn't describe them, so a program written from it doesn't know
+them, and the advice uses them on every spot (`allin_within` is 6 pots, and a bet already
+made is `exact`).
+
+All the three do is decide where going all in is a choice, and which list a raise takes
+its sizes from. So `rust_backend.plain_sizes` says them with the three keys the format
+has: `allin` off, and in each list where all in is a choice, one more size big enough to
+be all in wherever it is offered (the format: "sizes at or over the effective stack
+become all in"). Every try is checked by building its tree, and only sizes that give
+exactly the spot's tree are sent.
+
+One list of raise sizes per player can't say everything:
+
+- **Stacks of 12.5 to 19 pots, with the advice's usual sizes.** All in is within six pots
+  as a raise of the pot-sized bet, but not as a raise of the half-pot bet. In simulated
+  hands that was 92 of 394 heads-up river decisions (table mixed, 6,000 hands, seed 77):
+  23%. Nothing else in that sample failed.
+- **Facing a raise, when the usual raise size isn't all in already.** After a raise the
+  only raise left is all in, while a raise of a first bet keeps its usual size. None in
+  that sample (the simulator's bots almost never raise the river).
+
+Such a spot goes straight to the Python solver. The way out is on the Rust side: once
+`subgame-solve` reads the three newer options the way `app/solver/tree.py` does (and
+`data/SPOT_FORMAT.md` describes them), set `EXTENDED_SIZES = True` in `rust_backend.py`.
+A spot the three keys can't say then goes out with its sizes as they are
+(`BetSizes.to_dict()`). An answer for another tree is refused either way.
+
+### Three things taken on trust until the real program is here
+
+`subgame-solve` was not in the repo when this was written, so the backend is tested
+against a stand-in (below). Check these three against the real program:
+
+- **`--target-exploitability` is taken to be in percent of the pot.** The `0.3` in the
+  usage line is read as the 0.3% the answer keys were solved to. `app/solver` counts in
+  shares of the pot, so a target of 0.001 goes out as `0.1`. If the program means a share,
+  it would stop far too early: change `TARGET_PERCENT` in `rust_backend.py` to 1. The
+  backend logs a warning when it sees this happen (the program says it converged, with an
+  answer over ten times further from an equilibrium than the target).
+- **`--time-ms` is taken to limit the solving.** Writing the answer comes on top, and
+  must fit in the 40 ms kept back.
+- **A size at or over the stack is taken to become all in**, as the format says. The
+  advice's spots rely on it (previous section). If the program does something else, its
+  tree differs, the answer is refused with a warning, and the Python solver answers.
+
+`test_the_real_program_when_it_is_built` runs the real program once it is built, on a
+plain spot and on two spots with the advice's sizes, and checks each answer with the
+Python exploitability checker. It is skipped until then.
+
+### What the call costs
+
+Running a program per decision costs time that is not solving: starting it, writing the
+spot, and reading the answer back. It counts against the 400 ms decision budget.
+`tools/rust_solver_overhead.py` measures it on the benchmark spots (40 spots, 5 calls
+each, per range size). The program is a stand-in that does no solving
+(`tools/replay_solve.rs`): it reads the spot and hands back an answer solved beforehand,
+so the whole call is overhead. Log: `runs/rust_solver_overhead.log`.
+
+| Ranges | Combos, both ranges | Answer file | p50 | p95 | max |
+| --- | --- | --- | --- | --- | --- |
+| narrow | 219 to 340 | 18 to 123 kB | 5.7 ms | 7.6 ms | 17.5 ms |
+| medium | 462 to 685 | 37 to 249 kB | 9.3 ms | 13.8 ms | 22.8 ms |
+| wide | 909 to 1,145 | 71 to 415 kB | 12.3 ms | 20.2 ms | 31.3 ms |
+
+Where the median call goes:
+
+| Ranges | Writing the spot | The program, start to exit | Reading the answer |
+| --- | --- | --- | --- |
+| narrow | 0.6 ms | 1.9 ms | 3.2 ms |
+| medium | 0.9 ms | 3.4 ms | 4.9 ms |
+| wide | 1.3 ms | 3.4 ms | 7.7 ms |
+
+- Starting a native program and waiting for it takes 1.4 ms (p95 1.8 ms). Most of the
+  cost is Python reading the answer: parsing the JSON, then building the arrays.
+- The advice's spots today are the size of the medium line (524 combos, 16 to 19
+  decision nodes): about 9 ms, 14 ms at p95, which is 3.4% of the 400 ms budget. The
+  worst line, wide ranges at p95, is 5.0%.
+- `rust_backend` keeps 40 ms back from the solver's 300 ms (`OVERHEAD_RESERVE_MS`), so the
+  program is given 260 ms. That covers the largest call measured (31 ms) with room for
+  what was not measured.
+- Not measured: the real program's own time to read the spot and write the answer as
+  JSON (the stand-in copies bytes), and a Mac (this ran in a Linux cloud container, Intel
+  Xeon at 2.10 GHz). Run the script again with `--binary engine/target/release/subgame-solve`
+  once the program is built: it then takes the program's reported solving time off each
+  call. If the overhead turns out well under 40 ms, lower `OVERHEAD_RESERVE_MS` and the
+  solver gets the difference.
+
+### Tests
+
+`app/tests/test_solver_rust_backend.py` (59 tests), with `app/tests/fake_subgame_solve.py`
+as the program: a stand-in in Python that follows the command line and both file formats,
+answers with the Python solver, and can be told to misbehave.
+
+- A spot goes out as a valid SPOT and reads back as the same spot.
+- The advice's bet sizes go out with the format's three keys and give exactly the same
+  tree: at ten stack depths, and for spots made by the bridge (first to act, checked to,
+  facing a bet, facing a raise). The spots that can't be said are refused before the
+  program is started, and the Python solver answers them with no warning.
+- The answer that comes back is the solver's own strategy, to the 6 decimals of the file.
+- The program is called as its command line says, and the files are removed afterwards.
+- Gzipped results and keys in any order are read. A result with no exploitability gets
+  the Python checker's.
+- Eight ways of failing (a crash, no output, not JSON, another spot, another tree, a
+  missing node, a missing combo, rows that don't add up) each fall back to the Python
+  solver with a warning that says why. So do a file that is not a program and a program
+  that runs past the budget.
+- With the switch off, or with only `rust_solver` on, the advice never touches the
+  backend. With both switches on, the advice asks the backend exactly as it asks the
+  Python solver, by the clock and with fixed work, and gives the same instruction on
+  every run. Without the program it gives exactly what `rust_solver` off gives.
 
 ## Saved decisions (`labels.py`)
 

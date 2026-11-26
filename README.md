@@ -206,11 +206,16 @@ app/
                      the record of who bet on each round (while watching)
   solver/            river solver and heads-up push-or-fold solver (Phase 2, not used by the
                      advice yet): spots, betting tree, fast river ranking, exploitability
-                     checker, timing, label format, river ranges from the betting so far
+                     checker, timing, label format, river ranges from the betting so far, and
+                     rust_backend.py, which hands a river spot to the Rust solver program
+                     (behind a switch that is off)
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
   tests/             test suite and the synthetic table renderer
+engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
+                     the hand evaluator, and crates/py, the Python module pokerscribe_engine.
+                     Optional: the app runs without Rust (see engine/crates/py/README.md)
 tools/               benchmarks, template builders, the simulator and paired comparisons
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes

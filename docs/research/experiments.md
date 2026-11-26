@@ -646,6 +646,46 @@ For a B0 benchmark, the per-hand standard deviation here is about 12 bb. Reachin
 would take roughly 14,000 hands, about 22 hours at this pace. The baseline figure didn't cut the
 variance for check/call, because that bot plays nothing like Slumbot. It should help more for B0.
 
+## Rust engine link: the `rust_solver` switch and the cost of the call (26 Nov 2026)
+
+Not a strategy experiment: nothing the advice does has changed. The Python app and the Rust
+engine are now connected in two places. See `SOLVER.md`, "The Rust backend", and
+`engine/crates/py/README.md`.
+
+- **New switch `rust_solver`: off.** It only chooses who solves a river spot that
+  `river_solver` (also off) already sends to the solver: the Rust program `subgame-solve`
+  through `app/solver/rust_backend.py`, or the Python solver as before. When the program
+  is missing or fails, the Python solver answers.
+- **`baseline_tuning.json`**: `"rust_solver": false` was added (only added to, nothing
+  edited). The test that the defaults match the file still holds.
+- **One paired run checked that nothing changes:**
+  `tools/compare.py '{"rust_solver": true}' 150 --tables mixed` (seed 101). Result: 0 of
+  150 hands differ, +0.0 ± 0.0 bb/100. Log: `runs/rust_solver_switch_check.log`.
+- **Not compared against B0**, and not to be turned on: `river_solver` itself has not
+  passed the B0 bar, and the Rust program was not in the repo yet. The backend was tested
+  against a stand-in that follows the program's command line and file formats.
+
+### What the call costs
+
+Each decision that goes to the Rust program pays for starting it, writing the spot and
+reading the answer back. `tools/rust_solver_overhead.py`, 40 benchmark spots and 5 calls
+each per range size, with a stand-in program that does no solving
+(`tools/replay_solve.rs`), in a Linux cloud container (Intel Xeon at 2.10 GHz). Log:
+`runs/rust_solver_overhead.log`.
+
+| Ranges | Combos, both ranges | Overhead p50 | p95 | max | p95 as a share of 400 ms |
+| --- | --- | --- | --- | --- | --- |
+| narrow | 219 to 340 | 5.7 ms | 7.6 ms | 17.5 ms | 1.9% |
+| medium | 462 to 685 | 9.3 ms | 13.8 ms | 22.8 ms | 3.4% |
+| wide | 909 to 1,145 | 12.3 ms | 20.2 ms | 31.3 ms | 5.0% |
+
+- Starting the program is 1.4 ms of it. Reading the answer in Python is the largest part
+  (3.2, 4.9 and 7.7 ms at the median).
+- The advice's spots today are the size of the medium line.
+- The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets 260 ms.
+- Not in these numbers: the real program's own JSON reading and writing, and a Mac. To be
+  measured again with `--binary` once `subgame-solve` is built.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open
