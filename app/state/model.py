@@ -159,6 +159,7 @@ class Player:
     anchor: Optional[tuple] = None
     style: Optional[str] = None  # how they play, learned while watching: station, nit, tag, lag, maniac
     style_note: str = ""  # e.g. "plays 48% of hands, raises 6%"
+    played: Optional[tuple] = None  # (share of hands played, share raised) before the flop, as seen so far
 
     def to_dict(self) -> dict:
         return {
@@ -170,7 +171,8 @@ class Player:
             "last_action": self.last_action.to_dict(),
             "in_hand": self.in_hand.to_dict(),
             "ui": {"name": self.name, "anchor": list(self.anchor) if self.anchor else None,
-                   "style": self.style, "style_note": self.style_note},
+                   "style": self.style, "style_note": self.style_note,
+                   "played": list(self.played) if self.played else None},
         }
 
     @staticmethod
@@ -188,6 +190,7 @@ class Player:
             anchor=tuple(ui["anchor"]) if ui.get("anchor") else None,
             style=ui.get("style") or None,
             style_note=ui.get("style_note") or "",
+            played=tuple(ui["played"]) if ui.get("played") else None,
         )
 
 
@@ -205,6 +208,9 @@ class GameState:
     available_actions: Field = field(default_factory=_f)  # list of Action
     to_call: Field = field(default_factory=_f)
     computed: Dict[str, Any] = field(default_factory=dict)  # local maths, filled later
+    # The betting so far in this hand (app.poker.history.Line), kept while watching. For the
+    # advice only: it is never part of the saved state or the text output.
+    betting: Any = None
 
     # ------------------------------------------------------------ helpers
     @property

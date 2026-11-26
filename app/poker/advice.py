@@ -188,6 +188,7 @@ TUNING = {
     # river, heads-up: play the river solver's strategy (app/solver) when it answers within
     # its time budget; otherwise, and on every other street, the rules above decide
     "river_solver": False,
+    "river_solver_fixed_work": False,  # (no clock, a fixed amount of work: the simulator uses it to stay repeatable)
 }
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
@@ -937,11 +938,14 @@ def _postflop(s: _Spot) -> Advice:
 def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     """TUNING["river_solver"]: the river solver's action for your hand, heads-up. None
     (the rules decide) when the spot isn't one it handles, the numbers it needs aren't
-    known or reliable, it isn't written yet, it fails, or it doesn't answer in time."""
+    known or reliable, it fails, it doesn't answer in time, its answer is too rough, or
+    it has no answer for a bet it didn't expect."""
     import time
 
     from app import solver
     from app.solver import bridge
+    from app.solver.strategy import describe_mix
+    from app.solver.timing import QUALITY_BAR
     from app.solver.tree import action_amount, describe_action
 
     opp = _only_opponent(s)
@@ -951,18 +955,27 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     villain_bet = (s.hero_bet or 0.0) + s.to_call if s.facing else 0.0
     decision = bridge.river_decision(s.hero, s.board, pot_now=s.pot, hero_bet=s.hero_bet or 0.0,
                                      villain_bet=villain_bet, hero_stack=s.stack,
-                                     villain_stack=float(opp.stack.value), hero_in_position=_acts_last(s))
+                                     villain_stack=float(opp.stack.value), hero_in_position=_acts_last(s),
+                                     # what the ranges are worked out from: the betting so far
+                                     line=getattr(s.state, "betting", None), big_blind=s.bb, hero_seat=s.pos,
+                                     villain_seat=opp.position.value if opp.position.known else None,
+                                     villain_style=exploits.style(opp), villain_rates=getattr(opp, "played", None))
     if decision is None:
         return None
     budget = solver.DECISION_BUDGET_MS
+    fixed = bool(TUNING["river_solver_fixed_work"])  # the simulator: the same answer on every run
     start = time.perf_counter()
     try:
-        strategy = solver.solve_river(decision.spot, budget)
+        strategy = solver.solve_river(decision.spot, **solver.decision_settings(decision.spot, s.bb, fixed))
         elapsed_ms = 1000.0 * (time.perf_counter() - start)
-        if strategy is None or elapsed_ms > budget:
+        if strategy is None or (elapsed_ms > budget and not fixed):
             return None
-        token, _ = bridge.recommend(strategy, decision)
-        mix = strategy.describe(decision.node, decision.combo)
+        if (strategy.exploitability or 0.0) > QUALITY_BAR:  # too far from an equilibrium to act on
+            return None
+        answer = bridge.recommend(strategy, decision)
+        if answer is None:  # a bet the solution has no hands for: it has no answer here
+            return None
+        token, mix = answer[0], describe_mix(answer[1])
     except NotImplementedError:
         return None
     except Exception:  # a solver failure must never cost the instruction: the rules decide
@@ -970,6 +983,9 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
         return None
     reason = f"With {made}, the river solver's play here is to {describe_action(token)}."
     detail = f"Its mix for your hand: {mix}."
+    story = decision.line.describe() if decision.line is not None else ""
+    if story:  # what it took their hands and yours to be, from the betting
+        detail += (" Hands guessed from the size of the pot: " if decision.guessed else " Hands judged from: ") + story + "."
     kind, amount = token[:1], action_amount(token)
     if kind == "x":
         return Advice("check", "CHECK", reason, basis="solver", detail=detail)

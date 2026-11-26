@@ -1,6 +1,8 @@
-"""Fast hand ranking on a fixed river board.
+"""Fast hand ranking on a fixed board.
 
-On the river the board never changes, so most of the work can be done once per board:
+A board doesn't change while a range is ranked on it, so most of the work can be done
+once per board (the river's five cards, or the flop's three and the turn's four when the
+earlier rounds are looked at again):
 
 - Without a flush, a hand's value depends only on the ranks of the two hole cards. There
   are 91 rank pairs (13 pairs plus 78 unpaired), so the board's 91 values are worked out
@@ -140,13 +142,14 @@ def category_name(value: int) -> str:
     return CATEGORY_NAMES[category(value)]
 
 
-class RiverRanker:
-    """Values of hole-card combos on one five-card board, from tables built once."""
+class BoardRanker:
+    """Values of hole-card combos on one board of three, four or five cards, from tables
+    built once: the best hand made so far (draws don't count)."""
 
     def __init__(self, board: Sequence[str]):
         board = tuple(board)
-        if len(board) != 5 or len(set(board)) != 5:
-            raise ValueError("A river board has five different cards.")
+        if not 3 <= len(board) <= 5 or len(set(board)) != len(board):
+            raise ValueError("A board has three to five different cards.")
         self.board = board
         counts = [0] * 13
         suit_masks = [0] * 4
@@ -187,6 +190,15 @@ class RiverRanker:
 
     def values(self, combos: Sequence[Sequence[str]]) -> np.ndarray:
         return np.fromiter((self.value(c) for c in combos), dtype=np.int64, count=len(combos))
+
+
+class RiverRanker(BoardRanker):
+    """Values of hole-card combos on one five-card board, from tables built once."""
+
+    def __init__(self, board: Sequence[str]):
+        if len(tuple(board)) != 5 or len(set(board)) != 5:
+            raise ValueError("A river board has five different cards.")
+        super().__init__(board)
 
 
 def rank_range(board: Sequence[str], combos: Sequence[Sequence[str]]) -> np.ndarray:

@@ -23,6 +23,9 @@ From about 12 hands on, each opponent gets a style that the advice can use:
 Players are told apart by the name on screen, or by their seat when no name was read.
 Names and styles are for the screen and the advice only: they are never part of the
 text sent to an AI.
+
+The same reads also feed the record of who bet on each round of the hand being played
+(history.py), which the river solver's range estimate uses.
 """
 from __future__ import annotations
 
@@ -31,6 +34,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 from app.state.model import GameState, Player
+
+from .history import BettingRecord
 
 MIN_HANDS = 12  # fewer hands than this: no style yet
 SEAT_TOLERANCE = 40.0  # px: a seat is drawn in the same place on every read
@@ -116,6 +121,15 @@ def classify(stats: PlayerStats) -> Optional[str]:
     return "lag" if pfr >= 0.5 * vpip else "station"
 
 
+def rates(stats: PlayerStats) -> Optional[Tuple[float, float]]:
+    """(share of hands played, share of hands raised) before the flop, leaning towards a
+    typical player while the sample is small. None before any hand was seen."""
+    if not stats.hands:
+        return None
+    n = stats.hands + PRIOR_HANDS
+    return ((stats.vpip + PRIOR_VPIP * PRIOR_HANDS) / n, (stats.pfr + PRIOR_PFR * PRIOR_HANDS) / n)
+
+
 def describe(stats: PlayerStats) -> str:
     """Short wording for the screen, e.g. "plays 48% of hands, raises 6%"."""
     if not stats.hands:
@@ -143,6 +157,7 @@ class Profiles:
         self._seats: List[Tuple[float, float]] = []  # seats seen, as first seen
         self._names: Dict[Tuple[float, float], str] = {}  # seat -> the name last read there
         self._top: Dict[int, float] = {}  # per street: most chips anyone had put in that street so far
+        self.history = BettingRecord()  # who bet on each round of the hand being played
 
     # ------------------------------------------------------------ public
     def key_for(self, p: Player) -> Optional[str]:
@@ -165,6 +180,7 @@ class Profiles:
         if hand_number is not None and hand_number != self._hand:
             self._flush()
             self._hand = hand_number
+        self.history.update(state, hand_number, self.key_for)
         street = len(state.board)
         valid = bool(info is not None and getattr(info, "valid", False))
         contrib: Dict[int, float] = dict(getattr(info, "contributions", {}) or {}) if valid else {}
@@ -221,12 +237,15 @@ class Profiles:
         return describe(self.stats_for(key))
 
     def annotate(self, state: GameState) -> None:
-        """Put each opponent's style and wording on the state (fields for the screen and the
-        advice only)."""
+        """Put each opponent's style and wording on the state, and the betting so far in this
+        hand once one opponent is left on the river (fields for the screen and the advice
+        only)."""
         for p in state.opponents:
             stats = self.stats_for(self.key_for(p))
             p.style = classify(stats)
             p.style_note = describe(stats) if p.style else ""
+            p.played = rates(stats)
+        state.betting = self.history.line(state, self.key_for) if len(state.board) == 5 else None
 
     # ----------------------------------------------------------- private
     @staticmethod

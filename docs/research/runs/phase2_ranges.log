@@ -1,0 +1,121 @@
+# docs/research/runs/phase2_ranges.py --hands 6000 --decisions 200, 26 Nov 2026
+# Seed 31: the hands the settings were looked at on. Seed 77: held out, run once after the settings were frozen.
+
+== seed 31 (tuning) ==
+table mixed: 6000 hands, seed 31: 364 reached the river heads-up with the app to act; betting fully recorded in 364
+  the opponent:
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      70.1%     276   0.05
+    pot size only                              75.0%     388  -0.41
+    recorded betting                           73.9%     365  -0.38
+    recorded betting + profile                 91.5%     463   0.62
+  the app (as the opponent should see it):
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      57.7%     276  -0.73
+    pot size only                              80.5%     386   0.45
+    recorded betting                           80.8%     360   0.75
+    recorded betting + profile                 80.8%     360   0.75
+  200 decisions through advise(): p50 292 ms, p95 298 ms, max 333 ms (target 400 ms)
+  solver called 200 times: late 0, too rough (over 1% of the pot) 0
+  no answer (a bet the solution has no hands for): 1
+  best action for a hand the solution never brings here: 4
+  answered by the solver: 199
+  facing a raise: 0
+  facing a raise, answered by the solver: 0
+  distance from an equilibrium, % of the pot: p50 0.08, p95 0.23, max 0.44; combos in the two ranges together: p50 781, max 1400
+  decisions where the app's river bet was really raised: 2
+  2 decisions through advise(): p50 80 ms, p95 146 ms, max 146 ms (target 400 ms)
+  solver called 2 times: late 0, too rough (over 1% of the pot) 0
+  no answer (a bet the solution has no hands for): 0
+  best action for a hand the solution never brings here: 1
+  answered by the solver: 2
+  facing a raise: 2
+  facing a raise, answered by the solver: 2
+  distance from an equilibrium, % of the pot: p50 0.05, p95 0.07, max 0.07; combos in the two ranges together: p50 424, max 604
+  the app bet the river 73 times; a made-up raise the size of the pot after each of the first 73:
+    solver: p50 265 ms, p95 290 ms, max 291 ms; distance from an equilibrium, % of the pot: p50 0.07, p95 0.36, max 0.62
+    answered 68: all in 8, call 26, fold 34
+    no answer (a raise the solution has no hands for): 5
+
+table fish247: 6000 hands, seed 31: 453 reached the river heads-up with the app to act; betting fully recorded in 453
+  the opponent:
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      79.9%     273   0.68
+    pot size only                              90.9%     439   0.45
+    recorded betting                           88.5%     415   0.41
+    recorded betting + profile                 95.8%     477   1.01
+  the app (as the opponent should see it):
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      51.9%     273  -1.09
+    pot size only                              88.1%     456   0.81
+    recorded betting                           93.6%     455   1.33
+    recorded betting + profile                 93.6%     455   1.33
+  200 decisions through advise(): p50 295 ms, p95 300 ms, max 306 ms (target 400 ms)
+  solver called 200 times: late 0, too rough (over 1% of the pot) 0
+  no answer (a bet the solution has no hands for): 3
+  best action for a hand the solution never brings here: 3
+  answered by the solver: 197
+  facing a raise: 0
+  facing a raise, answered by the solver: 0
+  distance from an equilibrium, % of the pot: p50 0.09, p95 0.24, max 0.48; combos in the two ranges together: p50 1059, max 1401
+  decisions where the app's river bet was really raised: 0
+  the app bet the river 105 times; a made-up raise the size of the pot after each of the first 105:
+    solver: p50 288 ms, p95 290 ms, max 293 ms; distance from an equilibrium, % of the pot: p50 0.08, p95 0.35, max 0.56
+    answered 99: all in 7, call 33, fold 59
+    no answer (a raise the solution has no hands for): 6
+
+== seed 77 (held out) ==
+table mixed: 6000 hands, seed 77: 366 reached the river heads-up with the app to act; betting fully recorded in 366
+  the opponent:
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      59.0%     274  -0.63
+    pot size only                              73.8%     402  -0.44
+    recorded betting                           72.1%     377  -0.39
+    recorded betting + profile                 89.1%     465   0.54
+  the app (as the opponent should see it):
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      59.3%     274  -0.62
+    pot size only                              83.3%     404   0.50
+    recorded betting                           86.6%     376   1.16
+    recorded betting + profile                 86.6%     376   1.16
+  200 decisions through advise(): p50 292 ms, p95 298 ms, max 322 ms (target 400 ms)
+  solver called 200 times: late 1, too rough (over 1% of the pot) 0
+  no answer (a bet the solution has no hands for): 2
+  best action for a hand the solution never brings here: 4
+  answered by the solver: 197
+  facing a raise: 0
+  facing a raise, answered by the solver: 0
+  distance from an equilibrium, % of the pot: p50 0.08, p95 0.26, max 0.61; combos in the two ranges together: p50 871, max 1401
+  decisions where the app's river bet was really raised: 0
+  the app bet the river 78 times; a made-up raise the size of the pot after each of the first 78:
+    solver: p50 265 ms, p95 290 ms, max 300 ms; distance from an equilibrium, % of the pot: p50 0.08, p95 0.35, max 0.54
+    answered 76: all in 5, call 41, fold 30
+    no answer (a raise the solution has no hands for): 2
+
+table fish247: 6000 hands, seed 77: 440 reached the river heads-up with the app to act; betting fully recorded in 440
+  the opponent:
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      81.1%     270   0.76
+    pot size only                              91.6%     435   0.55
+    recorded betting                           87.5%     406   0.40
+    recorded betting + profile                 98.0%     463   1.28
+  the app (as the opponent should see it):
+    guess                         real hand in range  combos   bits
+    placeholder (top 25%)                      57.5%     270  -0.72
+    pot size only                              91.4%     460   0.91
+    recorded betting                           96.6%     445   1.58
+    recorded betting + profile                 96.6%     445   1.58
+  200 decisions through advise(): p50 294 ms, p95 299 ms, max 332 ms (target 400 ms)
+  solver called 200 times: late 0, too rough (over 1% of the pot) 0
+  no answer (a bet the solution has no hands for): 0
+  best action for a hand the solution never brings here: 1
+  answered by the solver: 199
+  facing a raise: 0
+  facing a raise, answered by the solver: 0
+  distance from an equilibrium, % of the pot: p50 0.09, p95 0.24, max 0.53; combos in the two ranges together: p50 1047, max 1394
+  decisions where the app's river bet was really raised: 0
+  the app bet the river 106 times; a made-up raise the size of the pot after each of the first 106:
+    solver: p50 246 ms, p95 290 ms, max 295 ms; distance from an equilibrium, % of the pot: p50 0.07, p95 0.27, max 0.82
+    answered 103: all in 9, call 36, fold 58
+    no answer (a raise the solution has no hands for): 3
+
