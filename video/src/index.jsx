@@ -181,10 +181,10 @@ const S4 = () => {
   const f = useCurrentFrame();
   const t = useSpr(2);
   const ranks = 'AKQJT98765432';
-  const stamp = spring({frame: f - 128, fps: 30, config: {damping: 9, stiffness: 300, mass: 0.6}});
-  const shake = f >= 128 && f < 140 ? (random(`sx${f}`) - 0.5) * 18 * (1 - (f - 128) / 12) : 0;
-  const shake2 = f >= 128 && f < 140 ? (random(`sy${f}`) - 0.5) * 18 * (1 - (f - 128) / 12) : 0;
-  const gridOut = interpolate(f, [96, 116], [1, 0.18], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const stamp = spring({frame: f - 190, fps: 30, config: {damping: 9, stiffness: 300, mass: 0.6}});
+  const shake = f >= 190 && f < 202 ? (random(`sx${f}`) - 0.5) * 18 * (1 - (f - 190) / 12) : 0;
+  const shake2 = f >= 190 && f < 202 ? (random(`sy${f}`) - 0.5) * 18 * (1 - (f - 190) / 12) : 0;
+  const gridOut = interpolate(f, [160, 182], [1, 0.18], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
     <AbsoluteFill style={{background: C.ink, transform: `translate(${shake}px, ${shake2}px)`}}>
       <Grid dark />
@@ -202,8 +202,8 @@ const S4 = () => {
         })}
       </div>
       {CALCS.map(([a, b, dx, dy], i) => {
-        const d = 34 + i * 9; const k = spring({frame: f - d, fps: 30, config: {damping: 11, stiffness: 220, mass: 0.5}});
-        const out = interpolate(f, [118, 128], [1, 0.25], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+        const d = [57, 84, 114, 159, 166, 173][i]; const k = spring({frame: f - d, fps: 30, config: {damping: 11, stiffness: 220, mass: 0.5}});
+        const out = interpolate(f, [180, 190], [1, 0.25], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
         return (
           <div key={i} style={{position: 'absolute', left: 960 + dx * lerp(k, 0.4, 1) - 190, top: 600 + dy * lerp(k, 0.4, 1) - 50, width: 380,
             background: 'rgba(23,27,34,0.96)', border: `1px solid ${C.dline}`, borderRadius: 16, padding: '18px 22px', boxSizing: 'border-box',
@@ -213,11 +213,11 @@ const S4 = () => {
           </div>
         );
       })}
-      {f >= 120 && (
+      {f >= 182 && (
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
           <div style={{fontFamily: D, fontWeight: 900, fontSize: 260, letterSpacing: -10, color: C.mint, transform: `scale(${lerp(stamp, 3, 1)}) rotate(${lerp(stamp, -8, -3)}deg)`,
             opacity: Math.min(1, stamp * 2), textShadow: `0 0 80px rgba(59,230,162,0.6)`, border: `10px solid ${C.mint}`, borderRadius: 30, padding: '0 50px'}}>FOLD</div>
-          <div style={{fontFamily: M, fontSize: 34, color: '#fff', marginTop: 40, opacity: interpolate(f, [140, 150], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
+          <div style={{fontFamily: M, fontSize: 34, color: '#fff', marginTop: 40, opacity: interpolate(f, [202, 212], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
             saves 8.9 bb against this player
           </div>
         </AbsoluteFill>
@@ -240,7 +240,7 @@ const S5 = () => {
   const t = useSpr(2);
   const panel = useSpr(58, {damping: 18, stiffness: 140});
   const total = SEG.reduce((a, b) => a + b[1], 0);
-  const typed = Math.max(0, Math.min(PARA.length, Math.floor((f - 118) * 3.4)));
+  const typed = Math.max(0, Math.min(PARA.length, Math.floor((f - 168) * 3.6)));
   const chip = (kind) => ({ok: ['✓', C.deep, 'rgba(59,230,162,0.16)'], mix: ['~', '#9a5c0a', 'rgba(232,150,42,0.15)'], bad: ['✕', C.red, 'rgba(214,69,69,0.13)']})[kind];
   return (
     <AbsoluteFill style={{background: C.bg}}>
@@ -274,18 +274,18 @@ const S5 = () => {
           <div style={{fontFamily: M, fontSize: 17, color: C.dmuted, marginBottom: 10}}>SEAT 4'S BETTING RANGE HERE · 43 COMBOS</div>
           <div style={{display: 'flex', height: 34, borderRadius: 8, overflow: 'hidden', gap: 2}}>
             {SEG.map(([n, v, col], i) => {
-              const k = interpolate(f, [76 + i * 5, 92 + i * 5], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.inOut(Easing.cubic)});
+              const k = interpolate(f, [120 + i * 5, 136 + i * 5], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.inOut(Easing.cubic)});
               return <div key={i} style={{width: `${(v / total) * 100 * k}%`, background: col}} />;
             })}
           </div>
           <div style={{display: 'flex', flexWrap: 'wrap', gap: '6px 18px', marginTop: 10, fontFamily: M, fontSize: 16, color: C.dmuted,
-            opacity: interpolate(f, [100, 112], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
+            opacity: interpolate(f, [146, 158], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
             {SEG.map(([n, v, col], i) => <span key={i}><span style={{display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: col, marginRight: 6}} />{n} {v}</span>)}
           </div>
         </div>
         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12}}>
           {[['You need', '29.8%', '#fff'], ['You win', '~15%', '#FF8A80'], ['Seat 4 river bluffs', '2 of 31', C.mint]].map(([a, b, col], i) => {
-            const k = spring({frame: f - 104 - i * 5, fps: 30, config: {damping: 12, stiffness: 220, mass: 0.5}});
+            const k = spring({frame: f - 160 - i * 5, fps: 30, config: {damping: 12, stiffness: 220, mass: 0.5}});
             return <div key={i} style={{border: `1px solid ${C.dline}`, borderRadius: 14, padding: '12px 16px', transform: `scale(${k})`, opacity: k}}>
               <div style={{fontFamily: M, fontSize: 15, color: C.dmuted}}>{a.toUpperCase()}</div>
               <div style={{fontFamily: D, fontWeight: 800, fontSize: 38, color: col}}>{b}</div></div>;
@@ -295,7 +295,7 @@ const S5 = () => {
           {PARA.slice(0, typed)}<span style={{opacity: typed < PARA.length && f % 16 < 8 ? 1 : 0, color: C.mint}}>▍</span>
         </div>
         <div style={{display: 'grid', gap: 10, marginTop: 'auto'}}>
-          {[['PATTERN', '4th river call below the price tonight. Total cost −18.4 bb.', '#FF8A80', 184], ['FIX', 'Against players who bluff under 20% of rivers, fold one pair to big bets when the draws come in.', C.mint, 196]].map(([a, b, col, d], i) => {
+          {[['PATTERN', '4th river call below the price tonight. Total cost −18.4 bb.', '#FF8A80', 205], ['FIX', 'Against players who bluff under 20% of rivers, fold one pair to big bets when the draws come in.', C.mint, 220]].map(([a, b, col, d], i) => {
             const k = spring({frame: f - d, fps: 30, config: {damping: 14, stiffness: 200, mass: 0.6}});
             return <div key={i} style={{display: 'flex', gap: 14, alignItems: 'baseline', opacity: k, transform: `translateY(${lerp(k, 20, 0)}px)`}}>
               <span style={{fontFamily: M, fontSize: 16, color: col, minWidth: 80}}>{a}</span><span style={{fontFamily: B, fontSize: 23, color: '#fff'}}>{b}</span></div>;
@@ -334,10 +334,10 @@ const S6 = () => {
 const S7 = () => {
   const f = useCurrentFrame();
   const flash = interpolate(f, [0, 6], [1, 0], {extrapolateRight: 'clamp'});
-  const slamA = spring({frame: f - 10, fps: 30, config: {damping: 10, stiffness: 260, mass: 0.6}});
-  const slamB = spring({frame: f - 30, fps: 30, config: {damping: 8, stiffness: 300, mass: 0.7}});
-  const sh = f >= 30 && f < 44 ? (random(`k${f}`) - 0.5) * 30 * (1 - (f - 30) / 14) : 0;
-  const lift = interpolate(f, [64, 84], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic)});
+  const slamA = spring({frame: f - 121, fps: 30, config: {damping: 10, stiffness: 260, mass: 0.6}});
+  const slamB = spring({frame: f - 138, fps: 30, config: {damping: 8, stiffness: 300, mass: 0.7}});
+  const sh = f >= 138 && f < 152 ? (random(`k${f}`) - 0.5) * 30 * (1 - (f - 138) / 14) : 0;
+  const lift = 1;
   const items = [['2017', 'Libratus beats four top pros, heads-up'], ['2019', 'Pluribus beats elite pros at six-max'], ['PokerScribe', 'Training target: 3× the scale of Pluribus']];
   return (
     <AbsoluteFill style={{background: C.ink, transform: `translate(${sh}px, ${sh * 0.6}px)`}}>
@@ -350,8 +350,8 @@ const S7 = () => {
       </AbsoluteFill>
       <div style={{position: 'absolute', left: 150, right: 150, bottom: 110, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24}}>
         {items.map(([y, txt], i) => {
-          const k = spring({frame: f - 84 - i * 10, fps: 30, config: {damping: 13, stiffness: 200, mass: 0.6}});
-          const ours = i === 2; const pulse = ours ? 0.5 + 0.5 * Math.sin((f - 110) / 5) : 0;
+          const k = spring({frame: f - 8 - i * 12, fps: 30, config: {damping: 13, stiffness: 200, mass: 0.6}});
+          const ours = i === 2; const pulse = ours ? 0.5 + 0.5 * Math.sin((f - 40) / 5) : 0;
           return (
             <div key={i} style={{border: `2px solid ${ours ? C.mint : C.dline}`, borderRadius: 20, padding: '26px 30px', background: ours ? 'rgba(59,230,162,0.08)' : C.dark2,
               transform: `translateY(${lerp(k, 80, 0)}px)`, opacity: k, boxShadow: ours ? `0 0 ${30 + 30 * pulse}px rgba(59,230,162,0.35)` : 'none'}}>
@@ -361,7 +361,7 @@ const S7 = () => {
           );
         })}
       </div>
-      <div style={{position: 'absolute', left: 150, bottom: 50, fontFamily: M, fontSize: 20, color: C.dmuted, opacity: interpolate(f, [110, 125], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
+      <div style={{position: 'absolute', left: 150, bottom: 50, fontFamily: M, fontSize: 20, color: C.dmuted, opacity: interpolate(f, [40, 55], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}}>
         Same family of methods: counterfactual regret minimization and real-time search.
       </div>
       <AbsoluteFill style={{background: '#fff', opacity: flash}} />
