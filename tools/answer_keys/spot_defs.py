@@ -3,7 +3,8 @@
 `python -m tools.answer_keys make-spots` turns these into data/answer_keys/spots/*.json
 (range text expanded to combos, the board cards removed). Edit here, not the JSON.
 
-Every pot is 100, so amounts read as a share of the starting pot. SPR is the effective
+Every pot is 100, so amounts read as a share of the starting pot. max_raises is 3 in every
+spot, because TexasSolver always allows 3 raises a street (README.md, "Quirks"). SPR is the effective
 stack over the pot at the start of the spot. Ranges are written as whole hand classes with
 optional weights, because TexasSolver takes ranges by class (README.md, "Quirks").
 
@@ -88,13 +89,13 @@ def sizes(oop_bets, ip_bets, raises=(), allin=True, oop_raises=None, ip_raises=N
             "ip": {"bets": list(ip_bets), "raises": list(raises if ip_raises is None else ip_raises), "allin": allin}}
 
 
-def river(id_, title, board, spr, oop, ip, sz, tags, max_raises=1, expected=None) -> Dict:
+def river(id_, title, board, spr, oop, ip, sz, tags, max_raises=3, expected=None) -> Dict:
     return {"id": id_, "street": "river", "title": title, "board": board.split(), "pot": 100,
             "stacks": [spr * 100, spr * 100], "range_text": {"oop": oop, "ip": ip}, "sizes": sz,
             "max_raises": max_raises, "tags": tags, "expected": expected or []}
 
 
-def turn(id_, title, board, spr, oop, ip, sz, river_sz, tags, max_raises=1) -> Dict:
+def turn(id_, title, board, spr, oop, ip, sz, river_sz, tags, max_raises=3) -> Dict:
     d = river(id_, title, board, spr, oop, ip, sz, tags, max_raises)
     d["street"] = "turn"
     d["river_sizes"] = river_sz
@@ -181,9 +182,9 @@ SPOTS: List[Dict] = [
           Q7654["condensed"], Q7654["polar"], sizes([0.33], [0.33, 0.75]), ["wet", "polar", "condensed"]),
     river("r23", "Wet K9876 three spades, SPR 0.5", W2, 0.5,
           S9876["condensed"], S9876["polar"], sizes([0.25], [0.25]), ["wet", "polar", "condensed", "low-spr"]),
-    river("r24", "Four hearts QJ542, SPR 5, a raise and a reraise", W3, 5,
+    river("r24", "Four hearts QJ542, SPR 5, small bets and half-pot raises", W3, 5,
           QJ5H["condensed"], QJ5H["polar"], sizes([0.33], [0.33], [0.5]), ["wet", "four-flush", "polar", "condensed",
-                                                                            "raise-size", "reraise"], max_raises=2),
+                                                                            "raise-size"]),
     river("r25", "Wet T9763, two wide ranges, two IP sizes", W4, 1,
           T976["wide_oop"], T976["wide_ip"], sizes([0.5], [0.33, 0.66]), ["wet", "wide"]),
     river("r26", "Wet A8754, polar IP with three sizes", W5, 2,

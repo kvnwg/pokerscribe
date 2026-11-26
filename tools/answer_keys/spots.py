@@ -286,9 +286,10 @@ def decision_nodes(d: Mapping) -> Dict[str, Decision]:
 
 
 def capped_sizes(d: Mapping) -> List[str]:
-    """Places where a size would be cut down to the all-in, or the min-raise rule would
-    change a raise. The spots in this repo have none, so that every solver builds the
-    same tree from the same sizes (see SPOT_FORMAT.md, "Sizes")."""
+    """Places where the min-raise rule would change a raise, or a first bet of the spot
+    would already be all in. The spots in this repo have none (see SPOT_FORMAT.md, "Sizes").
+    Later sizes may reach the stack and become the all-in: with 3 raises a street that can't
+    be avoided, and TexasSolver caps and merges them the same way (every solve checks it)."""
     problems = []
     pot0, stack0 = float(d["pot"]), float(min(d["stacks"]))
 
@@ -297,16 +298,13 @@ def capped_sizes(d: Mapping) -> List[str]:
             p = 0 if node.actor == "oop" else 1
             sz = sizes(d, p, street)
             mine, theirs = node.put_in[p], node.put_in[1 - p]
-            if theirs <= mine + 1e-9:
-                for f in sz.bets:
-                    if f * pot >= stack - 1e-9:
-                        problems.append(f"{node.key!r}: a bet of {f} pot is {f * pot:g}, not under the stack {stack:g}")
-            elif any(t.startswith("r") for t in node.actions):
+            if node.key == "" and any(f * pot >= stack - 1e-9 for f in sz.bets):
+                problems.append(f"a first bet of {max(sz.bets)} pot is {max(sz.bets) * pot:g}, "
+                                f"not under the stack {stack:g}")
+            elif theirs > mine + 1e-9 and any(t.startswith("r") for t in node.actions):
                 after_call = pot + 2 * theirs
                 for f in sz.raises:
                     want = theirs + f * after_call
-                    if want >= stack - 1e-9:
-                        problems.append(f"{node.key!r}: a raise of {f} is to {want:g}, not under the stack {stack:g}")
                     if want < theirs + (theirs - mine) - 1e-9:
                         problems.append(f"{node.key!r}: a raise of {f} is under the min-raise")
 

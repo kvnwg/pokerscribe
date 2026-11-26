@@ -3,13 +3,13 @@
   "version": 1,
   "id": "r24",
   "street": "river",
-  "title": "Four hearts QJ542, SPR 5, a raise and a reraise",
-  "tags": ["wet", "four-flush", "polar", "condensed", "raise-size", "reraise"],
+  "title": "Four hearts QJ542, SPR 5, small bets and half-pot raises",
+  "tags": ["wet", "four-flush", "polar", "condensed", "raise-size"],
   "board": ["Qh", "Jh", "5h", "2c", "4h"],
   "pot": 100,
   "stacks": [500, 500],
   "spr": 5.0,
-  "max_raises": 2,
+  "max_raises": 3,
   "sizes": {
     "oop": {"bets": [0.33], "raises": [0.5], "allin": true},
     "ip": {"bets": [0.33], "raises": [0.5], "allin": true}

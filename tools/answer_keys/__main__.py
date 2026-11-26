@@ -88,8 +88,8 @@ def solver_info_from_log(log: str, accuracy: float, settings: Mapping, version: 
 def settings_of(args, spot: Mapping) -> dict:
     return {"accuracy_pct_of_pot": args.accuracy, "max_iterations": args.max_iterations,
             "print_interval": args.print_interval, "threads": args.threads or os.cpu_count(),
-            "use_isomorphism": 0, "allin_threshold": 1.0,
-            "raise_limit": spot["max_raises"] + args.raise_limit_extra, "dump_rounds": len(streets_of(spot))}
+            "use_isomorphism": 0, "allin_threshold": ts.ALLIN_THRESHOLD,
+            "raise_limit": ts.TEXASSOLVER_MAX_RAISES, "dump_rounds": len(streets_of(spot))}
 
 
 def load_index(results_dir: str) -> dict:
@@ -150,7 +150,7 @@ def cmd_config(args) -> int:
     (spot,) = load_spots(args.spots_dir, [args.id])
     sys.stdout.write(ts.config_text(spot, args.dump or f"{spot['id']}.json", threads=args.threads,
                                     accuracy=args.accuracy, max_iterations=args.max_iterations,
-                                    print_interval=args.print_interval, raise_limit_extra=args.raise_limit_extra))
+                                    print_interval=args.print_interval))
     return 0
 
 
@@ -171,8 +171,7 @@ def cmd_solve(args) -> int:
         print(f"{spot['id']:4} solving ...", flush=True)
         run = ts.run_solver(spot, solver, os.path.expanduser(args.workdir), cwd=args.solver_cwd,
                             timeout_s=args.timeout, threads=args.threads, accuracy=args.accuracy,
-                            max_iterations=args.max_iterations, print_interval=args.print_interval,
-                            raise_limit_extra=args.raise_limit_extra)
+                            max_iterations=args.max_iterations, print_interval=args.print_interval)
         info = solver_info_from_log(run.log, args.accuracy, settings_of(args, spot), args.solver_version,
                                     binary_sha, run.elapsed_s)
         if run.returncode != 0 or not os.path.exists(run.dump_path):
@@ -251,13 +250,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     def solver_options(q, need_solver: bool):
         q.add_argument("--solver", required=need_solver, help="TexasSolver's console_solver binary")
-        q.add_argument("--solver-version", default="0.2.0", help="the release you installed (recorded in results)")
+        q.add_argument("--solver-version", default="console@02c8021", help="the build you installed (recorded in results)")
         q.add_argument("--accuracy", type=float, default=ts.DEFAULT_ACCURACY, help="target, percent of the pot")
         q.add_argument("--max-iterations", type=int, default=ts.DEFAULT_MAX_ITERATIONS)
         q.add_argument("--print-interval", type=int, default=ts.DEFAULT_PRINT_INTERVAL)
         q.add_argument("--threads", type=int, default=0, help="default: every core")
-        q.add_argument("--raise-limit-extra", type=int, default=0,
-                       help="added to max_raises for set_raise_limit (README, Quirks)")
 
     sub.add_parser("make-spots").set_defaults(fn=cmd_make_spots)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)

@@ -9,7 +9,7 @@
   "pot": 100,
   "stacks": [300, 300],
   "spr": 3.0,
-  "max_raises": 1,
+  "max_raises": 3,
   "sizes": {
     "oop": {"bets": [0.5], "raises": [0.5], "allin": true},
     "ip": {"bets": [0.75], "raises": [0.5], "allin": true}

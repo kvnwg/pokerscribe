@@ -55,7 +55,7 @@ def test_the_set_covers_what_was_asked(spots):
     counts = {len(s["sizes"]["ip"]["bets"]) for s in spots.values()}
     assert counts == {1, 2, 3}
     assert all(s.get("expected") for s in spots.values() if "trivial" in s["tags"])
-    assert any(s["max_raises"] == 2 for s in spots.values())
+    assert all(s["max_raises"] == ts.TEXASSOLVER_MAX_RAISES == 3 for s in spots.values())
 
 
 def test_every_spot_gives_texassolver_whole_classes(spots):
@@ -65,6 +65,11 @@ def test_every_spot_gives_texassolver_whole_classes(spots):
             # the class text TexasSolver gets expands back to exactly the spot's combos
             assert expand_range_text(ts.range_text(s, p), s["board"]) == s["ranges"][p]
             assert classes
+
+
+def test_texassolver_can_only_take_three_raises(spots):
+    with pytest.raises(ValueError, match="3 raises"):
+        ts.config_text(dict(spots["r04"], max_raises=1), "x.json")
 
 
 def test_bad_spots_are_refused(spots):
@@ -83,7 +88,7 @@ def test_bad_spots_are_refused(spots):
                       ["2c", "3d", "4h", "5s", "7c"])
     defn = dict(SPOTS[5], sizes={"oop": {"bets": [0.75], "raises": [], "allin": True},
                                  "ip": {"bets": [0.75], "raises": [], "allin": True}})
-    with pytest.raises(SpotError, match="not under the stack"):  # SPR 0.5: a 0.75 bet is all in
+    with pytest.raises(SpotError, match="not under the stack"):  # SPR 0.5: a 0.75 first bet is all in
         build_spot(defn)
 
 
@@ -176,7 +181,7 @@ def fake_dump(spot, rows, reading="to", children_key="childrens", shuffle=False)
 
 @pytest.mark.parametrize("reading", ["to", "by", "over_call"])
 def test_parsing_recovers_a_river_strategy_and_its_exploitability(spots, reading):
-    s = spots["r24"]  # a raise and a reraise, so the readings differ
+    s = spots["r24"]  # three raises, so the readings differ
     strategy = solve_river(river_spot(s), time_budget_ms=2000, max_iterations=40)
     probs = strategy.probs
     combos = {p: [c[0] + c[1] for c in river_spot(s).combos(i)] for i, p in enumerate(PLAYER_NAMES)}
@@ -195,12 +200,16 @@ def test_parsing_recovers_a_river_strategy_and_its_exploitability(spots, reading
 
 def test_parsing_a_turn_spot_reads_every_river_card(spots):
     s = spots["t10"]  # a turn raise size
-    dump = fake_dump(s, lambda node, c: [1.0 / len(node.actions)] * len(node.actions), "to", children_key="children")
+    dump = fake_dump(s, lambda node, c: [1.0 / len(node.actions)] * len(node.actions), "by", children_key="children")
+    deal = dump["children"]["CHECK"]["children"]["CHECK"]["dealcards"]
+    for card in s["board"]:  # TexasSolver lists the board's cards too
+        deal[card] = deal["9c"]
     parsed = ts.parse_dump(dump, s)
     assert parsed.differences == []
     assert set(parsed.nodes) == set(decision_nodes(s))
     river_node = parsed.nodes["x b50 c 9c"]
     assert river_node["actor"] == "oop" and river_node["actions"] == ["x", "b100", "b450"]
+    assert parsed.nodes["b50 r150 r350 c 9c"]["actions"] == ["x", "b150"]  # river bets capped to the all in
     assert not any("9c" in combo for combo in river_node["strategy"])
 
 
@@ -225,6 +234,7 @@ def test_the_config_has_the_spot(spots):
     assert "set_bet_sizes ip,river,bet,33,100" in lines and "set_bet_sizes ip,river,raise,50" in lines
     assert "set_bet_sizes oop,river,donk,50" in lines and "set_bet_sizes oop,river,allin" in lines
     assert "set_accuracy 0.3" in lines and "set_use_isomorphism 0" in lines and "set_dump_rounds 1" in lines
+    assert "set_allin_threshold 1000" in lines and not any("raise_limit" in line for line in lines)
     assert lines.index("build_tree") < lines.index("start_solve") < lines.index("dump_result /tmp/out.json")
     turn = ts.config_text(spots["t03"], "x.json").splitlines()
     assert "set_bet_sizes oop,turn,bet,33" in turn and "set_bet_sizes oop,river,bet,50,100" in turn

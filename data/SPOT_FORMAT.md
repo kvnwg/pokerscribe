@@ -41,7 +41,7 @@ definitions, not the JSON.
   "pot": 100,
   "stacks": [300, 300],
   "spr": 3.0,
-  "max_raises": 1,
+  "max_raises": 3,
   "sizes": {
     "oop": {"bets": [0.5], "raises": [0.5], "allin": true},
     "ip": {"bets": [0.33, 1.0], "raises": [0.5], "allin": true}
@@ -62,7 +62,7 @@ definitions, not the JSON.
 | `pot` | Chips in the middle when the spot starts. |
 | `stacks` | Chips behind for `[oop, ip]` when the spot starts. Only the smaller one matters. |
 | `spr` | `min(stacks) / pot`, rounded to 2 places. Informative only. |
-| `max_raises` | Raises allowed after the first bet, on each street (0: bet, then only call or fold). |
+| `max_raises` | Raises allowed after the first bet, on each street (0: bet, then only call or fold). 3 in every spot in this repo, because TexasSolver always allows 3 and can't be told otherwise. |
 | `sizes` | Bet and raise sizes for each player: the river's for a river spot, the turn's for a turn spot. `app.solver.BetSizes.to_dict()`. |
 | `river_sizes` | Turn spots only: the river's sizes, same layout. |
 | `range_text` | The ranges as written: items separated by commas, each `app/poker/ranges.py` notation with an optional `:weight`. |
@@ -95,11 +95,13 @@ The same rules as `app/solver/tree.py`:
   With `allin: true` going all in is always one of the choices.
 - Amounts are rounded to 2 decimal places.
 
-The spots in this repo are also chosen so that these rules never change a size: no size
-reaches the stack (only `allin` does), the min-raise rule never binds, raise sizes are at
-least 0.5, and every amount is a whole number of chips. `make-spots` refuses a spot that
-breaks this. So any solver that reads the sizes the obvious way builds the same tree, and
-TexasSolver's rounding and all-in rules can't make its game differ from ours.
+The spots in this repo are also chosen so that the edge cases stay simple: the min-raise
+rule never binds (raise sizes are at least 0.5), no first bet of a spot is already all in,
+and every amount is a whole number of chips. `make-spots` refuses a spot that breaks this.
+Later sizes can reach the stack (three raises a street run out of chips quickly); they
+become the all-in, and TexasSolver caps and merges them the same way. Every TexasSolver
+solve rebuilds its tree and compares it node by node with the spot's, so a difference in
+these rules can't slip into a key.
 
 ### Node keys
 
@@ -155,15 +157,15 @@ Header:
 ```json
 {"format": "pokerscribe-answer-key", "version": 1, "kind": "header", "label_source": "solver",
  "spot_id": "r05", "spot_sha256": "9f2c...", "street": "river",
- "solver": {"name": "TexasSolver", "version": "0.2.0", "binary_sha256": "...",
+ "solver": {"name": "TexasSolver", "version": "console@02c8021", "binary_sha256": "...",
             "settings": {"accuracy_pct_of_pot": 0.3, "max_iterations": 5000, "print_interval": 10,
-                         "threads": 10, "use_isomorphism": 0, "allin_threshold": 1.0,
-                         "raise_limit": 1, "dump_rounds": 1},
+                         "threads": 4, "use_isomorphism": 0, "allin_threshold": 1000,
+                         "raise_limit": 3, "dump_rounds": 1},
             "iterations": 120, "elapsed_s": 3.2, "exploitability_pot": 0.0027,
             "exploitability_trace": [[0, 61.2], [10, 4.1]], "converged": true,
-            "reading": "to", "notes": []},
+            "reading": "by", "notes": []},
  "checks": {"exploitability_pot": 0.0026, "filled_rows": 0, "expected_failures": []},
- "nodes": 13, "created": "2026-11-26T12:00:00Z"}
+ "nodes": 18, "created": "2026-11-26T12:00:00Z"}
 ```
 
 | Field | Meaning |

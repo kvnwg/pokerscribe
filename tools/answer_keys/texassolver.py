@@ -18,11 +18,14 @@ What its output looks like, as this module reads it (data/answer_keys/README.md,
 Which player TexasSolver calls 0 doesn't matter: the out of position player acts first on
 each street and the players take turns, so the actor of every node is worked out here.
 
-What a BET or RAISE amount means (chips put in on the street after the action, or added
-by it, or added on top of the call, or put in since the start of the spot) isn't written
-down anywhere, so every reading is tried and the one that rebuilds the spot's own tree
-(spots.decision_nodes) is kept. If none does, the differences are reported and the spot
-fails, because then TexasSolver solved a different game from the one in the spot.
+A BET amount is the bet; a RAISE amount is the chips the raise adds ("by"): facing 250 with
+100 in, "RAISE 200" is all in for 300. That was found by experiment and isn't documented, so
+every reading is still tried and the one that rebuilds the spot's own tree
+(spots.decision_nodes) is kept ("to" and "by" read the same when no raise follows a bet of
+the raiser's own). If none does, the differences are reported and the spot fails, because
+then TexasSolver solved a different game from the one in the spot.
+
+A chance node lists all 52 cards, the board's too; those branches are skipped.
 """
 from __future__ import annotations
 
@@ -44,6 +47,8 @@ from .spots import Decision, class_weights, decision_nodes, sizes, streets_of
 DEFAULT_ACCURACY = 0.3  # stop at this exploitability, in percent of the pot
 DEFAULT_MAX_ITERATIONS = 5000
 DEFAULT_PRINT_INTERVAL = 10  # TexasSolver works out its exploitability every this many iterations
+TEXASSOLVER_MAX_RAISES = 3  # raises after the first bet, on each street; it can't be changed
+ALLIN_THRESHOLD = 1000  # high enough that TexasSolver's own all-in rule never fires
 
 
 def _num(x: float) -> str:
@@ -60,15 +65,20 @@ def range_text(spot: Mapping, player: str) -> str:
 
 
 def config_text(spot: Mapping, dump_path: str, threads: int = 0, accuracy: float = DEFAULT_ACCURACY,
-                max_iterations: int = DEFAULT_MAX_ITERATIONS, print_interval: int = DEFAULT_PRINT_INTERVAL,
-                raise_limit_extra: int = 0) -> str:
+                max_iterations: int = DEFAULT_MAX_ITERATIONS, print_interval: int = DEFAULT_PRINT_INTERVAL) -> str:
     """The TexasSolver console config for a spot.
 
     Sizes: the spot's sizes for the street it starts on are also given for the flop (never
     played, but some builds want every street set), and the out of position player's
     "donk" sizes are the same as its bets, so a lead is never sized differently from a bet.
-    set_allin_threshold 1 makes only sizes at or over the stack all in, the app/solver rule.
+    set_allin_threshold 1000 turns off TexasSolver's own rule for making a size all in (it
+    depends on the pot, so 1 isn't neutral), which leaves the app/solver rule: a size at or
+    over the stack is all in. There is no command for the raise limit: TexasSolver always
+    allows 3 raises a street, so every spot must have max_raises 3 (README.md, "Quirks").
     set_use_isomorphism 0 keeps every river card in the output of a turn spot."""
+    if spot["max_raises"] != TEXASSOLVER_MAX_RAISES:
+        raise ValueError(f"{spot['id']}: TexasSolver always allows {TEXASSOLVER_MAX_RAISES} raises a street; "
+                         f"the spot has max_raises {spot['max_raises']}.")
     threads = threads or os.cpu_count() or 1
     first = streets_of(spot)[0]
     lines = [
@@ -92,8 +102,7 @@ def config_text(spot: Mapping, dump_path: str, threads: int = 0, accuracy: float
             if sz.allin:
                 lines.append(f"set_bet_sizes {name},{street},allin")
     lines += [
-        "set_allin_threshold 1.0",
-        f"set_raise_limit {spot['max_raises'] + raise_limit_extra}",
+        f"set_allin_threshold {ALLIN_THRESHOLD}",
         "build_tree",
         f"set_thread_num {threads}",
         f"set_accuracy {_num(accuracy)}",
@@ -308,8 +317,12 @@ class _Walker:
         if not _is_chance(child):
             self.notes.append(f"{key!r}: expected the river card here, found {str(child)[:60]}")
             return
+        board = set(self.spot["board"])
         for card, sub in (child.get("dealcards") or {}).items():
-            self.street(sub, "river", f"{key} {_card(card)}", pot + 2 * called, stack - called, prev + called)
+            card = _card(card)
+            if card in board:  # TexasSolver lists all 52 cards; the board's can't come
+                continue
+            self.street(sub, "river", f"{key} {card}", pot + 2 * called, stack - called, prev + called)
 
 
 def compare(expected: Mapping[str, Decision], nodes: Mapping[str, Mapping], limit: int = 12) -> List[str]:
