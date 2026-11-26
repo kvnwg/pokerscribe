@@ -12,3 +12,7 @@ uoftcprg/
 # Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md)
 *.jsonl.state.json
 *.jsonl.state.json.tmp
+
+# TexasSolver (AGPL) and its raw output stay outside the repo (data/answer_keys/README.md)
+console_solver
+TexasSolver*/
