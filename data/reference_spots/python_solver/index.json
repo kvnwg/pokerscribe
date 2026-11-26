@@ -1,0 +1,624 @@
+{
+ "machine": "Linux x86_64, 4 cores",
+ "settings": {
+  "app_budget_ms": 300,
+  "max_iterations": 65536,
+  "target_exploitability_pot": 1e-05
+ },
+ "solver": {
+  "module": "app.solver",
+  "name": "pokerscribe-river",
+  "version": "1"
+ },
+ "spots": {
+  "py01": {
+   "app_budget": {
+    "exploitability_pot": 0.00023747,
+    "iterations": 64,
+    "ms": 5.5
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 0.3,
+   "exploitability_pot": 6.38e-06,
+   "file": "py01.jsonl",
+   "iterations": 4096,
+   "known_oop_value": 78.947368,
+   "nodes": 3,
+   "oop_value": 78.947369,
+   "oop_value_bounds": [
+    78.946892,
+    78.948168
+   ],
+   "spot_sha256": "d50da43dcb879cff54b2ad42118fe9b70c16ec9df1ceaa0cf13d212acda0aa30",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 0.5 pot into a bluff catcher"
+  },
+  "py02": {
+   "app_budget": {
+    "exploitability_pot": 0.00032695,
+    "iterations": 128,
+    "ms": 10.0
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 0.3,
+   "exploitability_pot": 9.41e-06,
+   "file": "py02.jsonl",
+   "iterations": 4096,
+   "known_oop_value": 77.443609,
+   "nodes": 3,
+   "oop_value": 77.443609,
+   "oop_value_bounds": [
+    77.443107,
+    77.444989
+   ],
+   "spot_sha256": "91d98221937dc03fb55703ef3e19329a50ecb1516b241aba462602fe550fdd45",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 0.75 pot into a bluff catcher"
+  },
+  "py03": {
+   "app_budget": {
+    "exploitability_pot": 0.00037125,
+    "iterations": 64,
+    "ms": 6.6
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 0.15,
+   "exploitability_pot": 9.66e-06,
+   "file": "py03.jsonl",
+   "iterations": 2048,
+   "known_oop_value": 76.315789,
+   "nodes": 3,
+   "oop_value": 76.31579,
+   "oop_value_bounds": [
+    76.3147,
+    76.316632
+   ],
+   "spot_sha256": "c679719608ceea6280391ae8cd4fb8bd54fa96fabcdc9d42316f27b3c5745fbe",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 1 pot into a bluff catcher"
+  },
+  "py04": {
+   "app_budget": {
+    "exploitability_pot": 0.00027244,
+    "iterations": 64,
+    "ms": 4.1
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 2.17,
+   "exploitability_pot": 5.47e-06,
+   "file": "py04.jsonl",
+   "iterations": 32768,
+   "known_oop_value": 73.684211,
+   "nodes": 3,
+   "oop_value": 73.68421,
+   "oop_value_bounds": [
+    73.683621,
+    73.684716
+   ],
+   "spot_sha256": "c6ba1ff6ea55d469c82cec5df34d543cf5f02af0ffd12289b39e20f9e405abe9",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 2 pot into a bluff catcher"
+  },
+  "py05": {
+   "app_budget": {
+    "exploitability_pot": 0.0002211,
+    "iterations": 64,
+    "ms": 4.2
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 0.11,
+   "exploitability_pot": 5.94e-06,
+   "file": "py05.jsonl",
+   "iterations": 2048,
+   "known_oop_value": 81.052632,
+   "nodes": 3,
+   "oop_value": 81.052632,
+   "oop_value_bounds": [
+    81.052328,
+    81.053516
+   ],
+   "spot_sha256": "93377e70c1d52889451514f3f950f16c2eb45634be0d3878def4235542512ff9",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 0.25 pot into a bluff catcher"
+  },
+  "py06": {
+   "app_budget": {
+    "exploitability_pot": 0.00050213,
+    "iterations": 256,
+    "ms": 20.3
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 1.18,
+   "exploitability_pot": 3.39e-06,
+   "file": "py06.jsonl",
+   "iterations": 16384,
+   "known_oop_value": 74.736842,
+   "nodes": 3,
+   "oop_value": 74.736842,
+   "oop_value_bounds": [
+    74.736416,
+    74.737095
+   ],
+   "spot_sha256": "0b6fe55a7d2ebe269781372cf1c33414d4b6b02c87c890eeddc82a3d663dc87e",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air in position bets 1.5 pot into a bluff catcher"
+  },
+  "py07": {
+   "app_budget": {
+    "exploitability_pot": 0.00046827,
+    "iterations": 128,
+    "ms": 10.1
+   },
+   "combos": [
+    19,
+    6
+   ],
+   "converged": true,
+   "elapsed_s": 0.16,
+   "exploitability_pot": 5.76e-06,
+   "file": "py07.jsonl",
+   "iterations": 2048,
+   "known_oop_value": 23.684211,
+   "nodes": 3,
+   "oop_value": 23.684211,
+   "oop_value_bounds": [
+    23.684211,
+    23.685363
+   ],
+   "spot_sha256": "b724f32dc35b6e36736e2972cb0f230f032042adb2e31086460e9bd20f3ac75b",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: nuts or air out of position bets 1 pot into a bluff catcher"
+  },
+  "py08": {
+   "app_budget": {
+    "exploitability_pot": 0.00084061,
+    "iterations": 32,
+    "ms": 3.2
+   },
+   "combos": [
+    6,
+    19
+   ],
+   "converged": true,
+   "elapsed_s": 0.64,
+   "exploitability_pot": 2.97e-06,
+   "file": "py08.jsonl",
+   "iterations": 8192,
+   "known_oop_value": 78.289474,
+   "nodes": 3,
+   "oop_value": 78.289474,
+   "oop_value_bounds": [
+    78.289208,
+    78.289802
+   ],
+   "spot_sha256": "9c15be5b0a2c5361b49ba55aa9ccfd01de0f62a1182b05a8ad528f5769ce2648",
+   "spr": 0.6,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry",
+    "low-spr"
+   ],
+   "title": "Known answer: nuts or air in position, the only bet is all in for 0.6 pot"
+  },
+  "py09": {
+   "app_budget": {
+    "exploitability_pot": 0.00022594,
+    "iterations": 32,
+    "ms": 2.2
+   },
+   "combos": [
+    6,
+    13
+   ],
+   "converged": true,
+   "elapsed_s": 0.01,
+   "exploitability_pot": 3.65e-06,
+   "file": "py09.jsonl",
+   "iterations": 128,
+   "known_oop_value": 0.0,
+   "nodes": 3,
+   "oop_value": 0.000438,
+   "oop_value_bounds": [
+    -0.000146,
+    0.000585
+   ],
+   "spot_sha256": "eebd7ae7931dbcd4b71721f16855a025d155728d8bf3fb5f9ff9d0bf7bc37c0b",
+   "spr": 10.0,
+   "tags": [
+    "closed-form",
+    "polar",
+    "dry"
+   ],
+   "title": "Known answer: too few bluffs for a pot-sized bet, the bluff catcher always folds"
+  },
+  "py10": {
+   "app_budget": {
+    "exploitability_pot": 0.00028716,
+    "iterations": 32,
+    "ms": 8.1
+   },
+   "combos": [
+    16,
+    6
+   ],
+   "converged": true,
+   "elapsed_s": 0.03,
+   "exploitability_pot": 3.97e-06,
+   "file": "py10.jsonl",
+   "iterations": 128,
+   "known_oop_value": 0.0,
+   "nodes": 12,
+   "oop_value": -0.000772,
+   "oop_value_bounds": [
+    -0.000795,
+    0.0
+   ],
+   "spot_sha256": "db17ef8fc6d5333d3f523aa9e229aa5c7284dd290716d5ebd25bd50278501dca",
+   "spr": 2.0,
+   "tags": [
+    "trivial",
+    "dry"
+   ],
+   "title": "Known answer: OOP holds only air, IP only the nuts"
+  },
+  "py11": {
+   "app_budget": {
+    "exploitability_pot": 0.00025951,
+    "iterations": 32,
+    "ms": 7.7
+   },
+   "combos": [
+    6,
+    16
+   ],
+   "converged": true,
+   "elapsed_s": 0.03,
+   "exploitability_pot": 4.75e-06,
+   "file": "py11.jsonl",
+   "iterations": 128,
+   "known_oop_value": 100.0,
+   "nodes": 12,
+   "oop_value": 100.000717,
+   "oop_value_bounds": [
+    100.0,
+    100.00095
+   ],
+   "spot_sha256": "a45a3c257637af1a6b666103dedcb04a3f6f2b4feb202f34db249dafaed68411",
+   "spr": 2.0,
+   "tags": [
+    "trivial",
+    "dry"
+   ],
+   "title": "Known answer: OOP holds only the nuts, IP only air"
+  },
+  "py12": {
+   "app_budget": {
+    "exploitability_pot": 0.00064756,
+    "iterations": 16,
+    "ms": 6.9
+   },
+   "combos": [
+    105,
+    42
+   ],
+   "converged": true,
+   "elapsed_s": 0.05,
+   "exploitability_pot": 1.49e-06,
+   "file": "py12.jsonl",
+   "iterations": 128,
+   "known_oop_value": 50.0,
+   "nodes": 12,
+   "oop_value": 50.000131,
+   "oop_value_bounds": [
+    49.999951,
+    50.00025
+   ],
+   "spot_sha256": "d9f0ad230e8add59d0ffb47485f880dcff293752e3bac13340b1e3eed966ce3a",
+   "spr": 2.0,
+   "tags": [
+    "trivial",
+    "wet"
+   ],
+   "title": "Known answer: royal flush on the board, every hand splits"
+  },
+  "py13": {
+   "app_budget": {
+    "exploitability_pot": 0.00029113,
+    "iterations": 128,
+    "ms": 33.2
+   },
+   "combos": [
+    62,
+    60
+   ],
+   "converged": true,
+   "elapsed_s": 0.24,
+   "exploitability_pot": 4.62e-06,
+   "file": "py13.jsonl",
+   "iterations": 1024,
+   "nodes": 8,
+   "oop_value": 60.829235,
+   "oop_value_bounds": [
+    60.828723,
+    60.829647
+   ],
+   "spot_sha256": "0415bc81086e3bd40f14c477e2d27125fa6cb7765e0f6ab5eff98adf302809c7",
+   "spr": 1.0,
+   "tags": [
+    "dry",
+    "polar",
+    "condensed"
+   ],
+   "title": "Dry Q7283, capped caller OOP against a polar bettor, SPR 1, the app's sizes"
+  },
+  "py14": {
+   "app_budget": {
+    "exploitability_pot": 0.00041911,
+    "iterations": 256,
+    "ms": 186.2
+   },
+   "combos": [
+    245,
+    226
+   ],
+   "converged": true,
+   "elapsed_s": 3.05,
+   "exploitability_pot": 4.52e-06,
+   "file": "py14.jsonl",
+   "iterations": 4096,
+   "nodes": 12,
+   "oop_value": 45.088896,
+   "oop_value_bounds": [
+    45.088581,
+    45.089485
+   ],
+   "spot_sha256": "2ee52e7aca7d6b8a09c1c69f3fd604f5aa360f6808a11ddc34217edf27ce44a0",
+   "spr": 2.5,
+   "tags": [
+    "wet",
+    "wide"
+   ],
+   "title": "Wet Th9h6c-Jh-2d, wide against wide, SPR 2.5, the app's sizes"
+  },
+  "py15": {
+   "app_budget": {
+    "exploitability_pot": 0.00055567,
+    "iterations": 64,
+    "ms": 13.4
+   },
+   "combos": [
+    100,
+    53
+   ],
+   "converged": true,
+   "elapsed_s": 0.12,
+   "exploitability_pot": 2.32e-06,
+   "file": "py15.jsonl",
+   "iterations": 512,
+   "nodes": 8,
+   "oop_value": 22.193928,
+   "oop_value_bounds": [
+    22.193704,
+    22.194168
+   ],
+   "spot_sha256": "b1e03654420e618a4f3ba6885521dae702793805597f7f62dcabd2c4d5c0446d",
+   "spr": 0.5,
+   "tags": [
+    "paired",
+    "polar",
+    "condensed",
+    "low-spr"
+   ],
+   "title": "Paired AA7-7-2, SPR 0.5: a small bet or all in"
+  },
+  "py16": {
+   "app_budget": {
+    "exploitability_pot": 0.00052625,
+    "iterations": 256,
+    "ms": 251.1
+   },
+   "combos": [
+    69,
+    72
+   ],
+   "converged": true,
+   "elapsed_s": 1.51,
+   "exploitability_pot": 5.16e-06,
+   "file": "py16.jsonl",
+   "iterations": 2048,
+   "nodes": 30,
+   "oop_value": 18.152778,
+   "oop_value_bounds": [
+    18.15228,
+    18.153312
+   ],
+   "spot_sha256": "25b71879d32bf23baac2045ca377a35135c0698042a1918db8d9afabdf70c29c",
+   "spr": 5.0,
+   "tags": [
+    "wet",
+    "polar",
+    "condensed",
+    "three-sizes",
+    "overbet",
+    "reraise"
+   ],
+   "title": "Four to a straight 9876-K, SPR 5, three bet sizes and two raises"
+  },
+  "py17": {
+   "app_budget": {
+    "exploitability_pot": 0.00048389,
+    "iterations": 253,
+    "ms": 288.9
+   },
+   "combos": [
+    258,
+    528
+   ],
+   "converged": true,
+   "elapsed_s": 4.35,
+   "exploitability_pot": 4.19e-06,
+   "file": "py17.jsonl",
+   "iterations": 4096,
+   "nodes": 14,
+   "oop_value": 41.027708,
+   "oop_value_bounds": [
+    41.027148,
+    41.027986
+   ],
+   "spot_sha256": "4fdbeaf695b76bea3330399db6014c5d64d9e7132604c66fc0a3b005269c5eb2",
+   "spr": 2.64,
+   "tags": [
+    "dry",
+    "app-ranges"
+   ],
+   "title": "The app's ranges: button opens, big blind (the app) calls; bet 66%, bet 75%, both called"
+  },
+  "py18": {
+   "app_budget": {
+    "exploitability_pot": 0.0006476,
+    "iterations": 225,
+    "ms": 289.6
+   },
+   "combos": [
+    320,
+    480
+   ],
+   "converged": true,
+   "elapsed_s": 4.86,
+   "exploitability_pot": 5.29e-06,
+   "file": "py18.jsonl",
+   "iterations": 4096,
+   "nodes": 14,
+   "oop_value": 24.725994,
+   "oop_value_bounds": [
+    24.725532,
+    24.726591
+   ],
+   "spot_sha256": "09ebedbea27d4001dd373eff98aceab4de65b1e86eca9b043e4ee1f7330d4056",
+   "spr": 3.43,
+   "tags": [
+    "wet",
+    "app-ranges"
+   ],
+   "title": "The app's ranges: the app opens the button, big blind calls; the app bets 50% and 66%, both called"
+  },
+  "py19": {
+   "app_budget": {
+    "exploitability_pot": 0.00032545,
+    "iterations": 256,
+    "ms": 121.3
+   },
+   "combos": [
+    186,
+    168
+   ],
+   "converged": true,
+   "elapsed_s": 1.14,
+   "exploitability_pot": 5.79e-06,
+   "file": "py19.jsonl",
+   "iterations": 2048,
+   "nodes": 12,
+   "oop_value": 45.165758,
+   "oop_value_bounds": [
+    45.16527,
+    45.166428
+   ],
+   "spot_sha256": "11f932abe2a46728f1014abdbd5185dc689a4f4a74d18157bc21d3aefe299e12",
+   "spr": 2.38,
+   "tags": [
+    "dry",
+    "app-ranges"
+   ],
+   "title": "The app's ranges: small blind re-raises the app's button open to 10, called; bet 33%, turn checked"
+  },
+  "py20": {
+   "app_budget": {
+    "exploitability_pot": 0.00078862,
+    "iterations": 256,
+    "ms": 241.6
+   },
+   "combos": [
+    429,
+    201
+   ],
+   "converged": true,
+   "elapsed_s": 4.13,
+   "exploitability_pot": 6.19e-06,
+   "file": "py20.jsonl",
+   "iterations": 4096,
+   "nodes": 16,
+   "oop_value": 66.897421,
+   "oop_value_bounds": [
+    66.896725,
+    66.897963
+   ],
+   "spot_sha256": "7734580dab897e611357c07120d5054c292d27e848fc18006c1930fece1ee7db",
+   "spr": 4.67,
+   "tags": [
+    "paired",
+    "app-ranges"
+   ],
+   "title": "The app's ranges: cutoff opens, the app calls on the button; flop checked, cutoff bets the pot on the turn"
+  }
+ }
+}
