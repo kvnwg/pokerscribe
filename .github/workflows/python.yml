@@ -7,7 +7,7 @@ name: Python
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, claude/exciting-rubin-j8hs7q] # TEMPORARY: measuring on this branch
   workflow_dispatch:
 
 permissions:
