@@ -61,11 +61,14 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 
 - Phase 1 was started on 26 Nov at Kevin's request while Phase 0 waits for saved reads. Its tools
   are built (duplicate deals, luck adjustment, replays that redeal the opponents, AIVAT imaginary
-  observations, held-out tables, weakness report). Gate run 4 (pre-registered): geometric mean of
-  the SE ratios 0.42 (bar 0.5) at 1.17 times the CPU (bar 1.25), but two comparisons exceed the
-  0.75 per-comparison bar (`semibluff_turn: never` 0.80; `commit: 1.0` 2.02 on 2 to 4 informative
-  hands). So the gate as written is not passed and Phase 2 waits for Kevin's call on the rule
-  (`experiments.md`, Phase 1, gate run 4).
+  observations, held-out tables, weakness report). Gate run 4 failed the 0.75 per-comparison bar
+  on two comparisons with almost no differing hands. Kevin then chose to judge only comparisons
+  where at least 1% of hands differ, confirmed on fresh seeds. Gate run 5 (pre-registered, seeds
+  808 and 909): geometric mean 0.46 (bar 0.5), CPU 1.24 (bar 1.25), but `texture_sizing` 0.7507
+  is over the 0.75 bar, so the gate as written is not passed. Phase 2 waits for Kevin's next call
+  (`experiments.md`, Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of
+  classic on the four sizing comparisons and 0.16 on `push_chart`; a run of this size fails about
+  one time in three by chance.
 - Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
   instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`). For each folder: run
   `tools/replay_reads.py`, find the cause, fix it, add a regression test.

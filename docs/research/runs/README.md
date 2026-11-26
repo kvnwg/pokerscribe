@@ -16,3 +16,6 @@ Phase 1 (26 Nov 2026), run from the repo root:
   and its value weights), `phase1_redeal_explore.py` with `phase1_redeal_summary.py` (redealt
   replays, `phase1_redeal/`), and gate run 4: `phase1_gate4.sh` with `phase1_gate4_summary.py`
   (`phase1_gate4/summary.md`).
+- Gate run 5: `phase1_gate5.sh` (the same summary script, `phase1_gate5/summary.md`), and
+  `phase1_gate5_noise.py`, written after its result, on how much one run's ratios move by
+  chance (`phase1_gate5/noise.md`).

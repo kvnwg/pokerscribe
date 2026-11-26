@@ -371,8 +371,64 @@ Rule (`runs/phase1_gate5.sh`, committed before any hand on its seeds was played)
 - If run 5 passes, the Phase 1 gate is passed. Run 4 would also pass this rule (0.34; largest
   0.51; CPU 1.17), but it was used to choose the rule, so it doesn't count.
 
-RUN5_PLACEHOLDER
+Result (`runs/phase1_gate5/`, `summary.md`). Hands: 6000 new way (seeds 808 and 909), 18000
+old way (seeds 303 to 909).
 
+| Comparison | Hands that differ, new | New way (bb/100) | Old way (bb/100) | r |
+|---|---|---|---|---|
+| `push_chart`, tourney | 1.07% | -0.1 ± 0.2 | -0.6 ± 0.7 | 0.153 |
+| `ev_sizing`, fish247 | 5.55% | +3.6 ± 1.6 | +1.6 ± 2.2 | 0.434 |
+| `ev_sizing`, mixed | 4.27% | +0.5 ± 1.9 | +1.1 ± 1.9 | 0.583 |
+| `bet_size: 0.5` | 4.45% | -2.5 ± 2.2 | -3.3 ± 1.7 | 0.734 |
+| `texture_sizing` | 4.45% | -3.0 ± 1.6 | -0.9 ± 1.3 | 0.751 |
+| Not judged (under 1%): `stab: 0.0` | 0.87% | -2.9 ± 1.2 | -5.3 ± 1.8 | 0.381 |
+| Not judged: `semibluff_turn: "never"` | 0.78% | -1.6 ± 0.8 | -2.3 ± 0.8 | 0.572 |
+| Not judged: `commit: 1.0` | 0.12% | +0.8 ± 1.1 | -0.4 ± 0.4 | 1.453 |
+
+Geometric mean of r over the five judged: **0.46** (passes, at most 0.5). CPU per hand:
+**1.24** times classic (passes, at most 1.25). Largest judged r: **0.7507**, `texture_sizing`
+(fails, at most 0.75). **Run 5 fails**, on the third condition, by 0.0007. `summary.md` shows
+it rounded to 0.75.
+
+- `bet_size: 0.5` (0.734) is just under the bar too.
+- Nothing in the method changed between runs 4 and 5, yet the same comparisons moved a lot:
+  `bet_size: 0.5` from 0.40 to 0.73, `texture_sizing` from 0.51 to 0.75, `ev_sizing` on mixed
+  from 0.39 to 0.58. An sd estimated from 6000 hands with a few large results is itself noisy.
+
+How much one run moves by chance (`runs/phase1_gate5_noise.py`, output in
+`phase1_gate5/noise.md`). It was worked out after run 5's result was seen, so it describes the
+runs and tests nothing.
+
+| Comparison | Run 4 | Run 5 | Both pooled | 95% of runs like run 5 |
+|---|---|---|---|---|
+| `push_chart`, tourney | 0.17 | 0.15 | 0.16 | 0.12 to 0.20 |
+| `ev_sizing`, fish247 | 0.35 | 0.43 | 0.41 | 0.30 to 0.56 |
+| `ev_sizing`, mixed | 0.39 | 0.58 | 0.50 | 0.33 to 0.72 |
+| `bet_size: 0.5` | 0.40 | 0.73 | 0.61 | 0.42 to 0.83 |
+| `texture_sizing` | 0.51 | 0.75 | 0.65 | 0.43 to 0.95 |
+
+- Pooled: the new way's 12000 hands of runs 4 and 5 (seeds 606, 707, 808 and 909) over the
+  old way's 18000.
+- Last column: 2000 runs of run 5's size drawn with replacement from the pooled hands, with
+  the same decks for every comparison, as fresh seeds would give.
+- In those draws run 5's rule passes its two r conditions 67% of the time: the geometric
+  mean in 93%, the largest r in 69% (`texture_sizing` is above 0.75 in 24% of draws,
+  `bet_size: 0.5` in 11%). The CPU condition comes on top: 1.17 in run 4 and 1.24 in run 5,
+  against 1.25.
+- So if the pooled numbers are about right, a run like this fails about one time in three
+  by chance alone.
+- Pooled, the geometric mean over the five is 0.42, and 0.53 without `push_chart`.
+  `push_chart` changes all-in decisions before the flop, after which nobody can bet, so the
+  luck of every board card comes out exactly. On `bet_size: 0.5` and `texture_sizing` the SE
+  is about 0.6 to 0.65 of classic, not halved.
+- Even so, the new way needs less CPU for the same precision in every judged comparison: r
+  squared times that comparison's CPU ratio is 0.02 (`push_chart`) to 0.73
+  (`texture_sizing`) in run 5. It is unbiased (see above), so it stays the default in
+  `tools/compare.py`.
+- **So the gate as written is not passed, and Phase 2 does not start.**
+- What next (another run decided in advance, a different rule, or starting Phase 2 without a
+  pass) is Kevin's decision, to be written down here before anything more is run for the
+  gate.
 
 ### Held-out opponents
 
