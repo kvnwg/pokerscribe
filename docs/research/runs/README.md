@@ -24,6 +24,12 @@ Phase 1 (26 Nov 2026), run from the repo root:
   hand that differs, on the gate runs' seeds and on seeds 41 to 48, and the tests on them, one
   `.txt` per test), and `phase1_replay_check.sh`, with its rule in the header before it ran,
   the confirming check on seeds 51 to 66 (`phase1_replay_check/summary.md`).
+- The heads-up mode: `phase1_heads_up_b0.sh` plays B0 heads-up on every table and stack
+  setting and counts always-wrong instructions (`phase1_heads_up_b0.py`, table by
+  `phase1_heads_up_b0_table.py` in `phase1_heads_up_b0/summary.md`), `phase1_heads_up_bots.py`
+  counts how the bots play heads-up before the flop (`phase1_heads_up_b0/bots.txt`), and
+  `phase1_heads_up_gate.sh`, with its rule in the header before it ran, is the gate run 5
+  rule applied heads-up (`phase1_heads_up_gate/summary.md`, made by `phase1_gate4_summary.py`).
 
 Phase 2 (26 Nov 2026):
 

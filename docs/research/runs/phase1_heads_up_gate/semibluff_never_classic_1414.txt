@@ -1,0 +1,2 @@
+mixed     base   +16.4 (± 10.0)  other   +12.8 (± 10.0)  difference   -3.5 ±  1.6  luck-adjusted   -3.5 ±  1.6 (checked down only   -3.5 ±  1.6) bb/100  [42/3000 hands differ, problems none]
+ALL       difference   -3.5 ±  1.6  luck-adjusted   -3.5 ±  1.6 bb/100 over 3000 hands, classic (109s)

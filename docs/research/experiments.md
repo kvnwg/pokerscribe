@@ -520,8 +520,8 @@ tuning bots.
 - The keyed-only runs for seed 404 were dropped to save time: cross-method ratios are too
   noisy at this size to say anything (point 1 above).
 - A heads-up simulator mode (`--players 2`, each deal played twice with the seats swapped),
-  which the new roadmap's Phase 1 adds, with the check that B0 plays heads-up.
-  `tools/simulate.py` is six-max only.
+  which the new roadmap's Phase 1 adds, with the check that B0 plays heads-up. Added later:
+  see "Phase 1: the heads-up mode" below.
 
 ## Phase 2 groundwork: river solver (26 Nov 2026)
 
@@ -1407,6 +1407,140 @@ the solving time the program reports) and with a stand-in that does no solving
 - The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets
   260 ms. The largest overhead measured in any run is 37.7 ms.
 - Not in these numbers: a Mac.
+
+## Phase 1: the heads-up mode (26 Nov 2026)
+
+The last part of Kevin's Phase 1 brief: a heads-up mode (`--players 2`) in the simulator and
+the comparisons, B0 playing heads-up without always-wrong instructions, six-max play not
+changed at all, and the gate (SE at least halved) for heads-up too.
+
+### What was built
+
+- **`tools/simulate.py --players 2`**: the app against one of the table's five bots at a
+  time: the first of each deal's seat shuffle, so a different one from deal to deal.
+  - Heads-up rules: the button posts the small blind and acts first before the flop; the big
+    blind acts first on the flop, turn and river.
+  - The seats are named as the reader names them, "BTN/SB" and "BB"
+    (`app.state.positions`), so the advice sees what it would see at a real two-player table.
+- **`tools/compare.py --players 2`**: duplicate deals play each deal twice with the seats
+  swapped. The app holds the button's cards once and the big blind's once, against the same
+  bot on the same board. Everything else works as in six-max:
+  - a seed per bot decision;
+  - 6 replays from where the variants part, with the bot dealt fresh hands it could hold;
+  - the luck of board cards after which nobody can bet again taken out;
+  - a deck's two hands as one unit for the SE;
+  - `--jobs`, with the same results.
+- **More always-wrong checks** in `simulate.check_advice`, for moves the table can't take as
+  said:
+  - a bet or raise under the minimum, or more than the stack;
+  - CALL with nothing to call, CHECK facing a bet;
+  - folding aces before the flop.
+- **Nothing in `app/poker` changed**, B0 included. The advice already handled the heads-up
+  seats: the button's chart (`charts.OPEN["BTN/SB"]`), the raiser's seat group, who is in
+  position, and the players behind for push-or-fold.
+- **Six-max plays exactly as before.** These were all identical to the commit before the
+  heads-up mode, problem counts included:
+  - 720 hands on four tables and stack settings;
+  - 120 hands with profiles;
+  - paired runs of 72 hands with each of the three methods.
+
+  `test_six_max_unchanged_by_the_heads_up_mode` pins some of them, and the baseline test
+  passes.
+
+### B0 heads-up
+
+`runs/phase1_heads_up_b0.sh` and `phase1_heads_up_b0/summary.md`: every table and stack
+setting heads-up, 2000 hands each (1000 with profiles), and three six-max runs with the same
+checks for comparison.
+
+| Heads-up, 2000 hands each | B0, bb/100 | Button raises |
+|---|---|---|
+| mixed / stations / nits / tags | +20.2 / +24.4 / +30.9 / +25.1 | 44% / 43% / 42% / 44% |
+| lags / maniacs / fish247 | +22.2 / +5.9 / +22.0 | 43% / 45% / 46% |
+| heldout / regulars / switchers / wildcards | +19.3 / +26.1 / +25.3 / +2.0 | 44% / 44% / 46% / 47% |
+| mixed: uneven / tourney / 500 bb deep / profiles (1000) | +27.2 / +20.8 / +18.0 / +24.8 | 41% / 42% / 43% / 44% |
+| fish247: tourney / 500 bb deep | +10.6 / +7.7 | 43% / 45% |
+
+- **No always-wrong instruction** in 37629 heads-up instructions (33000 hands, 17 settings).
+  That covers every tuning and held-out table, uneven and tournament stacks, 500 big blinds
+  deep, and profiles. Both kinds of check found nothing: `check_advice`'s and the new ones.
+- From the button B0 raises 41% to 47% of hands and folds the rest. That's its six-max
+  button chart (`OPEN["BTN/SB"] = OPEN["BTN"]`). Heads-up solver strategies open far wider
+  (about 80% at 100 big blinds), but that's a question for the new agent, not a bug, and B0
+  is frozen.
+- **The bots keep their six-max styles**, so heads-up they fold a lot before the flop
+  (`runs/phase1_heads_up_bots.py`, mixed, 2500 hands, in `phase1_heads_up_b0/bots.txt`):
+  - in the big blind facing an open: the nit 92%, the tag 85%, the lag 84%, the maniac 67%
+    and the station 66%;
+  - on the button, first in: the nit 83%, the tag 81%, the lag 68%, the station 51% and the
+    maniac 43%.
+
+  So B0 wins against every table, and the bots are weak heads-up opponents. Heads-up styles
+  for them would need data: the HandHQ heads-up hands are in the shelved dataset.
+- **One older six-max bug**, which the new checks found in the six-max runs (1 of 2038
+  instructions on fish247, 500 big blinds deep):
+  - B0 said BET 1.5 into a pot of 4 chips (two big blinds) on the turn, under the minimum
+    bet of 2.
+  - The simulator plays the minimum instead, so no result changes.
+  - It isn't fixed here, because six-max play must not change. It's a plain bug fix for
+    later, with a regression test.
+
+### The gate, heads-up
+
+Rule (`runs/phase1_heads_up_gate.sh`, committed in 68791d6 before any heads-up hand on its
+seeds was played):
+
+- Gate run 5's rule, heads-up: the same 8 comparisons, 3000 hands each.
+- The new way: the defaults (each deal twice with the seats swapped; 6 replays from where the
+  variants part, with the bot redealt; luck taken out only where nobody can bet again), on
+  seeds 1111 and 1212.
+- The old way: classic, raw difference, pooled over seeds 1111 to 1414.
+- r: the new way's sd per hand over the old way's (decks as units), as in runs 4 and 5.
+- Judged: the comparisons in which at least 1% of the new way's hands differ.
+- Pass: geometric mean of r at most 0.5, none above 0.75, CPU per hand at most 1.25 times
+  classic.
+
+Result (`runs/phase1_heads_up_gate/summary.md`). Hands: 6000 new way, 12000 old way.
+
+| Comparison | Hands that differ, new | New way (bb/100) | Old way (bb/100) | r | CPU, new / old |
+|---|---|---|---|---|---|
+| `push_chart`, tourney | 2.52% | +1.2 ± 0.2 | +1.5 ± 0.6 | 0.258 | 1.16 |
+| `bet_size: 0.5` | 4.42% | -1.3 ± 0.6 | -0.0 ± 1.3 | 0.323 | 1.39 |
+| `texture_sizing` | 4.43% | -0.6 ± 0.5 | -0.7 ± 1.1 | 0.327 | 1.40 |
+| `ev_sizing`, fish247 | 8.27% | +2.3 ± 1.0 | +3.5 ± 1.6 | 0.439 | 1.71 |
+| `ev_sizing`, mixed | 5.57% | +3.7 ± 1.3 | +3.8 ± 1.8 | 0.497 | 1.80 |
+| `semibluff_turn: "never"` | 1.57% | -3.2 ± 0.9 | -3.3 ± 1.3 | 0.529 | 1.12 |
+| Not judged (under 1%): `stab: 0.0` | 0.42% | -1.2 ± 0.4 | -1.7 ± 1.0 | 0.295 | 1.11 |
+| Not judged: `commit: 1.0` | 0.03% | no result differs | | | 1.03 |
+
+Geometric mean of r over the six judged: **0.38** (passes, at most 0.5). Largest judged r:
+**0.53**, `semibluff_turn: "never"` (passes, at most 0.75). CPU per hand: **1.41** times
+classic (fails, at most 1.25). **The heads-up run fails**, on the CPU condition only.
+
+- The SE is more than halved on average heads-up too: 0.38, against 0.46 in six-max run 5,
+  and every judged comparison is at 0.53 or below (run 5: up to 0.75). Read strictly (every
+  comparison at most 0.5), one is over: `semibluff_turn: "never"` at 0.53.
+- The extra CPU is the replays. Heads-up more hands differ (4% to 8% for the sizing
+  comparisons, about 4% in six-max), and each is played 10 more times. It is highest for
+  `ev_sizing` (1.7 and 1.8), whose decisions are the slowest.
+- Per CPU second instead of per hand, r becomes r x the square root of the CPU ratio:
+  geometric mean 0.45, largest 0.67 (`ev_sizing`, mixed). That was worked out after the
+  result, so it tests nothing.
+- The seat swap alone does nothing for these comparisons: the raw duplicate difference's sd
+  is 0.68 to 1.27 of classic's. The gain is the replays'. Pairing the variants already
+  cancels the cards they share.
+- The brief's gate is "at equal hands", which this passes on average; the CPU bar came with
+  run 5's rule. As with run 5, whether that is good enough is Kevin's call. Nothing in the
+  method was changed for heads-up.
+
+### Not done
+
+- Head-to-head play: two variants against each other heads-up, each deal played twice with
+  the seats swapped. Phase 6's "beats B0 heads-up" needs it once there is a second agent.
+- Heads-up styles for the bots (above).
+- The weakness report (`tools/weakness.py`) and the luck weights' fit (`tools/luck.py fit`)
+  are six-max only. The comparisons don't use the weights: they only correct board cards
+  after which nobody can bet again, where the weights have no effect.
 
 ## Research notes (paraphrased, with sources)
 
