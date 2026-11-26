@@ -7,7 +7,7 @@
 - tree.py: the river betting tree of a spot
 - ranking.py: fast hand values for every combo on a river board, showdown tables
 - strategy.py: RiverStrategy (the output: action probabilities per node and combo)
-- solve.py: solve_river, the entry point
+- solve.py: solve_river, the entry point, and decision_settings (how the advice calls it)
 - cfr.py: the method behind it, Discounted CFR (and CFR+), vectorised over combos
 - exploitability.py: what a perfect counter-strategy wins (0 at an equilibrium)
 - pushfold.py: solve_push_fold, heads-up jam-or-fold on exact preflop equities (data/)
@@ -21,11 +21,12 @@ See docs/research/SOLVER.md.
 from .exploitability import Exploitability, best_response, exploitability, strategy_values
 from .pushfold import PushFoldSolution, solve_push_fold
 from .ranges import RangeEstimate, river_ranges
-from .solve import DECISION_BUDGET_MS, solve_river
+from .solve import DECISION_BUDGET_MS, decision_settings, reference_iterations, solve_river, target_for
 from .spot import IP, OOP, BetSizes, RiverSpot
 from .strategy import RiverStrategy
 from .tree import GameTree, build_tree
 
 __all__ = ["BetSizes", "DECISION_BUDGET_MS", "Exploitability", "GameTree", "IP", "OOP", "PushFoldSolution",
-           "RangeEstimate", "RiverSpot", "RiverStrategy", "best_response", "build_tree", "exploitability",
-           "river_ranges", "solve_push_fold", "solve_river", "strategy_values"]
+           "RangeEstimate", "RiverSpot", "RiverStrategy", "best_response", "build_tree", "decision_settings",
+           "exploitability", "reference_iterations", "river_ranges", "solve_push_fold", "solve_river",
+           "strategy_values", "target_for"]

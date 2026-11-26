@@ -46,7 +46,7 @@ SPOTS = [first_to_act, checked_to, facing_bet, facing_raise]
 def picks(wanted, at=None):
     """A fake solver that plays `wanted` wherever it can (or only at the node `at`), and
     every action equally often elsewhere (so both players get to every node)."""
-    def solve(spot, budget_ms):
+    def solve(spot, time_budget_ms=None, **how):
         return RiverStrategy.from_rule(spot, lambda node, combo: (
             {wanted: 1.0} if wanted in node.actions and at in (None, node.key)
             else [1 / len(node.actions)] * len(node.actions)))
@@ -58,7 +58,7 @@ def switch_on(monkeypatch):
     monkeypatch.setitem(advice.TUNING, "river_solver", True)
 
 
-def _never_called(spot, budget_ms):
+def _never_called(spot, time_budget_ms=None, **how):
     raise AssertionError("the solver must not be called")
 
 
@@ -75,7 +75,7 @@ def test_switch_off_never_calls_the_solver(make, monkeypatch):
 
 @pytest.mark.parametrize("make", SPOTS)
 def test_a_missing_solver_falls_back_to_the_rules(make, monkeypatch):
-    def not_written(spot, budget_ms):
+    def not_written(spot, time_budget_ms=None, **how):
         raise NotImplementedError
 
     before = go(make()).to_dict()
@@ -90,16 +90,16 @@ def test_a_slow_solver_falls_back_to_the_rules(make, monkeypatch):
     monkeypatch.setitem(advice.TUNING, "river_solver", True)
     monkeypatch.setattr(solver, "DECISION_BUDGET_MS", 20)
 
-    def slow(spot, budget_ms):
+    def slow(spot, time_budget_ms=None, **how):
         time.sleep(0.04)
-        return picks("x")(spot, budget_ms)
+        return picks("x")(spot)
 
     monkeypatch.setattr(solver, "solve_river", slow)
     assert go(make()).to_dict() == before
 
 
 def test_a_failing_solver_falls_back_to_the_rules(monkeypatch, switch_on):
-    def broken(spot, budget_ms):
+    def broken(spot, time_budget_ms=None, **how):
         raise RuntimeError("bug")
 
     monkeypatch.setattr(solver, "solve_river", broken)
@@ -111,8 +111,8 @@ def test_a_failing_solver_falls_back_to_the_rules(monkeypatch, switch_on):
 
 def test_a_rough_answer_falls_back_to_the_rules(monkeypatch):
     # the solver ran out of time 5% of the pot away from an equilibrium (the bar is 1%)
-    def rough(spot, budget_ms):
-        st = picks("f")(spot, budget_ms)
+    def rough(spot, time_budget_ms=None, **how):
+        st = picks("f")(spot)
         st.exploitability = 0.05
         return st
 
@@ -121,8 +121,8 @@ def test_a_rough_answer_falls_back_to_the_rules(monkeypatch):
     monkeypatch.setattr(solver, "solve_river", rough)
     assert go(facing_bet()).to_dict() == before
     # the same answer, close enough: it is used
-    def fine(spot, budget_ms):
-        st = picks("f")(spot, budget_ms)
+    def fine(spot, time_budget_ms=None, **how):
+        st = picks("f")(spot)
         st.exploitability = 0.004
         return st
 
@@ -186,9 +186,9 @@ def test_solver_answers_a_raise_of_your_bet(monkeypatch, switch_on):
 def test_the_solver_sees_the_raise(monkeypatch, switch_on):
     seen = {}
 
-    def spy(spot, budget_ms):
+    def spy(spot, time_budget_ms=None, **how):
         seen["spot"] = spot
-        return picks("c")(spot, budget_ms)
+        return picks("c")(spot)
 
     monkeypatch.setattr(solver, "solve_river", spy)
     go(facing_raise())
@@ -232,9 +232,9 @@ def test_the_ranges_come_from_the_betting_so_far(monkeypatch, switch_on):
 def test_the_solver_sees_the_real_spot(monkeypatch, switch_on):
     seen = {}
 
-    def spy(spot, budget_ms):
-        seen["spot"], seen["budget"] = spot, budget_ms
-        return picks("c")(spot, budget_ms)
+    def spy(spot, time_budget_ms=None, **how):
+        seen["spot"], seen["budget"], seen["how"] = spot, time_budget_ms, how
+        return picks("c")(spot)
 
     monkeypatch.setattr(solver, "solve_river", spy)
     go(facing_bet())
@@ -242,17 +242,61 @@ def test_the_solver_sees_the_real_spot(monkeypatch, switch_on):
     assert spot.board == tuple(BOARD) and spot.pot == 200 and spot.effective_stack == 1000
     assert "b100" in GameTree(spot)["x"].actions  # their real bet is in the tree
     assert seen["budget"] == solver.DECISION_BUDGET_MS
+    # by the clock, and stopping early at a hundredth of a big blind: the pot is 20 of them
+    assert seen["how"] == {"max_iterations": None, "target_exploitability": pytest.approx(0.01 / 20)}
     assert spot.index(OOP, ("Ah", "Kd")) >= 0  # the hero's hand is in the hero's range
+
+
+def test_fixed_work_takes_the_clock_away(monkeypatch, switch_on):
+    # TUNING["river_solver_fixed_work"], which the simulator turns on: no time budget, and
+    # the iterations the budget buys on the reference machine
+    seen = {}
+
+    def spy(spot, time_budget_ms=None, **how):
+        seen["spot"], seen["budget"], seen["how"] = spot, time_budget_ms, how
+        time.sleep(0.03)
+        return picks("c")(spot)
+
+    monkeypatch.setitem(advice.TUNING, "river_solver_fixed_work", True)
+    monkeypatch.setattr(solver, "DECISION_BUDGET_MS", 20)  # the solve above takes longer than this
+    monkeypatch.setattr(solver, "solve_river", spy)
+    a = go(facing_bet())
+    assert a.basis == "solver" and a.action == "call"  # a slow run still gives the solver's answer
+    assert seen["budget"] is None
+    assert seen["how"] == {"max_iterations": solver.reference_iterations(seen["spot"]),
+                           "target_exploitability": pytest.approx(0.01 / 20)}
+    # by the clock the same slow solve is too late, and the rules decide
+    monkeypatch.setitem(advice.TUNING, "river_solver_fixed_work", False)
+    assert go(facing_bet()).basis != "solver"
+
+
+def test_fixed_work_gives_the_same_instruction_every_run(monkeypatch, switch_on):
+    monkeypatch.setitem(advice.TUNING, "river_solver_fixed_work", True)
+    for make in (checked_to, facing_bet):
+        first, again = go(make()).to_dict(), go(make()).to_dict()
+        assert first["basis"] == "solver" and "%" in first["detail"]
+        assert first == again  # the mix in the small print too, to the last percent
+
+
+def test_the_simulator_turns_fixed_work_on(monkeypatch):
+    from tools import simulate as sim
+
+    assert advice.TUNING["river_solver_fixed_work"] is False  # the app itself goes by the clock
+    with sim.variant({"river_solver": True}):
+        assert advice.TUNING["river_solver_fixed_work"] is True and advice.TUNING["river_solver"] is True
+    assert advice.TUNING["river_solver_fixed_work"] is False and advice.TUNING["river_solver"] is False
+    with sim.variant(None):  # the baseline: the switch stays off, so the solver isn't reached
+        assert advice.TUNING["river_solver"] is False
+        monkeypatch.setattr(solver, "solve_river", _never_called)
+        go(facing_bet())
 
 
 # ------------------------------------------------- the real solver, end to end
 def test_real_solver_through_the_advice(monkeypatch, switch_on):
-    # The real solver, run for a fixed number of iterations inside a generous budget, so a
-    # busy machine can't make it late or rough (either would be a correct fall back to the
-    # rules, but not what this test is about).
-    real = solver.solve_river
-    monkeypatch.setattr(solver, "DECISION_BUDGET_MS", 20000)
-    monkeypatch.setattr(solver, "solve_river", lambda spot, budget_ms: real(spot, budget_ms, max_iterations=120))
+    # The real solver with a fixed amount of work in place of the clock, as the simulator
+    # runs it, so a busy machine can't make it late or rough (either would be a correct
+    # fall back to the rules, but not what this test is about).
+    monkeypatch.setitem(advice.TUNING, "river_solver_fixed_work", True)
     # A set of eights facing a half-pot bet: the solver's instruction, never a fold.
     st = table(["8h", "8s"], "BB", BOARD, bets={"BTN": 100}, pot=200, to_call=100,
                last={"BTN": Action("bet", 100)},
@@ -271,7 +315,7 @@ def test_real_solver_through_the_advice(monkeypatch, switch_on):
 
 
 def test_the_switch_is_still_off_with_the_real_solver(monkeypatch):
-    def never(spot, budget_ms):
+    def never(spot, time_budget_ms=None, **how):
         raise AssertionError("the solver must not be called while the switch is off")
 
     monkeypatch.setattr(solver, "solve_river", never)
@@ -398,7 +442,7 @@ def test_bridge_leaves_odd_spots_to_the_rules():
 
 def test_no_answer_when_the_solution_never_gets_there(monkeypatch):
     # a "solution" in which the button never bets: its strategy against a bet means nothing
-    def never_bets(spot, budget_ms):
+    def never_bets(spot, time_budget_ms=None, **how):
         return RiverStrategy.from_rule(spot, lambda node, combo: {node.actions[0]: 1.0})
 
     d = _decision(pot_now=300, villain_bet=100)

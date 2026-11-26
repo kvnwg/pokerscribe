@@ -188,6 +188,7 @@ TUNING = {
     # river, heads-up: play the river solver's strategy (app/solver) when it answers within
     # its time budget; otherwise, and on every other street, the rules above decide
     "river_solver": False,
+    "river_solver_fixed_work": False,  # (no clock, a fixed amount of work: the simulator uses it to stay repeatable)
 }
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
@@ -962,11 +963,12 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     if decision is None:
         return None
     budget = solver.DECISION_BUDGET_MS
+    fixed = bool(TUNING["river_solver_fixed_work"])  # the simulator: the same answer on every run
     start = time.perf_counter()
     try:
-        strategy = solver.solve_river(decision.spot, budget)
+        strategy = solver.solve_river(decision.spot, **solver.decision_settings(decision.spot, s.bb, fixed))
         elapsed_ms = 1000.0 * (time.perf_counter() - start)
-        if strategy is None or elapsed_ms > budget:
+        if strategy is None or (elapsed_ms > budget and not fixed):
             return None
         if (strategy.exploitability or 0.0) > QUALITY_BAR:  # too far from an equilibrium to act on
             return None

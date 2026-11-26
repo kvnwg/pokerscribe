@@ -133,8 +133,8 @@ def cost_report(samples, limit: int) -> None:
     times, solves, counts = [], [], defaultdict(int)
     real_solve, real_recommend = solver.solve_river, bridge.recommend
 
-    def solve(spot, budget_ms):
-        st = real_solve(spot, budget_ms)
+    def solve(spot, **how):
+        st = real_solve(spot, **how)
         solves.append((st.elapsed_ms, st.exploitability, len(spot.combos(0)), len(spot.combos(1))))
         return st
 
