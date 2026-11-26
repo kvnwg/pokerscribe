@@ -1,9 +1,12 @@
 # River solver (Phase 2)
 
-Phase 2 gate (README.md): matches closed-form results; beats B0 by 2.5 SE; p95 decision
-time under 400 ms.
+**The roadmap was replaced on 26 Nov 2026 (README.md), the day most of this was built.**
+Phase 2's gate is now "Reference for Phase 4": this Python solver is what the Rust solver
+must match. The gate it was built for (old roadmap): matches closed-form results; beats B0
+by 2.5 SE; p95 decision time under 400 ms. The comparison against B0 was never run and the
+new roadmap doesn't ask for it (tuning the rule engine is shelved). The switch stays off.
 
-Status, 26 Nov 2026:
+Status against the old gate, 26 Nov 2026:
 
 - **Matches closed-form results: done.** The river solver reproduces the half-street game
   of The Mathematics of Poker, and the push-or-fold solver matches the published
@@ -22,8 +25,8 @@ Status, 26 Nov 2026:
   of work, so a comparison with the solver on gives the same result every run.
 - **Time that follows the pot: done.** The solver stops at the same accuracy in chips for
   every pot, inside the same 300 ms. Small pots answer sooner, big ones are solved closer.
-- **Beats B0 by 2.5 SE: not started.** It waits for Phase 1. The advice switch
-  `river_solver` is off.
+- **Beats B0 by 2.5 SE: never run**, and no longer planned (see the top). The advice
+  switch `river_solver` is off.
 
 Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold", "Phase 2:
 river ranges from the betting, and facing a raise" and "Phase 2: the same answer every run,
@@ -202,9 +205,12 @@ ranges for hands with three or more players on the river.
 
 ## Next
 
-1. After Phase 1: compare `river_solver` on against B0 (rule 1). Nothing else may turn it
-   on. Run it with `--profiles`: without them the simulator keeps no record of the betting
-   and the ranges are only guessed from the pot.
+Under the new roadmap the next solver work is the Rust one (Phases 3 and 4), with this
+package as its reference. What was next here under the old one, kept in case it is wanted:
+
+1. Compare `river_solver` on against B0 (rule 1). Nothing else may turn it on. Run it
+   with `--profiles`: without them the simulator keeps no record of the betting and the
+   ranges are only guessed from the pot.
 2. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo). Only the all in follows
    it so far. Big pots finish with time to spare, so more sizes there are the next use of
    it.
@@ -250,7 +256,8 @@ solution (it was played differently earlier than the solver would have), the sol
 for it was never worked out. The instruction is then the best action for that hand against
 the opponent's solved strategy.
 
-Turning it on by default needs the B0 bar like any option (README.md, rule 1).
+Turning it on by default needs the B0 bar like any option (README.md, rule 1), and the
+new roadmap doesn't plan to.
 
 ## Saved decisions (`labels.py`)
 

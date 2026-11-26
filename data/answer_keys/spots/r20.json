@@ -1,0 +1,25 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r20",
+  "street": "river",
+  "title": "Wet Q7654 three hearts, two IP sizes",
+  "tags": ["wet", "polar", "condensed"],
+  "board": ["6h", "5h", "4d", "7s", "Qh"],
+  "pot": 100,
+  "stacks": [300, 300],
+  "spr": 3.0,
+  "max_raises": 3,
+  "sizes": {
+    "oop": {"bets": [0.33], "raises": [], "allin": true},
+    "ip": {"bets": [0.33, 0.75], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "AQ,KQ,QJ,QT,77,66:0.5,A6s,76s:0.5,65s,AA-JJ",
+    "ip": "98s,86s,83s,A8s,A3s,K3s,AKs,KJs,JTs,T9s,K9s:0.5"
+  },
+  "ranges": {
+    "oop": {"AsQs": 1.0, "AdQd": 1.0, "AcQc": 1.0, "AsQd": 1.0, "AsQc": 1.0, "AhQs": 1.0, "AhQd": 1.0, "AhQc": 1.0, "AdQs": 1.0, "AdQc": 1.0, "AcQs": 1.0, "AcQd": 1.0, "KsQs": 1.0, "KdQd": 1.0, "KcQc": 1.0, "KsQd": 1.0, "KsQc": 1.0, "KhQs": 1.0, "KhQd": 1.0, "KhQc": 1.0, "KdQs": 1.0, "KdQc": 1.0, "KcQs": 1.0, "KcQd": 1.0, "QsJs": 1.0, "QdJd": 1.0, "QcJc": 1.0, "QsJh": 1.0, "QsJd": 1.0, "QsJc": 1.0, "QdJs": 1.0, "QdJh": 1.0, "QdJc": 1.0, "QcJs": 1.0, "QcJh": 1.0, "QcJd": 1.0, "QsTs": 1.0, "QdTd": 1.0, "QcTc": 1.0, "QsTh": 1.0, "QsTd": 1.0, "QsTc": 1.0, "QdTs": 1.0, "QdTh": 1.0, "QdTc": 1.0, "QcTs": 1.0, "QcTh": 1.0, "QcTd": 1.0, "7h7d": 1.0, "7h7c": 1.0, "7d7c": 1.0, "6s6d": 0.5, "6s6c": 0.5, "6d6c": 0.5, "As6s": 1.0, "Ad6d": 1.0, "Ac6c": 1.0, "7d6d": 0.5, "7c6c": 0.5, "6s5s": 1.0, "6d5d": 1.0, "6c5c": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JsJc": 1.0, "JhJd": 1.0, "JhJc": 1.0, "JdJc": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QdQc": 1.0, "KsKh": 1.0, "KsKd": 1.0, "KsKc": 1.0, "KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "AsAh": 1.0, "AsAd": 1.0, "AsAc": 1.0, "AhAd": 1.0, "AhAc": 1.0, "AdAc": 1.0},
+    "ip": {"9s8s": 1.0, "9h8h": 1.0, "9d8d": 1.0, "9c8c": 1.0, "8s6s": 1.0, "8d6d": 1.0, "8c6c": 1.0, "8s3s": 1.0, "8h3h": 1.0, "8d3d": 1.0, "8c3c": 1.0, "As8s": 1.0, "Ah8h": 1.0, "Ad8d": 1.0, "Ac8c": 1.0, "As3s": 1.0, "Ah3h": 1.0, "Ad3d": 1.0, "Ac3c": 1.0, "Ks3s": 1.0, "Kh3h": 1.0, "Kd3d": 1.0, "Kc3c": 1.0, "AsKs": 1.0, "AhKh": 1.0, "AdKd": 1.0, "AcKc": 1.0, "KsJs": 1.0, "KhJh": 1.0, "KdJd": 1.0, "KcJc": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "JcTc": 1.0, "Ts9s": 1.0, "Th9h": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "Ks9s": 0.5, "Kh9h": 0.5, "Kd9d": 0.5, "Kc9c": 0.5}
+  }
+}

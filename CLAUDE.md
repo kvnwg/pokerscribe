@@ -5,8 +5,8 @@
 Kevin's macOS app (Python, PySide6). It reads a poker table from screen captures (cards by template
 matching, amounts by OCR, layout analysis, a hand tracker between reads) and shows one instruction
 per decision. Built and tested on 247 Free Poker (play money, bots). The long-term goal is a
-research-driven 6-max No-Limit Hold'em agent toward Pluribus strength, following the roadmap in
-`docs/research/README.md`.
+solver-based No-Limit Hold'em agent: Modicum (heads-up) first, then Pluribus (six-max), following
+the roadmap in `docs/research/README.md`.
 
 This repo is the source of truth. It replaced the zip builds shared in chat on 26 Nov 2026.
 
@@ -15,14 +15,17 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - Rule 4 in `docs/research/README.md`: testing and automated play stay offline or in environments we
   own or may use. No auto-play on live sites, no detection evasion, no real-money use. Reader work
   targets 247; don't tune it for real-money poker clients.
-- The baseline agent B0 (`docs/research/baseline_tuning.json`) is frozen. A change replaces it only
-  after beating it by at least 2.5 standard errors in paired simulation (`tools/compare.py`), losing
-  significantly to no opponent type, and repeating on fresh seeds. Log every run in
-  `docs/research/experiments.md`.
+- The baseline agent B0 (`docs/research/baseline_tuning.json`) is frozen and is the floor. A new
+  agent version replaces the previous one only if it beats it by 2.5 standard errors in paired
+  simulation (`tools/compare.py`), LBR (local best response) wins less against it, and the result
+  repeats on fresh seeds. Log every run in `docs/research/experiments.md`.
 - Plain bug fixes (a misread, folding when checking is free) need a regression test, not a simulation.
 - Recorded human or Pluribus actions are observations, never labels of correct play.
-- New strategy options go in the `TUNING` dict in `app/poker/advice.py`, off by default until they
-  pass the bar above.
+- The `TUNING` dict rule applies only to the frozen rule engine: new options for it go in `TUNING`
+  in `app/poker/advice.py`, off by default until they pass the bar above. B0 itself isn't tuned
+  any more (shelved).
+- Outside solvers (TexasSolver, postflop-solver) are AGPL. Run them as black boxes to check our
+  results; never copy their code.
 
 ## Setup and tests
 
@@ -48,34 +51,50 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
   format. `ranges.py` works out both players' river ranges from the betting so far, which
   `app/poker/history.py` records while watching. See `docs/research/SOLVER.md`.
+- `engine/`: the Rust core (Phase 3 on), a Cargo workspace with crates in `engine/crates/*`. Speed
+  critical code (rules engine, hand evaluator, CFR, subgame solver, blueprint) goes here. Python
+  stays for the app, analysis and experiment scripts, not for speed-critical loops.
+- `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
+  keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
+  built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
-- `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
-  (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
+- `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
+  isn't in the repo (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
 ## Status, 26 Nov 2026
 
-- Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
-  instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`). For each folder: run
-  `tools/replay_reads.py`, find the cause, fix it, add a regression test.
-- Reports waiting for saved reads: it can't tell whose turn it is; it said to fold the big blind; it
-  said to bet half the starting stack with 9-6; it mixed up the pot and the bets.
+The roadmap changed today: the rule-engine plan is replaced by a solver-based agent (Modicum
+heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" in
+`docs/research/README.md`, along with what's shelved.
+
+- Phase 0 is done: correct inputs, capture log, frozen B0.
+- Phase 1 is almost done: duplicate deals, luck adjustment, heads-up simulator mode. Its gate is
+  standard error at least halved and B0 playing heads-up.
+- Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
+  closed-form and published results, with p95 decision time under 400 ms. They are now the
+  reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.
+  Also there, built under the old roadmap on the day it was replaced: river ranges from the
+  betting so far (on held-out simulated hands the opponent's real cards are in the range 89% to
+  98% of the time, 59% to 81% before, mostly thanks to the profile), an answer to a raise of
+  your bet (checked on made-up raises only: the simulator's bots almost never raise the river),
+  a fixed amount of work in place of the clock in the simulator so runs repeat exactly, and an
+  accuracy that follows the pot. The old roadmap's comparison of `river_solver` against B0 was
+  never run, and the new roadmap doesn't ask for it.
+- Phase 3 is under way: the Rust core on toy games in `engine/`. Crates so far: `cfr` (CFR
+  library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
+  Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
+  7-card hands. Suggested model: Claude Fable.
+- Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
+  last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
+  For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.
+  Waiting for saved reads: it can't tell whose turn it is; it said to fold the big blind; it said
+  to bet half the starting stack with 9-6; it mixed up the pot and the bets.
 - Known reader gaps: other players' turn (the timer bar on their seats isn't read yet), and the
   "Total pot = Pot + bets" and Call amount checks don't block advice yet.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
-- After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
-  Phase 2 status: the river solver and the push-or-fold solver are written and match the
-  closed-form and published results, with p95 decision time under 400 ms. The solver's ranges
-  now come from the betting so far (who bet how much on each round, the seats, the opponent's
-  profile), and it also answers a raise of your bet. On held-out simulated hands the
-  opponent's real cards are in the range 89% to 98% of the time (59% to 81% before), mostly
-  thanks to the profile; the raise answers were only checked on made-up raises, because the
-  simulator's bots almost never raise the river. The switch `river_solver` is still off.
-  Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1 (run that comparison with
-  `--profiles`, or the solver sees no betting record). In the simulator the solver now does a
-  fixed amount of work in place of the clock, so that comparison repeats exactly, and its
-  accuracy follows the pot (the same in chips for every pot, inside the same 300 ms).
-- Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
+- Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not
+  approved). A heads-up challenge needs Phase 7; six-max won't be ready by then.
 
 ## Writing for Kevin
 

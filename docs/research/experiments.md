@@ -527,6 +527,12 @@ about 293 ms. p95 stays under 400 ms.
 
 ## Phase 2: the same answer every run, and time by pot size (26 Nov 2026)
 
+**Read this with the new roadmap in mind.** The roadmap was replaced the same day
+(`README.md`), while this section and the one above were being built for the old one.
+Where they say the comparison against B0 "waits for Phase 1": the new roadmap doesn't ask
+for that comparison. Phase 2 is now the reference the Rust solver must match, and the
+switch stays off. The measurements themselves stand.
+
 The two smaller jobs left after the ranges. The `river_solver` switch is still off, B0
 plays as before, and nothing was compared against B0. Raw numbers:
 `runs/phase2_budget.log`, made by `runs/phase2_budget.py` (seed 77, 6000 hands a table,
