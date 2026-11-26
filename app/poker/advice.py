@@ -373,6 +373,9 @@ def _aggressive(s: _Spot, kind: str, to: Optional[float], reason: str, detail: s
     total = s.total
     if to is not None:
         to = _chips(to)
+        if s.to_call is not None and s.bb:
+            # a raise puts in at least a big blind more than the bet you face
+            to = max(to, _chips(s.to_call + (s.hero_bet or 0.0) + s.bb))
         if s.trusted and total is not None and (to >= ALL_IN_SHARE * total
                                                 or s.stack is not None and to - (s.hero_bet or 0) >= s.stack):
             return Advice("all-in", f"ALL IN ({_amt(total)})", reason, amount=total, basis=basis, detail=detail)
@@ -597,6 +600,10 @@ def _preflop(s: _Spot) -> Advice:
         bets = [float(p.bet.value) for p in opp if p.bet.known]
         if opp and len(bets) == len(opp):
             max_bet = max(bets)
+    if s.to_call is not None and (max_bet is None or max_bet < s.to_call + (s.hero_bet or 0.0)):
+        # the price alone shows the biggest bet is at least this much: owing more than a big
+        # blind means someone raised, even when their chips weren't read
+        max_bet = s.to_call + (s.hero_bet or 0.0)
     raised = max_bet > 1.01 * s.bb if (s.bb and max_bet is not None) else bool(raisers)
     hero_raised = bool(s.hero_bet and s.bb and s.hero_bet > 1.01 * s.bb) or _last(s.state.hero) in ("raise", "bet")
     my_bb = s.hero_bb  # your own stack, read reliably; None when unsure

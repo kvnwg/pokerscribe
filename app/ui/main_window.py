@@ -680,7 +680,8 @@ class MainWindow(QMainWindow):
             result = self.recognizer().recognize(img)
             info = self.tracker.update(result.state)
             # same hand as the last check? Keep what it knew; a new hand starts afresh
-            if self.hand.update(result.state, [r.box for r in result.board_readings], info.new_hand):
+            if self.hand.update(result.state, [r.box for r in result.board_readings], info.new_hand,
+                                result.layout.hand_id):
                 self._claude_asks = 0
             claude_note = self._ask_claude(reader, img, result) if reader is not None else ""
             # opponents' styles from the hands seen so far (never part of the text for an AI)

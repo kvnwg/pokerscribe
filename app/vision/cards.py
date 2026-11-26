@@ -166,10 +166,15 @@ def _cards_in_blob(img: np.ndarray, hsv: np.ndarray, cnt: np.ndarray, rect: Box,
     # Ink touching the outline that has the colour of the felt outside is background
     # showing through (between the strokes of white text, or between fanned cards).
     # Glyphs printed close to the card edge also touch the outline, but are ink-coloured.
+    # It meets the outline along a stretch: a glyph printed close to the edge on a dark felt
+    # (a serif K on a near-black table) can touch it at a pixel or two and is still ink.
     touching = set()
     if band.any() and outside is not None:
-        for i in set(int(v) for v in np.unique(labels[band])) - {0}:
-            if i < len(stats) and np.linalg.norm(np.median(sub[labels == i], axis=0) - outside) < 30:
+        ids, contact = np.unique(labels[band], return_counts=True)
+        for i, n in zip(ids.tolist(), contact.tolist()):
+            if i == 0 or i >= len(stats) or n < 3:
+                continue
+            if np.linalg.norm(np.median(sub[labels == i], axis=0) - outside) < 30:
                 touching.add(i)
     for i in range(1, len(stats)):
         cx, cy, cw, ch, area = (int(v) for v in stats[i])

@@ -206,8 +206,9 @@ app/
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
-  tests/             test suite and the synthetic table renderer
-tools/               benchmarks, template builders, the simulator and paired comparisons
+  tests/             test suite, the synthetic table renderer and the demo table (several layouts)
+tools/               benchmarks, template builders, the simulator, paired comparisons and the
+                     self-test (PokerScribe reading our own demo table, checked against the truth)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```

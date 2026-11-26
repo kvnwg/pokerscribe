@@ -1,0 +1,92 @@
+# Self-test runs (Phase 0)
+
+`tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`). Every
+picture goes through the reader, the tracker, the hand memory and the advice, as in watch mode,
+and is checked against the truth. On your turn, the instruction is compared with the one the
+advice gives when handed the true table (same maths, so any difference comes from reading).
+Unclear cards are confirmed the way you would, so each deck is learned once. Bots and rules are
+those of `tools/simulate.py`. Nothing touches a real poker client.
+
+Layouts (all 6 players, blinds 1/2, stacks carried over and topped up below 40 big blinds):
+
+| Layout | What it varies |
+| --- | --- |
+| wireframe | Kevin's annotated table: grey felt, "Total pot" with the bets, collected pot, timer bars, glow, hand number, "$" |
+| green | green felt, "Pot" without the bets, glow only (no timer bar), four-colour deck, no "$", "Raise to 240" buttons, no hand number |
+| compact | 1024x720, blue felt, bets never printed (the pot holds them), empty outline bars under every seat |
+| ninemax | nine seats with three empty, sizing buttons and an amount box, Check/Fold and Call any boxes off your turn |
+| tags | the last action replaces the name ("Call", "All in"), drawn at 80% and saved as JPEG |
+
+## Round 1: before any fix (seed 2, 12 hands per layout)
+
+| Layout | Same instruction | Move shown on their turn | Main mistakes |
+| --- | --- | --- | --- |
+| wireframe | 17/19 | 24/45 | bets missed 100, seats lost 11, folded seats read as in 12 |
+| green | crashed (a duplicate card reached the maths: fixed in the self-test) | | |
+| compact | 17/17 | 25/42 | showdown cards taken for yours, seats lost 4 |
+| ninemax | 14/16 | 0/45 (pre-action boxes) | last hand's board and cards kept 13, bets missed 134 |
+| tags | 15/19 | 34/45 | action tags read as your buttons 23, seats lost 108, positions wrong 101 |
+
+Causes found and fixed (each has a test in `app/tests/test_selftest_table.py` or `test_hand.py`):
+
+- Grey felt: the few coloured things (card backs, your plate) were taken for the felt, so card
+  backs were never seen. A felt colour now has to cover 12% of the picture.
+- Card backs close to the felt's colour: only the big areas of that colour (the felt) are left
+  out now, not every pixel of that colour.
+- Any amount on the same line as the pot label, within three label widths, was dropped: often a
+  bet. Only the pot's own number, touching its label, is dropped now.
+- One action word low on the screen counted as your buttons (the fallback forgot to drop it), and
+  two tags far apart on one line counted as a row of buttons. Buttons must sit side by side; a
+  lone one counts only in the bottom right corner.
+- "All in" in place of the name lost the seat.
+- After you folded, an opponent's face-up showdown cards were taken for yours. Yours are at the
+  bottom middle.
+- Other players' turn: not read at all. Now read from the timer bar or the glow ring (step 7).
+- New hand missed after a single empty picture: last hand's board and hole cards were kept. Now:
+  a new hand number, a board cleared while you have cards, or cards back that nothing ties to the
+  old hand.
+- Bet chips and a matching action tag ("Bet 60") now strengthen each other.
+
+## Round 2: same seed after the fixes
+
+| Layout | Same instruction | Move shown on their turn | Acting seat not read | Main mistakes left |
+| --- | --- | --- | --- | --- |
+| wireframe | 17/17 | 0/42 | 1/126 | bets 13 (from the tracker), one stack misread ("$25i") lost a seat |
+| green | 17/19 | 0/47 | 0/127 | bets 113: lone digits ("6") never found |
+| compact | 17/17 | 0/42 | 0/126 | bets 10 |
+| ninemax | 16/17 | 0/42 | 0/126 | bets 133, a seat lost |
+| tags | 20/21 | 0/49 | 4/131 | bets 82, a serif K on the dark felt not found as a card |
+
+Fixed after round 2:
+
+- Owing more than a big blind means someone raised, even when the bets weren't read (it said
+  "RAISE TO 6" facing a raise to 6). A raise is at least a big blind more than the bet you face.
+- A seat whose stack can't be read keeps its place (stack UNKNOWN): leaving it out shifted every
+  position after it. "i" read for "1" in a number is repaired.
+- A glyph touching the card edge by a pixel on a dark felt is ink, not felt showing through.
+- The tracker, first adding up after the flop, took everything before as this round's bets. And a
+  "no bet" that the stacks contradict is replaced by the stacks' number.
+- Buttons and the timer on your seat strengthen each other (one faint "Bet" button missed your turn).
+
+Before and after the advice changes, `python tools/simulate.py 400 --seed 11 --stacks tourney`
+prints exactly the same: on complete reads the frozen baseline plays as before.
+
+## Round 3: fresh seed (seed 3, 20 hands per layout, 10% of pictures skipped)
+
+| Layout | Same instruction | Move shown on their turn | Mistakes |
+| --- | --- | --- | --- |
+| wireframe | 20/20 | 0/55 | none |
+| green | 20/20 | 0/55 | a wrong hole card 5, bets 61, a seat 1 |
+| compact | 20/20 | 0/55 | none |
+| ninemax | 20/20 | 0/55 | bets 86 |
+| tags | 19/20 | 0/53 | bets 17, pot 5, a seat 1 |
+
+Fixed after round 3:
+
+- A wrong hole card shown as known (the worst kind). Hand 12 was 3d 4c, hand 13 Ah 3d, and the
+  empty picture between them was skipped; the table shows no hand number and no pot before the
+  flop. The 3d matched, so it looked like the same hand, and the unsure Ah was filled in from
+  memory as 4c. Memory no longer fills a card that this read clearly sees as another card.
+- Short amounts the text finder skips ("$2", a lone "6" by a chip) are now looked for and read
+  directly; a lone digit comes back UNKNOWN rather than as no bet.
+- "Total pot: $1o" is $10; full-width digits are read.

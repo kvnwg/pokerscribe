@@ -165,8 +165,22 @@ class HandTracker:
         hero_c = contrib_by_seat.get(HERO, 0.0)
         top = max(contrib_by_seat.values())
         # the level everyone still in the hand had reached when this round began
+        first_read = board_len not in self._levels
         self._levels[board_len] = max(self._levels.get(board_len, 0.0), top)
-        level = max((v for b, v in self._levels.items() if b < board_len), default=0.0)
+        earlier = [v for b, v in self._levels.items() if b < board_len]
+        level = max(earlier, default=0.0)
+        if board_len > 0 and first_read:
+            # The first read of this round. Everyone still in had matched the level when it
+            # began, so it is at least what the smallest of them has put in: the end of the last
+            # round may not have been seen (missed pictures, or the pot wasn't shown before).
+            seats = [(contrib_by_seat[k], state.players[i].in_hand) for k, (i, stack) in seen.items()
+                     if k in contrib_by_seat and stack > 0]
+            live = [c for c, f in seats if f.known and f.value]  # (you without cards: folded)
+            if not live and not any(f.known for _, f in seats):
+                live = [c for c, _ in seats]  # nothing says who is still in
+            if live and (not earlier or min(live) > level):
+                level = min(live)
+                self._levels[board_len - 1] = max(self._levels.get(board_len - 1, 0.0), level)
         info.valid = True
         info.pot_includes_bets = includes
         info.contributions = {index[k]: c for k, c in contrib_by_seat.items() if k in index}
@@ -235,6 +249,10 @@ class HandTracker:
         for i, c in info.street_bets.items():
             p = state.players[i]
             if not p.bet.known:
+                p.bet = Field.derived(c, CONFIDENCE)
+            elif p.bet.source == "auto" and float(p.bet.value) == 0.0 and c > 0 and p.bet.confidence < 0.8:
+                # "no bet seen" only because the number was missed (a lone "6" is easy to miss):
+                # the chips that left the stack say otherwise
                 p.bet = Field.derived(c, CONFIDENCE)
         if info.blinds and (not state.blinds.known or (
                 state.blinds.source == "auto" and tuple(float(v) for v in state.blinds.value[:2]) != info.blinds)):

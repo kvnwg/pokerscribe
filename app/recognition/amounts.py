@@ -6,6 +6,7 @@ Handles "1,250", "1 250", "$12.50", "12,50" (decimal comma), "1.5K", "2M",
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -31,11 +32,16 @@ AMOUNT_RE = re.compile(
 
 
 def _repair(token: str) -> Tuple[str, bool]:
-    """Fix letters that OCR often confuses with digits, only inside number-like tokens."""
-    digits = sum(ch.isdigit() for ch in token)
-    if digits == 0 or digits < len(token) * 0.5:
+    """Fix letters that OCR often confuses with digits, only inside number-like tokens
+    (what follows a currency sign: "pot:$1o" is $10)."""
+    head, cur, tail = "", "", token
+    m = re.search(rf"[{CURRENCY}]", token)
+    if m:
+        head, cur, tail = token[: m.start()], m.group(), token[m.end():]
+    digits = sum(ch.isdigit() for ch in tail)
+    if digits == 0 or digits < len(tail) * 0.5:
         return token, False
-    fixed = token.translate(str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "|": "1"}))
+    fixed = head + cur + tail.translate(str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "i": "1", "|": "1"}))
     return fixed, fixed != token
 
 
@@ -60,6 +66,7 @@ def _to_number(num: str) -> Optional[float]:
 
 def find_amounts(text: str) -> List[Tuple[Amount, int, int]]:
     """All amounts in `text` with their (start, end) positions."""
+    text = unicodedata.normalize("NFKC", text)  # full-width digits ("６") from some OCR reads
     repaired_parts = []
     corrected = False
     for tok in re.split(r"(\s+)", text):

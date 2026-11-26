@@ -43,6 +43,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
+- `tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`, five
+  layouts) and every read and instruction is checked against the truth. Results in
+  `docs/research/runs/selftest.md`. Run it after any reader change.
 - `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
@@ -54,8 +57,11 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `tools/replay_reads.py`, find the cause, fix it, add a regression test.
 - Reports waiting for saved reads: it can't tell whose turn it is; it said to fold the big blind; it
   said to bet half the starting stack with 9-6; it mixed up the pot and the bets.
-- Known reader gaps: other players' turn (the timer bar on their seats isn't read yet), and the
-  "Total pot = Pot + bets" and Call amount checks don't block advice yet.
+- Self-test (26 Nov): five layouts, fresh seeds, skipped pictures. Other players' turn is now read
+  from the timer bar or glow (WAIT on their turn), and the misreads it found are fixed with tests.
+  Lone single-digit bets come back UNKNOWN (the OCR can't read them reliably).
+- Known reader gaps: the "Total pot = Pot + bets" and Call amount checks don't block advice yet,
+  and the predicted next actor isn't used as a check.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
 - After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).

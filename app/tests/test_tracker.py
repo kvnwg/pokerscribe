@@ -135,3 +135,21 @@ def test_street_bets_after_a_missed_end_of_round():
     info = t.update(st)
     assert info.valid and st.to_call.value == 10
     assert st.players[SEATS.index("George")].bet.value == 10 and st.players[0].bet.value == 0
+
+
+def test_missed_end_of_a_round_doesnt_turn_old_chips_into_new_bets():
+    """Found by tools/selftest.py: the pictures of the last raise and call before the flop
+    were missed. The level seen before the flop was 2, so on the flop 18 of each player's
+    chips looked like flop bets. Everyone still in had matched 20 when the flop came."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    t.update(capture(dict(FULL, John=999, Mike=998), pot=3))  # blinds
+    # (missed: George raises to 20, you fold, Deja and John fold, Mike calls)
+    st = capture(dict(FULL, John=999, Mike=980, George=980), cards=None, board=("Kh", "9d", "2c"), pot=41)
+    for name in ("Mike", "George"):
+        st.players[SEATS.index(name)].in_hand = Field.manual(True)
+    for name in ("Deja", "John"):
+        st.players[SEATS.index(name)].in_hand = Field.manual(False)
+    info = t.update(st)
+    assert info.valid
+    assert [p.bet.value for p in st.players] == [0, 0, 0, 0, 0]
