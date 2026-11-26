@@ -1,0 +1,1010 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Ruse AI Researcher API",
+        "description": "\n    Research API for poker\n    ",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/leaderboard": {
+            "get": {
+                "summary": "Get Leaderboard",
+                "description": "Returns top K bots by AIVAT score and hand volume for a given `game_name`.",
+                "operationId": "get_leaderboard_leaderboard_get",
+                "parameters": [
+                    {
+                        "name": "game_name",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Name"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 10,
+                            "title": "Limit"
+                        }
+                    },
+                    {
+                        "name": "min_hands",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 1000,
+                            "title": "Min Hands"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Start Date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "End Date"
+                        }
+                    },
+                    {
+                        "name": "gto_wizard_version",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Gto Wizard Version"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/PlayerStatistics"
+                                    },
+                                    "title": "Response Get Leaderboard Leaderboard Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/winnings": {
+            "get": {
+                "summary": "Get Winnings",
+                "description": "Returns the total winnings of GTO Wizard AI against all agents for a given `game_name`.",
+                "operationId": "get_winnings_winnings_get",
+                "parameters": [
+                    {
+                        "name": "game_name",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Name"
+                        }
+                    },
+                    {
+                        "name": "gto_wizard_version",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Gto Wizard Version"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WinningsGraph"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/request": {
+            "post": {
+                "summary": "Request User",
+                "description": "Creates an unconfirmed user request.",
+                "operationId": "request_user_users_request_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateUnconfirmedUserRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "boolean"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Request User Users Request Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/hands": {
+            "post": {
+                "summary": "Start New Hand",
+                "description": "Starts a new hand to programatically play against GTO Wizard AI and returns the game state.",
+                "operationId": "start_new_hand_hands_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NewHandRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameServiceResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyHeader": []
+                    }
+                ]
+            }
+        },
+        "/hands/{hand_id}/act": {
+            "post": {
+                "summary": "Act",
+                "description": "Returns the game state after the user acted.",
+                "operationId": "act_hands__hand_id__act_post",
+                "security": [
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "hand_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Hand Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ActRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameServiceResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/hands/in-progress": {
+            "get": {
+                "summary": "Get In Progress Hands",
+                "description": "Returns the authenticated user's unfinished hands and their current game states for a given `game_name`.",
+                "operationId": "get_in_progress_hands_hands_in_progress_get",
+                "security": [
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "game_name",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Name"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/GameServiceResponse"
+                                    },
+                                    "title": "Response Get In Progress Hands Hands In Progress Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/results": {
+            "get": {
+                "summary": "Get Results",
+                "description": "Returns the user statistics for a given `game_name`.",
+                "operationId": "get_results_results_get",
+                "security": [
+                    {
+                        "APIKeyHeader": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "game_name",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Name"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Start Date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "End Date"
+                        }
+                    },
+                    {
+                        "name": "gto_wizard_version",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Gto Wizard Version"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PlayerStatistics"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ActRequest": {
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "f",
+                            "k",
+                            "c",
+                            "b"
+                        ],
+                        "title": "Action",
+                        "description": "'f': Fold\n                'c': Call\n                'k': Check\n                'b' Bet"
+                    },
+                    "amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Amount",
+                        "description": "Amount of the bet action"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "action"
+                ],
+                "title": "ActRequest",
+                "example": {
+                    "action": "b",
+                    "amount": 300
+                }
+            },
+            "ActionRange": {
+                "properties": {
+                    "min": {
+                        "type": "number",
+                        "title": "Min"
+                    },
+                    "max": {
+                        "type": "number",
+                        "title": "Max"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "min",
+                    "max"
+                ],
+                "title": "ActionRange"
+            },
+            "CreateUnconfirmedUserRequest": {
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "maxLength": 254,
+                        "format": "email",
+                        "title": "Email"
+                    },
+                    "organization": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Organization"
+                    },
+                    "bot_name": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Bot Name"
+                    },
+                    "api_key": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 32,
+                        "title": "Api Key"
+                    },
+                    "reason_for_joining": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "minLength": 1,
+                        "title": "Reason For Joining"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "email",
+                    "organization",
+                    "bot_name",
+                    "api_key",
+                    "reason_for_joining"
+                ],
+                "title": "CreateUnconfirmedUserRequest"
+            },
+            "GameModel": {
+                "properties": {
+                    "game_id": {
+                        "type": "integer",
+                        "title": "Game Id"
+                    },
+                    "game_name": {
+                        "type": "string",
+                        "title": "Game Name"
+                    },
+                    "game_format": {
+                        "type": "string",
+                        "title": "Game Format"
+                    },
+                    "starting_stack": {
+                        "type": "number",
+                        "title": "Starting Stack"
+                    },
+                    "blinds": {
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "title": "Blinds"
+                    },
+                    "stack_reset_per_hand": {
+                        "type": "boolean",
+                        "title": "Stack Reset Per Hand"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "game_name",
+                    "game_format",
+                    "starting_stack",
+                    "blinds",
+                    "stack_reset_per_hand"
+                ],
+                "title": "GameModel"
+            },
+            "GameServiceResponse": {
+                "properties": {
+                    "hand_id": {
+                        "type": "integer",
+                        "title": "Hand Id"
+                    },
+                    "game": {
+                        "$ref": "#/components/schemas/GameModel"
+                    },
+                    "game_state": {
+                        "$ref": "#/components/schemas/GameState"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "hand_id",
+                    "game",
+                    "game_state"
+                ],
+                "title": "GameServiceResponse"
+            },
+            "GameState": {
+                "properties": {
+                    "street": {
+                        "type": "string",
+                        "enum": [
+                            "preflop",
+                            "flop",
+                            "turn",
+                            "river"
+                        ],
+                        "title": "Street"
+                    },
+                    "common_pot": {
+                        "type": "number",
+                        "title": "Common Pot"
+                    },
+                    "total_pot": {
+                        "type": "number",
+                        "title": "Total Pot"
+                    },
+                    "board_cards": {
+                        "type": "string",
+                        "title": "Board Cards"
+                    },
+                    "is_hand_over": {
+                        "type": "boolean",
+                        "title": "Is Hand Over"
+                    },
+                    "player_to_act": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "user",
+                                    "gto_wizard"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Player To Act",
+                        "description": "Who acts next: you or GTO Wizard. Null when no player can act."
+                    },
+                    "players": {
+                        "items": {
+                            "$ref": "#/components/schemas/Player"
+                        },
+                        "type": "array",
+                        "title": "Players"
+                    },
+                    "legal_actions": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Legal Actions",
+                        "description": "\n        Actions you can take. Empty when it is not your turn or the hand is over.\n        Possible values are {\"f\", \"c\", \"k\", \"b\"}\n        "
+                    },
+                    "raise_range": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/ActionRange"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "action_history": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Action History",
+                        "description": "\n                List of actions that happened in the hand:\n                '_': end of round\n                'f': Fold\n                'c': Call\n                'k': Check\n                'bX' bet X (cumulative bet on round)\n            "
+                    },
+                    "has_gto_wizard_folded": {
+                        "type": "boolean",
+                        "title": "Has Gto Wizard Folded"
+                    },
+                    "winnings": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Winnings",
+                        "description": "Chips won/lost from the user perspective. None if hand is not over."
+                    },
+                    "aivat_score": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Aivat Score",
+                        "description": "\n        How many of the villain's chips the hero was expected to win this hand, adjusted for luck.\n        Based on the researcher paper `AIVAT: A New Variance Reduction Technique for Agent Evaluation in Imperfect Information Games`\n        Neil Burch, Martin Schmid, Matej Morav\u010d\u00edk, Michael Bowling\n        None if hand is not over.\n        "
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "street",
+                    "common_pot",
+                    "total_pot",
+                    "board_cards",
+                    "is_hand_over",
+                    "players",
+                    "legal_actions",
+                    "raise_range",
+                    "action_history",
+                    "has_gto_wizard_folded",
+                    "winnings",
+                    "aivat_score"
+                ],
+                "title": "GameState"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "NewHandRequest": {
+                "properties": {
+                    "game_name": {
+                        "type": "string",
+                        "const": "HUNL 200BB",
+                        "title": "Game Name"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_name"
+                ],
+                "title": "NewHandRequest"
+            },
+            "Player": {
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "stack": {
+                        "type": "number",
+                        "title": "Stack"
+                    },
+                    "position": {
+                        "type": "string",
+                        "title": "Position"
+                    },
+                    "hole_cards": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Hole Cards"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name",
+                    "stack",
+                    "position",
+                    "hole_cards"
+                ],
+                "title": "Player"
+            },
+            "PlayerStatistics": {
+                "properties": {
+                    "bot_name": {
+                        "type": "string",
+                        "title": "Bot Name"
+                    },
+                    "organization": {
+                        "type": "string",
+                        "title": "Organization"
+                    },
+                    "gto_wizard_version": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Gto Wizard Version",
+                        "description": "GTO Wizard AI engine version used for the benchmark"
+                    },
+                    "total_hands": {
+                        "type": "integer",
+                        "title": "Total Hands",
+                        "description": "Total number of hands played against GTO Wizard AI"
+                    },
+                    "aivat_score": {
+                        "type": "number",
+                        "title": "Aivat Score",
+                        "description": "\n        How many of the villain\u2019s chips the hero was expected to win this hand, adjusted for luck.\n        Based on the researcher paper `AIVAT: A New Variance Reduction Technique for Agent Evaluation in Imperfect Information Games`\n        Neil Burch, Martin Schmid, Matej Morav\u010d\u00edk, Michael Bowling\n        "
+                    },
+                    "bb_per_100": {
+                        "type": "number",
+                        "title": "Bb Per 100",
+                        "description": "The number of big blind the user won or lost on average for every 100 hands played against GTO Wizard AI"
+                    },
+                    "chips_won_loss": {
+                        "type": "number",
+                        "title": "Chips Won Loss",
+                        "description": "Total number of chips won or lost against GTO Wizard AI"
+                    },
+                    "all_hands_chips_bb_per_100": {
+                        "type": "number",
+                        "title": "All Hands Chips Bb Per 100",
+                        "description": "How many of the villain\u2019s chips the hero won, playing against the opponent\u2019s range, expressed in big blinds per 100 hands"
+                    },
+                    "chance_correction_bb_per_100": {
+                        "type": "number",
+                        "title": "Chance Correction Bb Per 100",
+                        "description": "\n        An estimate of how lucky the hero's cards and board cards were, expressed in big blinds per 100 hands.\n        For example, if this value is -11.2, the hero was expected to win 11.2 bb/100 more than `all_hands_chips_bb_per_100`.\n        "
+                    },
+                    "action_correction_bb_per_100": {
+                        "type": "number",
+                        "title": "Action Correction Bb Per 100",
+                        "description": "\n        An estimate of how lucky the villain's actions were for the hero, expressed in big blinds per 100 hands.\n        For example, if this value is -4.8, the villain's chosen action worked out more poorly for the hero than alternatives,\n        and the hero expected to win 4.8 bb/100 more than `all_hands_chips_bb_per_100`.\n        "
+                    },
+                    "aivat_std_bb_per_100": {
+                        "type": "number",
+                        "title": "Aivat Std Bb Per 100",
+                        "description": "Standard error of the agent's AIVAT luck-adjusted win rate estimate, expressed in big blinds per 100 hands. The field name is preserved for backwards compatibility."
+                    },
+                    "aivat_score_bb_per_100": {
+                        "type": "number",
+                        "title": "Aivat Score Bb Per 100",
+                        "description": "Luck-adjusted win rate of the agent expressing the `aivat_score` divided by `total_hands` in big blinds per 100 hands"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "bot_name",
+                    "organization",
+                    "total_hands",
+                    "aivat_score",
+                    "bb_per_100",
+                    "chips_won_loss",
+                    "all_hands_chips_bb_per_100",
+                    "chance_correction_bb_per_100",
+                    "action_correction_bb_per_100",
+                    "aivat_std_bb_per_100",
+                    "aivat_score_bb_per_100"
+                ],
+                "title": "PlayerStatistics"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            },
+            "WinningsGraph": {
+                "properties": {
+                    "game_name": {
+                        "type": "string",
+                        "title": "Game Name"
+                    },
+                    "points": {
+                        "items": {
+                            "$ref": "#/components/schemas/WinningsPoint"
+                        },
+                        "type": "array",
+                        "title": "Points"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_name",
+                    "points"
+                ],
+                "title": "WinningsGraph"
+            },
+            "WinningsPoint": {
+                "properties": {
+                    "hands_played": {
+                        "type": "integer",
+                        "title": "Hands Played",
+                        "description": "Cumulative number of completed hands played against all agents."
+                    },
+                    "total_winnings": {
+                        "type": "number",
+                        "title": "Total Winnings",
+                        "description": "Cumulative total winnings for GTO Wizard AI."
+                    },
+                    "showdown_winnings": {
+                        "type": "number",
+                        "title": "Showdown Winnings",
+                        "description": "Cumulative winnings for GTO Wizard AI in showdown hands."
+                    },
+                    "non_showdown_winnings": {
+                        "type": "number",
+                        "title": "Non Showdown Winnings",
+                        "description": "Cumulative winnings for GTO Wizard AI in non-showdown hands."
+                    },
+                    "luck_adjusted_winnings": {
+                        "type": "number",
+                        "title": "Luck Adjusted Winnings",
+                        "description": "Cumulative luck-adjusted winnings for GTO Wizard AI (AIVAT-based)."
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "hands_played",
+                    "total_winnings",
+                    "showdown_winnings",
+                    "non_showdown_winnings",
+                    "luck_adjusted_winnings"
+                ],
+                "title": "WinningsPoint"
+            }
+        },
+        "securitySchemes": {
+            "APIKeyHeader": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key"
+            }
+        }
+    }
+}
