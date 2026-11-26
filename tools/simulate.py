@@ -47,6 +47,7 @@ from app.poker import hands  # noqa: E402
 from app.poker.advice import advise  # noqa: E402
 from app.poker.ranges import preflop_percentile  # noqa: E402
 from app.state.model import Action, Field, GameState, Player  # noqa: E402
+from app.state.positions import position_names  # noqa: E402
 
 SB, BB = 1.0, 2.0
 POSITIONS = ["BTN", "SB", "BB", "UTG", "HJ", "CO"]  # by seat offset from the button
@@ -109,7 +110,8 @@ class Hand:
     number: int = 0  # hand number for the profiles
 
     def position(self, i: int) -> str:
-        return POSITIONS[(i - self.button) % 6]
+        n = len(self.seats)  # six seats: POSITIONS
+        return (POSITIONS if n == 6 else position_names(n))[(i - self.button) % n]
 
     @property
     def pot(self) -> float:
@@ -125,7 +127,7 @@ def app_state(h: Hand, me: int) -> GameState:
     players, the pot without this round's bets, the amount to call and the buttons."""
     players = []
     for i, s in enumerate(h.seats):
-        p = Player(seat=(i - me) % 6, is_hero=i == me, position=Field.manual(h.position(i)),
+        p = Player(seat=(i - me) % len(h.seats), is_hero=i == me, position=Field.manual(h.position(i)),
                    stack=Field.manual(s.stack), bet=Field.manual(s.bet), in_hand=Field.manual(not s.folded),
                    name="You" if i == me else (s.name or f"P{i}"))
         if s.last is not None:
@@ -157,7 +159,7 @@ class _Track:
         self.blinds = (SB, BB)
         self.contributions, self.street_bets = {}, {}
         for k, p in enumerate(st.players):
-            i = (p.seat + me) % 6
+            i = (p.seat + me) % len(h.seats)
             self.contributions[k] = h.seats[i].put_in
             self.street_bets[k] = h.seats[i].bet
 
@@ -408,7 +410,8 @@ def act(h: Hand, i: int, kind: str, to: float) -> None:
 
 
 def betting_round(h: Hand, first: int, rng: random.Random, budget_ms: int, stats) -> None:
-    order = [(first + k) % 6 for k in range(6)]
+    n = len(h.seats)
+    order = [(first + k) % n for k in range(n)]
     while True:
         moved = False
         for i in order:

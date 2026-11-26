@@ -44,13 +44,13 @@ from app.recognition.hand import HandMemory  # noqa: E402
 from app.recognition.recognizer import TableRecognizer  # noqa: E402
 from app.recognition.tracker import HandTracker  # noqa: E402
 from app.state.model import Action, Field, GameState, Player  # noqa: E402
-from app.tests.demo_table import Layout, SeatView, TableView, amount_text, layouts, render  # noqa: E402
+from app.tests.demo_table import Layout, SeatView, TableView, amount_text, for_players, layouts, render  # noqa: E402
 from app.vision.card_recognizer import CardRecognizer  # noqa: E402
 from app.vision.ocr import FallbackOcr  # noqa: E402
 from tools.simulate import (BB, POSITIONS, SB, TABLES, Hand, Seat, act, bot_decide, check_advice,  # noqa: E402
                             showdown, sim_compute, variant)
 
-NAMES = ["You", "Marlow", "Quinn", "Jasper", "Rhea", "Toby"]
+NAMES = ["You", "Marlow", "Quinn", "Jasper", "Rhea", "Toby", "Ines", "Otto", "Pia", "Sven"]
 TOP_UP_BB = 40  # a player below this many big blinds tops up to 100 between hands
 
 
@@ -111,11 +111,12 @@ def _cards_known(st: GameState) -> bool:
 
 # ------------------------------------------------------------------ the game
 class Table:
-    def __init__(self, seed: int, table: str = "mixed", depth_bb: float = 100.0):
+    def __init__(self, seed: int, table: str = "mixed", depth_bb: float = 100.0, players: int = 6):
         self.rng = random.Random(seed)
         styles = ["app"] + self.rng.sample(TABLES[table], 5)
-        self.seats = [Seat(st, stack=depth_bb * BB, name=NAMES[i]) for i, st in enumerate(styles)]
-        self.button = self.rng.randrange(6)
+        styles += [self.rng.choice(TABLES[table]) for _ in range(players - 6)]  # more than six
+        self.seats = [Seat(st, stack=depth_bb * BB, name=NAMES[i]) for i, st in enumerate(styles[:players])]
+        self.button = self.rng.randrange(players)
         self.hand_no = 0
         self.depth = depth_bb
 
@@ -272,10 +273,10 @@ def check_frame(rep: Report, img, meta, h: Hand, view: TableView, res, info, adv
     plates = meta["plates"]
     seat_of = match_seats(st, plates)
     found = set(seat_of.values())
-    missing = [i for i in range(6) if i not in found]
+    missing = [i for i in range(len(h.seats)) if i not in found]
     if missing:
         rep.bad("seat not found", img, f"seats {missing} ({', '.join(h.seats[i].name for i in missing)})")
-    if len(st.players) > 6 or len(seat_of) < len([p for p in st.players if p.is_hero or p.anchor]):
+    if len(st.players) > len(h.seats) or len(seat_of) < len([p for p in st.players if p.is_hero or p.anchor]):
         rep.bad("extra seat", img, f"{len(st.players)} players read: {[p.name for p in st.players]}")
     for k, p in enumerate(st.players):
         i = seat_of.get(k)
@@ -373,9 +374,9 @@ def hero_move(h: Hand, adv) -> Tuple[str, float]:
 
 
 class Run:
-    def __init__(self, lay: Layout, seed: int, out: Optional[str], drop: float):
+    def __init__(self, lay: Layout, seed: int, out: Optional[str], drop: float, players: int = 6):
         self.lay = lay
-        self.table = Table(seed)
+        self.table = Table(seed, players=players)
         self.rep = Report(lay.name, out, lay.unit)
         self.learned = tempfile.mkdtemp(prefix="selftest-learned-")
         self.scribe = Scribe(self.learned)
@@ -403,7 +404,8 @@ class Run:
         return img, adv
 
     def betting_round(self, h: Hand, first: int) -> None:
-        order = [(first + k) % 6 for k in range(6)]
+        n = len(h.seats)
+        order = [(first + k) % n for k in range(n)]
         while True:
             moved = False
             for i in order:
@@ -438,7 +440,8 @@ class Run:
     def play_hand(self) -> None:
         t = self.table
         t.top_up()
-        t.button = (t.button + 1) % 6
+        n = len(t.seats)
+        t.button = (t.button + 1) % n
         t.hand_no += 1
         rng = random.Random(self.rng.random())
         deck = __import__("app.poker.hands", fromlist=["DECK"]).DECK[:]
@@ -449,16 +452,16 @@ class Run:
             s.last = None
         for k, s in enumerate(t.seats):
             s.cards = (deck[2 * k], deck[2 * k + 1])
-        board = deck[12:17]
+        board = deck[2 * n: 2 * n + 5]
         h = Hand(t.seats, t.button)
         self.frame(h, None, phase="between")
-        sb_i, bb_i = (t.button + 1) % 6, (t.button + 2) % 6
+        sb_i, bb_i = (t.button + 1) % n, (t.button + 2) % n
         for i, amt in ((sb_i, SB), (bb_i, BB)):
             t.seats[i].stack -= amt
             t.seats[i].bet = t.seats[i].put_in = amt
         h.current = BB
-        self.betting_round(h, (t.button + 3) % 6)
-        for n in (3, 4, 5):
+        self.betting_round(h, (t.button + 3) % n)
+        for cards in (3, 4, 5):
             if len(h.active()) == 1:
                 break
             h.pot_before = h.pot
@@ -469,10 +472,10 @@ class Run:
                     s.last = None
             h.current = 0.0
             h.min_raise = BB
-            h.board = board[:n]
+            h.board = board[:cards]
             if sum(1 for i in h.active() if not t.seats[i].all_in) >= 2:
-                first = next(((t.button + k) % 6 for k in range(1, 7)
-                              if not t.seats[(t.button + k) % 6].folded and not t.seats[(t.button + k) % 6].all_in))
+                first = next(((t.button + k) % n for k in range(1, n + 1)
+                              if not t.seats[(t.button + k) % n].folded and not t.seats[(t.button + k) % n].all_in))
                 self.betting_round(h, first)
             else:
                 self.frame(h, None)  # all in: the cards are dealt with nobody to act
@@ -534,12 +537,18 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--drop", type=float, default=0.0)
     ap.add_argument("--out", default=None, help="folder for examples of mistakes (pictures and a log)")
+    ap.add_argument("--players", type=int, default=6, help="players at the table (layouts with fewer seat spots "
+                                                          "are skipped)")
     args = ap.parse_args()
     lays = layouts()
     for name in args.layouts.split(","):
         t0 = time.time()
+        lay = for_players(lays[name], args.players)
+        if lay is None:
+            print(f"== {name}: skipped, it has seats for {len(lays[name].slots)} players")
+            continue
         out = os.path.join(args.out, name) if args.out else None
-        rep = Run(lays[name], args.seed, out, args.drop).go(args.hands)
+        rep = Run(lay, args.seed, out, args.drop, args.players).go(args.hands)
         print(summary(rep))
         print(f"   ({time.time() - t0:.0f} s)")
         sys.stdout.flush()

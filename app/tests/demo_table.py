@@ -35,6 +35,9 @@ SIX_MAX = [(0.50, 0.84), (0.13, 0.64), (0.13, 0.30), (0.50, 0.17), (0.87, 0.30),
 # Nine slots, hero at the bottom; six players sit in some of them.
 NINE_MAX = [(0.50, 0.85), (0.22, 0.80), (0.09, 0.56), (0.15, 0.30), (0.36, 0.17), (0.64, 0.17),
             (0.85, 0.30), (0.91, 0.56), (0.78, 0.80)]
+# Eight seats, hero at the bottom, then clockwise
+EIGHT_MAX = [(0.50, 0.85), (0.20, 0.79), (0.08, 0.50), (0.20, 0.21), (0.50, 0.15), (0.80, 0.21),
+             (0.92, 0.50), (0.80, 0.79)]
 
 
 @dataclass
@@ -257,6 +260,11 @@ def avatar_layouts() -> List[Layout]:
         Layout("levels", felt=(52, 78, 96), felt_edge=(30, 46, 60), background=(20, 24, 30), level="corner",
                pot_mode="pot", header="Blinds {sb}/{bb} · NL Hold'em", text_font=find_font("Carlito-Regular.ttf"),
                deck=Theme(card_w=58, card_h=82, rank_font=_rank_font(8)), back=(150, 90, 30)),
+        # eight players round the table (Kevin, 26 Nov: "it also needs to be trained on an 8 people
+        # table"): plates like the wireframe, Pot from earlier rounds, no stakes shown
+        Layout("eight", width=1360, height=940, slots=list(EIGHT_MAX), felt=(34, 90, 70), felt_edge=(20, 56, 44),
+               felt_box=(0.17, 0.25, 0.83, 0.72), pot_mode="pot", header="", text_size=20,
+               deck=Theme(card_w=56, card_h=78, rank_font=_rank_font(10)), back=(160, 40, 40)),
         # held out (added after the fixes above, never tuned on): each player's level as a bare
         # gold number right beside the name, outside the plate toward the middle, where a bet
         # could be; no stakes shown
@@ -267,6 +275,19 @@ def avatar_layouts() -> List[Layout]:
 
 
 # --------------------------------------------------------------------------- drawing
+def for_players(lay: Layout, n: int) -> Optional[Layout]:
+    """The layout with `n` players seated, spread over its seat spots (you at the bottom), or
+    None when it has fewer spots than that."""
+    used = lay.used_slots if lay.used_slots is not None else list(range(len(lay.slots)))
+    if len(used) == n:
+        return lay
+    k = len(lay.slots)
+    if k < n:
+        return None
+    spread = sorted({int(j * k / n + 0.5) % k for j in range(n)})
+    return replace(lay, used_slots=spread) if len(spread) == n else None
+
+
 def _seat_points(lay: Layout) -> List[Tuple[float, float]]:
     slots = lay.slots if lay.used_slots is None else [lay.slots[i] for i in lay.used_slots]
     return [(fx * lay.width, fy * lay.height) for fx, fy in slots]
