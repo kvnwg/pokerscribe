@@ -1,0 +1,29 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "r02",
+  "street": "river",
+  "title": "Trivial: IP holds only sets, OOP holds only high-card air",
+  "tags": ["trivial", "dry"],
+  "board": ["Jc", "8d", "3s", "Ks", "2h"],
+  "pot": 100,
+  "stacks": [100, 100],
+  "spr": 1.0,
+  "max_raises": 3,
+  "sizes": {
+    "oop": {"bets": [0.5], "raises": [], "allin": true},
+    "ip": {"bets": [0.5], "raises": [], "allin": true}
+  },
+  "range_text": {
+    "oop": "T9s,76s,54s,Q9s",
+    "ip": "KK,JJ"
+  },
+  "ranges": {
+    "oop": {"Ts9s": 1.0, "Th9h": 1.0, "Td9d": 1.0, "Tc9c": 1.0, "7s6s": 1.0, "7h6h": 1.0, "7d6d": 1.0, "7c6c": 1.0, "5s4s": 1.0, "5h4h": 1.0, "5d4d": 1.0, "5c4c": 1.0, "Qs9s": 1.0, "Qh9h": 1.0, "Qd9d": 1.0, "Qc9c": 1.0},
+    "ip": {"KhKd": 1.0, "KhKc": 1.0, "KdKc": 1.0, "JsJh": 1.0, "JsJd": 1.0, "JhJd": 1.0}
+  },
+  "expected": [
+    {"nodes": "^$", "actor": "oop", "action": "x", "min": 0.98, "why": "a bet with zero equity is only ever called or raised"},
+    {"nodes": "^x b[0-9.]+$", "actor": "oop", "action": "f", "min": 0.98, "why": "calling with zero equity loses the call"}
+  ]
+}

@@ -13,6 +13,13 @@ from .tree import GameTree, Node, describe_action
 Rule = Callable[[Node, Combo], Union[Mapping[str, float], Sequence[float]]]
 
 
+def describe_mix(probs: Mapping[str, float]) -> str:
+    """'bet 75 60%, check 40%' from {action token: probability} (most likely first, under
+    0.5% left out)."""
+    ranked = sorted(probs.items(), key=lambda kv: -kv[1])
+    return ", ".join(f"{describe_action(a)} {int(round(100 * p))}%" for a, p in ranked if p >= 0.005)
+
+
 class RiverStrategy:
     """probs[node key] is an array shaped (combos of the acting player, actions at the node).
     Rows are probabilities: non-negative, adding up to 1.
@@ -111,9 +118,7 @@ class RiverStrategy:
 
     def describe(self, key: str, combo: Sequence[str]) -> str:
         """'bet 75 60%, check 40%' (most likely first, under 0.5% left out)."""
-        probs = sorted(self.action_probs(key, combo).items(), key=lambda kv: -kv[1])
-        parts = [f"{describe_action(a)} {int(round(100 * p))}%" for a, p in probs if p >= 0.005]
-        return ", ".join(parts)
+        return describe_mix(self.action_probs(key, combo))
 
     def __repr__(self) -> str:
         return (f"RiverStrategy({' '.join(self.spot.board)}, pot {self.spot.pot:g}, {len(self.tree)} nodes, "

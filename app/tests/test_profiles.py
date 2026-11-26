@@ -1,7 +1,9 @@
 """Watch mode: learning how each opponent plays, hand after hand."""
 from typing import Dict, Optional, Sequence
 
-from app.poker.profiles import MIN_HANDS, PlayerStats, Profiles, classify, describe
+import pytest
+
+from app.poker.profiles import MIN_HANDS, PlayerStats, Profiles, classify, describe, rates
 from app.recognition.tracker import HandTracker, TrackInfo
 from app.state.model import Action, Field, GameState, Player
 from app.state.privacy import check_outgoing_text
@@ -120,6 +122,27 @@ def test_labels_and_thresholds():
     assert classify(PlayerStats(hands=30, vpip=15, pfr=2)) == "station"
     assert classify(PlayerStats(hands=30, vpip=3, pfr=3)) == "nit"
     assert describe(PlayerStats(hands=25, vpip=12, pfr=2)) == "plays 48% of hands, raises 8%"
+
+
+def test_rates_lean_towards_a_typical_player_until_there_are_hands():
+    assert rates(PlayerStats()) is None
+    # 2 hands, both played, one raised: (2 + 0.25 x 4) / 6 and (1 + 0.18 x 4) / 6
+    assert rates(PlayerStats(hands=2, vpip=2, pfr=1)) == pytest.approx((0.5, 0.2867), abs=1e-4)
+    # 96 hands: close to what was seen (48 played, 6 raised)
+    assert rates(PlayerStats(hands=96, vpip=48, pfr=6)) == pytest.approx((0.49, 0.0672), abs=1e-4)
+
+
+def test_rates_go_on_the_state_with_the_style_and_stay_off_the_text():
+    prof = Profiles()
+    for h in range(1, 16):
+        _play(prof, h, "George", "call")
+    st = table()
+    prof.annotate(st)
+    george = st.players[4]
+    assert george.style == "station" and george.played == pytest.approx(((15 + 1) / 19, 0.72 / 19))
+    assert st.hero.played is None
+    assert Player.from_dict(george.to_dict()).played == george.played
+    assert check_outgoing_text(render_text(st)) == [] and "0.8" not in render_text(st)
 
 
 def test_names_and_seats():

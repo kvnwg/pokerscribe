@@ -21,6 +21,11 @@
 #   Kevin decides to make it the default, since it changes what the app tells him at the
 #   table. If a stage fails, the later stages aren't run and the switch stays off.
 #
+# Ran on commit d956e7d (stages 1 to 3; stage 3 failed, so stage 4 was not run). Since the
+# merge with main the solver takes its ranges from the betting and simulations use
+# TUNING["river_solver_fixed_work"] in place of SOLVER_ITERATIONS, so running this again
+# gives different numbers (experiments.md, Phase 2, the river solver against B0).
+#
 # Run from the repo root: bash docs/research/runs/phase2_solver_b0.sh <stage>   (4 runs at a time)
 set -u
 STAGE=${1:?stage 1, 2, 3 or 4}

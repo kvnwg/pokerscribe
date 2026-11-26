@@ -204,10 +204,11 @@ app/
                      hand tracker (bets from stack changes while watching)
   state/             JSON game state, positions, text output, privacy check
   poker/             hand evaluation (treys), ranges, equity, pot odds, call-or-fold,
-                     advice (the one instruction in the simple view)
+                     advice (the one instruction in the simple view), opponent profiles and
+                     the record of who bet on each round (while watching)
   solver/            river solver and heads-up push-or-fold solver (Phase 2, not used by the
                      advice yet): spots, betting tree, fast river ranking, exploitability
-                     checker, timing, label format
+                     checker, timing, label format, river ranges from the betting so far
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface

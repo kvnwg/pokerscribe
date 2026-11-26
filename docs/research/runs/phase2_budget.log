@@ -1,0 +1,36 @@
+# docs/research/runs/phase2_budget.py --hands 6000 --seed 77 --spots 200, 26 Nov 2026
+
+table mixed: 6000 hands, seed 77: 394 heads-up river decisions, the first 200 used
+  pot, big blinds  spots |       stop at 0.1% of the pot        |       stop at 0.01 big blinds       
+                         |  ms p50  ms p90  % of pot       bb |  ms p50  ms p90  % of pot       bb
+    0 to 3            35 |     288     289     0.077   0.0019 |     144     251     0.242   0.0056 |
+    3 to 8            60 |     288     289     0.088   0.0083 |     263     289     0.114   0.0096 |
+    8 to 20           40 |     288     289     0.112   0.0158 |     288     289     0.103   0.0156 |
+   20 to 50           46 |     139     289     0.060   0.0211 |     289     290     0.023   0.0097 |
+   50 to inf          19 |      71     133     0.067   0.0437 |     209     290     0.009   0.0065 |
+  old: time mean 219 ms, p50 254, p95 289; from an equilibrium, big blinds: mean 0.0150, worst 0.0777; over 1% of the pot: 0 of 200
+  new: time mean 227 ms, p50 263, p95 290; from an equilibrium, big blinds: mean 0.0098, worst 0.0466; over 1% of the pot: 0 of 200
+  200 decisions through advise(): p50 285 ms, p95 296 ms, max 303 ms (target 400 ms); answered by the solver: 197
+  fixed work, 200 spots: the same strategy twice in 200; within 1% of the pot in 200; from an equilibrium, % of the pot: p50 0.099, p95 0.344
+  iterations, fixed work / by the clock on this machine (58 spots where both used their whole budget): p10 0.85, p50 1.04, p90 1.21
+  the same action as by the clock: 197 of 197
+  a fresh process gives the same strategy in 60 of 60
+  advise() twice in the simulator's mode gives the same instruction in 60 of 60
+
+table fish247: 6000 hands, seed 77: 447 heads-up river decisions, the first 200 used
+  pot, big blinds  spots |       stop at 0.1% of the pot        |       stop at 0.01 big blinds       
+                         |  ms p50  ms p90  % of pot       bb |  ms p50  ms p90  % of pot       bb
+    0 to 3            68 |     288     289     0.081   0.0022 |     139     252     0.219   0.0055 |
+    3 to 8            49 |     268     289     0.089   0.0072 |     271     289     0.101   0.0082 |
+    8 to 20           48 |     288     289     0.098   0.0153 |     288     290     0.102   0.0158 |
+   20 to 50           24 |     188     289     0.058   0.0223 |     288     290     0.023   0.0115 |
+   50 to inf          11 |      76     142     0.061   0.0427 |     213     290     0.010   0.0071 |
+  old: time mean 239 ms, p50 268, p95 290; from an equilibrium, big blinds: mean 0.0112, worst 0.0805; over 1% of the pot: 0 of 200
+  new: time mean 222 ms, p50 250, p95 290; from an equilibrium, big blinds: mean 0.0095, worst 0.0859; over 1% of the pot: 0 of 200
+  200 decisions through advise(): p50 257 ms, p95 296 ms, max 304 ms (target 400 ms); answered by the solver: 200
+  fixed work, 200 spots: the same strategy twice in 200; within 1% of the pot in 200; from an equilibrium, % of the pot: p50 0.121, p95 0.349
+  iterations, fixed work / by the clock on this machine (45 spots where both used their whole budget): p10 0.79, p50 0.96, p90 1.28
+  the same action as by the clock: 200 of 200
+  a fresh process gives the same strategy in 60 of 60
+  advise() twice in the simulator's mode gives the same instruction in 60 of 60
+

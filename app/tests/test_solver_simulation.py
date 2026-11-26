@@ -1,7 +1,8 @@
-"""Simulations with the river solver on repeat exactly. In tools/simulate.py the solver gets a
-fixed number of iterations (simulate.SOLVER_ITERATIONS) in place of its time budget, so its
-answers can't depend on how fast or busy the machine is. In the app the budget still decides
-(test_solver_advice.py)."""
+"""Simulated comparisons with the river solver on repeat exactly, replays and split runs
+included. tools/simulate.py turns on TUNING["river_solver_fixed_work"] while it asks for
+advice: the solver then runs a fixed amount of work for the spot in place of its clock, so
+its answers can't depend on how fast or busy the machine is (test_solver_advice.py and
+test_solver_budget.py check the setting itself). In the app the clock still decides."""
 import os
 import sys
 
@@ -31,9 +32,9 @@ def calls(monkeypatch):
     seen = []
     real = solver.solve_river
 
-    def spy(spot, budget_ms, **kw):
-        seen.append((budget_ms, kw.get("max_iterations")))
-        return real(spot, budget_ms, **kw)
+    def spy(spot, *args, **kw):
+        seen.append((kw.get("time_budget_ms", args[0] if args else None), kw.get("max_iterations")))
+        return real(spot, *args, **kw)
 
     monkeypatch.setattr(solver, "solve_river", spy)
     return seen
@@ -47,11 +48,11 @@ def _run(compare, jobs=1):
 
 
 def test_simulations_with_the_solver_repeat_exactly(tools, calls, monkeypatch):
-    simulate, compare = tools
+    _, compare = tools
     first = _run(compare)
     assert first[1] > 0  # the solver changed at least one decision
-    assert calls and set(calls) == {(None, simulate.SOLVER_ITERATIONS)}  # fixed work, no clock
-    assert advice.SOLVER_ITERATIONS is None  # set only while the simulator asks for advice
+    assert calls and all(budget is None and iterations for budget, iterations in calls)  # fixed work, no clock
+    assert advice.TUNING["river_solver_fixed_work"] is False  # on only while the simulator asks for advice
     assert _run(compare) == first
     # a budget no machine could meet changes nothing in a simulation (in the app the rules
     # would take over every time)
