@@ -69,6 +69,9 @@ STACKS = {
     "tourney": ((8, 12, 15, 20, 30, 45, 70, 100, 150), (8, 12, 15, 20, 25, 35, 50, 70)),
 }
 SHORT_BOT = 15  # a bot with this many big blinds or fewer moves all in instead of raising small
+# With --short-raise, short bots raise small instead (3 to 4 big blinds), committing part of
+# their stack, as some 247 Free Poker bots do (a raise to 30 of 100 at 5/10)
+SHORT_RAISE = False
 
 TABLES = {
     "mixed": ["station", "nit", "tag", "lag", "maniac"],
@@ -324,7 +327,7 @@ def bot_decide(h: Hand, i: int, rng: random.Random) -> Tuple[str, float]:
     if not h.board:
         pct = preflop_percentile(hands.preflop_class(s.cards))
         raised = h.current > BB
-        short = total <= SHORT_BOT * BB  # short stacks move all in rather than raise small
+        short = total <= SHORT_BOT * BB and not SHORT_RAISE  # short stacks move all in rather than raise small
         if not raised:
             if pct <= pfr:
                 return "raise", total if short else min(total, (3 + rng.random()) * BB)

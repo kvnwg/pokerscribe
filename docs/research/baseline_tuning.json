@@ -59,5 +59,6 @@
   "sizing_iterations": 4000,
   "bucket_sizing": false,
   "small_bet_from": 0.0,
-  "oop_lead": 0.0
+  "oop_lead": 0.0,
+  "committed_raise": 0.0
 }

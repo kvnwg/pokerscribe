@@ -182,6 +182,12 @@ TUNING = {
     # out of position heads-up on the flop, on boards that favour the preflop raiser (high
     # cards, paired, one suit or dry): lead only from this chance of winning (0 = off)
     "oop_lead": 0.0,
+    # Facing one raise from a short stack that has committed itself (its raise is at least this
+    # share of its chips, or it has 15 big blinds or fewer): what matters is the effective stack,
+    # so decide as if all in, on the odds against the hands short stacks raise with, and put
+    # them all in when it pays (Mathematics of Poker, jam or fold; Harrington, effective
+    # stacks). 0 = off: the usual chart for calling a raise.
+    "committed_raise": 0.0,
 }
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
@@ -583,6 +589,45 @@ def _top_pair_plus(hero: Tuple[str, ...], board: Tuple[str, ...]) -> bool:
     return top in mine
 
 
+BEHIND = {"UTG": 5, "UTG+1": 5, "UTG+2": 5, "MP": 4, "LJ": 4, "HJ": 4, "CO": 3, "BTN": 2, "SB": 1, "BTN/SB": 1}
+
+
+def _vs_committed_raise(s: _Spot, raiser: Player, raiser_pos: Optional[str], name: str) -> Optional[Advice]:
+    """One raise from a short stack that is committed: decide on the whole effective stack,
+    against the hands a stack that short plays from that seat (the push-or-fold charts: it
+    raises about what it would move all in with). None when it doesn't apply, or a number it
+    needs wasn't read reliably."""
+    if not (s.bb and s.trusted and s.pot is not None and s.total is not None
+            and raiser.stack.known and raiser.bet.known):
+        return None
+    bet, behind = float(raiser.bet.value), float(raiser.stack.value)
+    total = bet + behind
+    if total <= 0 or not (bet >= TUNING["committed_raise"] * total or total <= 15 * s.bb):
+        return None
+    eff = min(total, s.total)
+    seat = exploits.opener_seat(raiser, raiser_pos)  # a loose player raises like the button
+    share = push_share(BEHIND.get(seat or "", 4), total / s.bb)
+    try:
+        r = equity(s.hero, (), 1, ranges.top_fraction(share), budget_s=TUNING["allin_budget_s"],
+                   max_iterations=TUNING["facing_iterations"])
+    except ValueError:
+        return None
+    mine = s.hero_bet or 0.0
+    dead = max(0.0, s.pot - bet - mine)  # the blinds and folded chips already in
+    final = dead + 2 * eff
+    add = eff - mine
+    need = add / final
+    word = f"they have {_amt(total)} in all, so it's really all in"
+    if r.equity * final - add > 0:
+        reason = (f"{word.capitalize()}: {name} wins about {_pct(r.equity)} against the {_top(share)} they raise with "
+                  f"and needs {_pct(need)}.")
+        if s.can_raise and total < s.total:
+            return _aggressive(s, "raise", total, _join(reason, "Put them all in."), basis="math")
+        return _call(s, reason, basis="math")
+    return Advice("fold", "FOLD", f"{word.capitalize()}: {name} wins about {_pct(r.equity)} against the "
+                                  f"{_top(share)} they raise with but needs {_pct(need)}.", basis="math")
+
+
 def _posted_bb(s: _Spot) -> Optional[float]:
     """The big blind when the stakes weren't read: what the big blind put in front of them
     (even a faint read), or else the smallest bet on the table. Only to tell whether someone
@@ -699,6 +744,12 @@ def _preflop(s: _Spot) -> Advice:
         size_bb = max_bet / s.bb if (max_bet is not None and s.bb) else None
         cold_3bet = size_bb is not None and size_bb >= 7 or len(raisers) >= 2
         others_in = [p for p in callers if p is not raiser]
+        if TUNING["committed_raise"] and len(raisers) < 2 and not others_in and raiser is not None:
+            # (a raise of 7 big blinds or more is otherwise taken for a re-raise not seen; from
+            # a short stack it is just a big raise)
+            adv = _vs_committed_raise(s, raiser, raiser_pos, name)
+            if adv is not None:
+                return adv
         if cold_3bet:
             move, spot = charts.cold_vs_3bet(cls), "a raise and a re-raise"
         elif others_in:

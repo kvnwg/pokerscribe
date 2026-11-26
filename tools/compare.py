@@ -78,7 +78,9 @@ def main():
     ap.add_argument("--deep", action="store_true")
     ap.add_argument("--stacks", default="even", choices=["even"] + sorted(sim.STACKS))
     ap.add_argument("--profiles", action="store_true", help="the app learns the bots' styles as it plays")
+    ap.add_argument("--short-raise", action="store_true", help="short bots raise small instead of moving all in")
     a = ap.parse_args()
+    sim.SHORT_RAISE = a.short_raise
     base, other = json.loads(a.base), json.loads(a.other)
     total = []
     t0 = time.time()
