@@ -798,6 +798,31 @@ that.
 
 None loses significantly (the bar was -2 SE). All five are ahead, none by 2.5 SE.
 
+### Stage 3: mixed on fresh seeds (fails)
+
+| Seed | Hands that differ | river_solver minus B0 |
+|---|---|---|
+| 5555 | 72 | +8.5 ± 5.2 |
+| 6666 | 86 | -2.5 ± 4.5 |
+| 7777 | 68 | +2.9 ± 2.8 |
+| 8888 | 65 | -1.1 ± 4.8 |
+| **Pooled, 12000 hands** | **291 (2.4%)** | **+2.0 ± 2.2, that is 0.88 SE** |
+
+**Stage 1 did not repeat, so `river_solver` does not meet the B0 bar and stays off.** As
+the rule says, stage 4 was not run. B0 is unchanged.
+
+- The two stages don't contradict each other: they are 1.3 SE apart. Stage 1 was probably
+  on the lucky side, which is what the repeat on fresh seeds is for.
+- Described, not a test (pooling wasn't in the rule): all eight mixed seeds together, 24000
+  hands, give +3.9 ± 1.5 (2.6 SE, 95% range about +1 to +7), and no table lost in stage 2.
+  So the solver probably gains a little on the river against these bots, but the rule's
+  repeat didn't confirm it.
+- A likely limit: the solver assumes both players hold the "medium" preset range
+  (`app/solver/bridge.py`), whatever they did before the river. The opponent model
+  (Phase 3) is what would give it real ranges.
+- Another try needs a new rule, written down before its seeds are played (for example more
+  hands, or once the solver has real ranges). That is Kevin's call.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

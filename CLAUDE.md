@@ -84,9 +84,13 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
   Phase 2 status: the river solver and the push-or-fold solver are written and match the
   closed-form and published results, with p95 decision time under 400 ms. The switch
-  `river_solver` is still off. Left for its gate: beating B0 by 2.5 SE. Phase 1 is closed, so that
-  can run once simulations with the switch on repeat exactly (the solver stops on a wall-clock
-  budget, so its answers depend on the machine's speed).
+  `river_solver` is still off. Simulations now give the solver a fixed 300 iterations
+  (`tools/simulate.py`, `SOLVER_ITERATIONS`) so they repeat exactly; the app keeps its 300 ms
+  budget. The B0 comparison (pre-registered, 26 Nov): stage 1 passed (mixed, +5.8 ± 2.0 bb/100,
+  2.94 SE; no loss on fish247 or the held-out tables), but on fresh seeds it didn't repeat (+2.0
+  ± 2.2), so the switch stays off and B0 is unchanged. All 24000 mixed hands together: +3.9 ±
+  1.5 (a description, not a test). A new try needs a new rule first, Kevin's call
+  (`experiments.md`, Phase 2, the river solver against B0).
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
 
 ## Writing for Kevin

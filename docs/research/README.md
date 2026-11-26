@@ -31,7 +31,7 @@ depend on any one chat.
 | --- | --- | --- |
 | 0 | Correct inputs (blinds, pot, bets), capture log for replay tests, frozen B0 | No misread-driven all-ins in replay tests; B0 rebuilds exactly |
 | 1 | Duplicate deals, AIVAT-style luck adjustment, held-out opponents, weakness report | Standard error per comparison at least halved (built 26 Nov 2026; gate run 5, on comparisons where at least 1% of hands differ: 0.46 on average, but `texture_sizing` at 0.7507 is over the 0.75 per-comparison bar, so not passed as written; closed by Kevin's decision after run 5, "good enough"; see `experiments.md`) |
-| 2 | River CFR solver, push-or-fold equilibrium, adaptive time budget, solver-labelled data | Matches closed-form results; beats B0 by 2.5 SE; p95 under 400 ms |
+| 2 | River CFR solver, push-or-fold equilibrium, adaptive time budget, solver-labelled data | Matches closed-form results; beats B0 by 2.5 SE; p95 under 400 ms (26 Nov 2026: closed-form results and p95 met; B0 beaten by 2.94 SE on the first seeds but not on the repeat, so not passed; see `experiments.md`) |
 | 3 | Bayesian opponent model with HandHQ priors, robust exploitation | 5% lower log-loss on held-out days; no loss against B0 |
 | 4 | Pluribus-style blueprint (Monte Carlo CFR in a compiled engine) and depth-limited search | Beats the Phase 3 agent by 2.5 SE; exploiters win less |
 | 5 | Deep CFR or ReBeL-style value networks, only if Phase 4 shows abstraction is the limit | Beats the Phase 4 agent at equal or lower decision time |
