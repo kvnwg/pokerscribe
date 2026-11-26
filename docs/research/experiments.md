@@ -430,6 +430,14 @@ runs and tests nothing.
   pass) is Kevin's decision, to be written down here before anything more is run for the
   gate.
 
+**Decision (Kevin, 26 Nov 2026, after run 5): good enough.**
+
+- The gate is not passed as written. Phase 1 is closed on Kevin's call, not on a pass.
+- The comparison of `river_solver` against B0 (the rest of Phase 2's gate) may go ahead.
+- The new way stays the default for comparisons.
+- Known limit: on changes like `bet_size: 0.5` and `texture_sizing` the SE is about 0.6 to
+  0.65 of classic, so such comparisons need about 2.5 times fewer hands than classic, not 4.
+
 ### Held-out opponents
 
 In `tools/simulate.py` (`HELD_OUT`); no strategy option may be tuned on them.

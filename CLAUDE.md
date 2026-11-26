@@ -68,8 +68,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   on two comparisons with almost no differing hands. Kevin then chose to judge only comparisons
   where at least 1% of hands differ, confirmed on fresh seeds. Gate run 5 (pre-registered, seeds
   808 and 909): geometric mean 0.46 (bar 0.5), CPU 1.24 (bar 1.25), but `texture_sizing` 0.7507
-  is over the 0.75 bar, so the gate as written is not passed. What's left of Phase 2, its B0
-  comparison, waits for Kevin's next call (`experiments.md`, Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of
+  is over the 0.75 bar, so the gate as written is not passed. After run 5 Kevin decided it is
+  good enough: Phase 1 is closed on his call, not on a pass, and Phase 2's B0 comparison may go
+  ahead (`experiments.md`, Phase 1, gate run 5). Pooled over runs 4 and 5, the SE is 0.41 to 0.65 of
   classic on the four sizing comparisons and 0.16 on `push_chart`; a run of this size fails about
   one time in three by chance.
 - Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
@@ -83,7 +84,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - After Phases 0 and 1 comes Phase 2, the river CFR solver. Suggested model from Phase 2 on: Claude Fable.
   Phase 2 status: the river solver and the push-or-fold solver are written and match the
   closed-form and published results, with p95 decision time under 400 ms. The switch
-  `river_solver` is still off. Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1.
+  `river_solver` is still off. Left for its gate: beating B0 by 2.5 SE. Phase 1 is closed, so that
+  can run once simulations with the switch on repeat exactly (the solver stops on a wall-clock
+  budget, so its answers depend on the machine's speed).
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
 
 ## Writing for Kevin
