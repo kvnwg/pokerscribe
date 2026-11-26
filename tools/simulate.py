@@ -80,6 +80,37 @@ TABLES = {
     "lags": ["lag"] * 5, "maniacs": ["maniac"] * 5,
     "fish247": ["fish247"] * 5,
 }
+TUNING_TABLES = tuple(TABLES)  # every strategy option so far was chosen or rejected on these
+
+# Held-out opponents (Phase 1): never used to choose or tune a strategy option, so a result
+# on them says whether a change generalises beyond the bots it was tuned on. Each is a base
+# style (the seven numbers of STYLES) plus something the tuning bots never do.
+HELD_OUT = {
+    # bets 1.1 to 1.8 times the pot (the tuning bots bet half to 0.9)
+    "overbettor": {"base": (0.30, 0.20, 0.07, 0.60, 0.50, 0.25, 0.75), "size": (1.1, 1.8)},
+    # bets a quarter to a third of the pot, often
+    "minbettor": {"base": (0.32, 0.14, 0.05, 0.50, 0.45, 0.25, 0.80), "size": (0.25, 0.35)},
+    # checks its strong hands 70% of the time and raises when someone bets (slowplays)
+    "trapper": {"base": (0.25, 0.12, 0.05, 0.85, 0.45, 0.05, 0.40), "trap": 0.7, "raise": 0.8},
+    # plays like a nit before the flop, so it gets labelled one, and like a lag after it
+    "mimic": {"base": (0.14, 0.11, 0.03, 0.45, 0.40, 0.45, 0.90)},
+    # a calling station for 30 hands, then a maniac for 30, and so on (each bot out of step)
+    "switcher": {"phases": ("station", "maniac"), "every": 30},
+    # set to the action shares of the HandHQ population (DATASET.md, all table sizes): about
+    # 14% of preflop decisions raise; checked to after the flop it bets about 36%; facing a
+    # bet it folds about 53%, calls 37% and raises 10%. A population average, not a clone of
+    # any player (that needs the built dataset, tools/phh)
+    "regular": {"base": (0.30, 0.18, 0.06, 0.45, 0.35, 0.30, 0.75)},
+    # each bot (by name) has its own random style, drawn once from a fixed seed
+    "wildcard": {"random": True},
+}
+TABLES.update({
+    "heldout": ["overbettor", "minbettor", "trapper", "mimic", "switcher"],
+    "regulars": ["regular"] * 5,
+    "switchers": ["switcher"] * 5,
+    "wildcards": ["wildcard"] * 5,
+})
+HELD_OUT_TABLES = tuple(t for t in TABLES if t not in TUNING_TABLES)
 
 
 @dataclass
@@ -108,6 +139,41 @@ class Hand:
     diverged: bool = False
     profiles: object = None  # the app's Profiles (app.poker.profiles), learned from what it sees
     number: int = 0  # hand number for the profiles
+    # keyed bot randomness: with a key, each bot decision draws from its own seed (hand, seat,
+    # street, how many times that seat has acted on that street), so two variants of the app
+    # that part ways in a hand still give the bots the same random numbers decision by decision
+    rng_key: Optional[int] = None
+    # resampling after the variants part ways (docs/research/runs/phase1_variance_split.py):
+    # once the app has made its decision number `split_at`, the bots draw from seeds salted
+    # with `resample` and the board cards still to come are drawn afresh from the unseen cards
+    split_at: Optional[int] = None
+    resample: Optional[int] = None
+    diverge_at: Optional[int] = None  # the app's decision where a shadow variant first disagreed
+    last_spec: object = None  # the seed of the bot decision being made
+    rng_counts: Dict[tuple, int] = field(default_factory=dict)
+    chance: List[dict] = field(default_factory=list)  # board cards dealt while the app was in (tools/luck.py)
+    spots: List[dict] = field(default_factory=list)  # the app's decisions, for tools/weakness.py
+    # every bot decision with what it saw and its seed, and the order of all events (bot and app
+    # moves, board cards), so tools/hidden.py can ask what a bot would have done with other cards
+    bot_decisions: List[dict] = field(default_factory=list)
+    events: List[tuple] = field(default_factory=list)
+
+    def bot_rng(self, i: int, stream: random.Random) -> random.Random:
+        if self.rng_key is None:
+            self.last_spec = None
+            return stream
+        self.last_spec = self.bot_spec(i)
+        return random.Random(self.last_spec)
+
+    def bot_spec(self, i: int):
+        """The seed of bot i's next decision (keyed randomness): an int, or a string after the
+        split when resampling. random.Random(spec) gives the same numbers again."""
+        k = (i, len(self.board))
+        n = self.rng_counts.get(k, 0)
+        self.rng_counts[k] = n + 1
+        if self.resample is not None and self.split_at is not None and len(self.spots) > self.split_at:
+            return f"{self.rng_key}/{self.resample}/{i}/{len(self.board)}/{n}"
+        return ((self.rng_key * 8 + i) * 8 + len(self.board)) * 64 + n
 
     def position(self, i: int) -> str:
         n = len(self.seats)  # six seats: POSITIONS
@@ -259,6 +325,7 @@ class variant:
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 60.0, ITERATIONS
         adv_mod.TUNING["allin_budget_s"] = 60.0
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 60.0, ITERATIONS
+        adv_mod.TUNING["river_solver_fixed_work"] = True  # the river solver, when a variant turns it on
         return self
 
     def __exit__(self, *exc):
@@ -268,14 +335,77 @@ class variant:
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 0.12, 60000
         adv_mod.TUNING["allin_budget_s"] = 0.35
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 0.03, 4000
+        adv_mod.TUNING["river_solver_fixed_work"] = False
+
+
+# Replays from the split (tools/compare.py --resample) play the same hand again and again: up
+# to the split the app sees exactly the same table each time (the opponents' cards are not part
+# of what it sees), so its advice there is kept for the hand and reused.
+_PRE_SPLIT_ADVICE: Dict[tuple, object] = {}
+
+
+def clear_advice_cache() -> None:
+    _PRE_SPLIT_ADVICE.clear()
 
 
 def decision(h: Hand, me: int, overrides: Optional[dict], st: Optional[GameState] = None):
     import copy
 
+    key = None
+    if h.split_at is not None and h.rng_key is not None and len(h.spots) <= h.split_at and h.profiles is None:
+        key = (h.rng_key, len(h.spots), repr(sorted((overrides or {}).items())))
+        if key in _PRE_SPLIT_ADVICE:
+            return _PRE_SPLIT_ADVICE[key]
     st = observe(h, me) if st is None else copy.deepcopy(st)
     with variant(overrides):
-        return advise(st, computed=sim_compute(st), numbers_checked=True)
+        adv = advise(st, computed=sim_compute(st), numbers_checked=True)
+    if key is not None:
+        _PRE_SPLIT_ADVICE[key] = adv
+    return adv
+
+
+STREETS = {0: "preflop", 3: "flop", 4: "turn", 5: "river"}
+
+
+def pot_type(h: Hand) -> str:
+    """How the pot went before the flop so far: limped, raised once, 3-bet, 4-bet or more."""
+    raises = sum(1 for a in h.log if a[3] == 0 and a[1] == "raise")
+    return ["limped", "raised", "3-bet", "4-bet+"][min(raises, 3)]
+
+
+def spot(h: Hand, me: int, action: str) -> dict:
+    """What the weakness report groups by: street, position, pot type, players, facing a bet,
+    the hand's strength and the action taken."""
+    seat = h.seats[me]
+    to_call = max(0.0, h.current - seat.bet)
+    if h.board:
+        made = hands.CATEGORY[hands.category(seat.cards, h.board)]
+        draw = bool(len(h.board) < 5 and hands.draws(seat.cards, h.board))
+    else:
+        pct = preflop_percentile(hands.preflop_class(seat.cards))
+        made = "top 5%" if pct <= 0.05 else "top 15%" if pct <= 0.15 else "top 35%" if pct <= 0.35 else "rest"
+        draw = False
+    return {"street": STREETS[len(h.board)], "pos": h.position(me), "pot_type": pot_type(h),
+            "situation": situation(h, me), "players": len(h.active()), "facing": to_call > 0, "made": made,
+            "draw": draw, "action": action, "pot_bb": h.pot / BB, "to_call_bb": to_call / BB,
+            "put_in_bb": seat.put_in / BB, "board_len": len(h.board), "current_bb": h.current / BB,
+            "live": tuple(h.active()),
+            "stack_bb": (seat.stack + seat.bet) / BB}
+
+
+def situation(h: Hand, me: int) -> str:
+    """What the app faces: before the flop first in, limpers, a raise or a 3-bet or more;
+    after it checked to (or first), a bet, or a raise."""
+    raises = sum(1 for a in h.log if a[3] == len(h.board) and a[1] == "raise")
+    facing = h.current > h.seats[me].bet
+    if not h.board:
+        if raises == 0:
+            limps = sum(1 for a in h.log if a[3] == 0 and a[1] == "call")
+            return "limpers" if limps else ("checked to" if not facing else "first in")
+        return "facing a raise" if raises == 1 else "facing a 3-bet+"
+    if not facing:
+        return "checked to"
+    return "facing a bet" if raises == 1 else "facing a raise"
 
 
 def app_decide(h: Hand, me: int, budget_ms: int, stats) -> Tuple[str, float]:
@@ -286,8 +416,21 @@ def app_decide(h: Hand, me: int, budget_ms: int, stats) -> Tuple[str, float]:
         other = decision(h, me, shadow, st)
         if (other.action, other.amount) != (adv.action, adv.amount):
             h.diverged = True  # the two variants part ways in this hand: replay it with the other one
+            h.diverge_at = len(h.spots)
     stats["advice"][(len(h.board), adv.action)] += 1
     check_advice(h, me, adv, stats)
+    record = spot(h, me, adv.action)
+    move = app_move(h, me, adv)
+    hook = stats.get("hook")  # tools/weakness.py: a planted flaw, or another move at one decision
+    if hook is not None:
+        move = hook(h, me, adv, move)
+    record["move"], record["to_bb"] = move[0], move[1] / BB
+    h.spots.append(record)
+    return move
+
+
+def app_move(h: Hand, me: int, adv) -> Tuple[str, float]:
+    """The table move for an instruction: fold, check, call, or raise to an amount."""
     seat = h.seats[me]
     to_call = h.current - seat.bet
     total = seat.stack + seat.bet
@@ -321,9 +464,39 @@ def strength(cards, board) -> float:
     return base
 
 
+def _bot_number(s: Seat) -> int:
+    """The bot's number in its table (names are style + number, see seating)."""
+    tail = s.name[len(s.style):] if s.name.startswith(s.style) else ""
+    return int(tail) if tail.isdigit() else 0
+
+
+def bot_style(h: Hand, s: Seat) -> Tuple[str, tuple, dict]:
+    """The style a bot plays this hand: its name, its seven numbers and any extras."""
+    if s.style in STYLES:
+        return s.style, STYLES[s.style], {}
+    extra = HELD_OUT[s.style]
+    if "phases" in extra:
+        j = _bot_number(s)
+        style = extra["phases"][((h.number + 7 * j) // extra["every"]) % len(extra["phases"])]
+        return style, STYLES[style], {}
+    if extra.get("random"):
+        return s.style, wildcard(_bot_number(s)), {}
+    return s.style, extra["base"], extra
+
+
+def wildcard(j: int) -> tuple:
+    """Wildcard bot j's style, the same every run."""
+    r = random.Random(1000 + j)
+    vpip = r.uniform(0.12, 0.65)
+    pfr = vpip * r.uniform(0.2, 0.8)
+    return (vpip, pfr, pfr * r.uniform(0.15, 0.5), r.uniform(0.4, 0.85), r.uniform(0.3, 0.7), r.uniform(0.02, 0.5),
+            r.uniform(0.15, 0.95))
+
+
 def bot_decide(h: Hand, i: int, rng: random.Random) -> Tuple[str, float]:
     s = h.seats[i]
-    vpip, pfr, three, bet_s, call_s, bluff, aggr = STYLES[s.style]
+    style, numbers, extra = bot_style(h, s)
+    vpip, pfr, three, bet_s, call_s, bluff, aggr = numbers
     to_call = h.current - s.bet
     total = s.stack + s.bet
     if not h.board:
@@ -342,21 +515,25 @@ def bot_decide(h: Hand, i: int, rng: random.Random) -> Tuple[str, float]:
         call_pct = (vpip - pfr) * 0.6 + pfr * 0.5
         if big:
             call_pct *= 0.4
-        if pct <= call_pct or (s.style == "station" and pct <= vpip * 0.7 and not big):
+        if pct <= call_pct or (style == "station" and pct <= vpip * 0.7 and not big):
             return "call", 0.0
         return ("check", 0.0) if to_call <= 0 else ("fold", 0.0)
     st = strength(s.cards, h.board)
     pot = h.pot
     if to_call <= 0:
         if st >= bet_s or (rng.random() < bluff and st < 0.35):
+            if extra.get("trap") and st >= 0.9 and rng.random() < extra["trap"]:
+                return "check", 0.0
             if rng.random() < aggr or st >= 0.9:
-                return "raise", min(total, h.current + max(BB, (0.5 + 0.4 * rng.random()) * pot))
+                size = extra.get("size")
+                frac = 0.5 + 0.4 * rng.random() if size is None else size[0] + (size[1] - size[0]) * rng.random()
+                return "raise", min(total, h.current + max(BB, frac * pot))
         return "check", 0.0
     price = to_call / (pot + to_call)
-    if st >= max(bet_s + 0.15, 0.85) and rng.random() < aggr:
+    if st >= max(bet_s + 0.15, 0.85) and rng.random() < extra.get("raise", aggr):
         return "raise", min(total, h.current * 3 + pot * 0.2)
-    need = price * (0.6 if s.style == "station" else 1.0)
-    if st >= max(call_s * (0.6 + price), need + 0.1) or (s.style == "station" and st >= 0.3):
+    need = price * (0.6 if style == "station" else 1.0)
+    if st >= max(call_s * (0.6 + price), need + 0.1) or (style == "station" and st >= 0.3):
         return "call", 0.0
     return "fold", 0.0
 
@@ -424,8 +601,25 @@ def betting_round(h: Hand, first: int, rng: random.Random, budget_ms: int, stats
                 continue
             if all(o.folded or o.all_in for j, o in enumerate(h.seats) if j != i) and s.bet >= h.current:
                 continue
-            kind, to = app_decide(h, i, budget_ms, stats) if s.style == "app" else bot_decide(h, i, rng)
+            if s.style == "app":
+                kind, to = app_decide(h, i, budget_ms, stats)
+            else:
+                snap = {"i": i, "current": h.current, "bet": s.bet, "stack": s.stack, "pot": h.pot,
+                        "board": tuple(h.board), "min_raise": h.min_raise, "number": h.number,
+                        "put_in": tuple(o.put_in for o in h.seats), "live": tuple(h.active()),
+                        "behind": tuple(o.stack for o in h.seats)}
+                kind, to = bot_decide(h, i, h.bot_rng(i, rng))
+                snap["spec"] = h.last_spec
+            facing = h.current > s.bet
             act(h, i, kind, to)
+            if s.style == "app":
+                h.events.append(("app", len(h.spots) - 1))
+            else:
+                snap["action"] = (h.log[-1][1], h.log[-1][2])
+                h.bot_decisions.append(snap)
+                h.events.append(("bot", len(h.bot_decisions) - 1))
+                stats.setdefault("bot_actions", defaultdict(int))[
+                    (s.style, len(h.board), facing, h.log[-1][1])] += 1
             if h.profiles is not None:
                 observe(h, next(j for j, o in enumerate(h.seats) if o.style == "app"))
             moved = True
@@ -433,25 +627,31 @@ def betting_round(h: Hand, first: int, rng: random.Random, budget_ms: int, stats
             return
 
 
-def showdown(h: Hand) -> Dict[int, float]:
-    """Chips won by each seat (side pots included)."""
+def split_pot(put_in, live, ranks) -> Dict[int, float]:
+    """Chips won by each seat (side pots included), from what each seat put in, the seats
+    still in, and their hand ranks (lower is better; not needed when one seat is left)."""
     won: Dict[int, float] = defaultdict(float)
-    live = h.active()
     if len(live) == 1:
-        won[live[0]] += sum(s.put_in for s in h.seats)
+        won[live[0]] += sum(put_in)
         return won
-    ranks = {i: hands.evaluate(h.seats[i].cards, h.board) for i in live}
-    levels = sorted({h.seats[i].put_in for i in live})
+    levels = sorted({put_in[i] for i in live})
     prev = 0.0
     for lv in levels:
-        layer = sum(min(s.put_in, lv) - min(s.put_in, prev) for s in h.seats)
-        eligible = [i for i in live if h.seats[i].put_in >= lv]
+        layer = sum(min(p, lv) - min(p, prev) for p in put_in)
+        eligible = [i for i in live if put_in[i] >= lv]
         best = min(ranks[i] for i in eligible)
         winners = [i for i in eligible if ranks[i] == best]
         for i in winners:
             won[i] += layer / len(winners)
         prev = lv
     return won
+
+
+def showdown(h: Hand) -> Dict[int, float]:
+    """Chips won by each seat (side pots included)."""
+    live = h.active()
+    ranks = {i: hands.evaluate(h.seats[i].cards, h.board) for i in live} if len(live) > 1 else {}
+    return split_pot([s.put_in for s in h.seats], live, ranks)
 
 
 def stack_sizes(styles: List[str], seed: int, depth_bb: float, stacks: str = "even") -> List[float]:
@@ -465,17 +665,38 @@ def stack_sizes(styles: List[str], seed: int, depth_bb: float, stacks: str = "ev
 
 def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_bb: float, stats,
               stacks: str = "even", names: Optional[List[str]] = None, profiles=None,
-              number: int = 0) -> Dict[int, float]:
+              number: int = 0, rotate: int = 0, keyed: bool = False, split_at: Optional[int] = None,
+              resample: Optional[int] = None, hole_override: Optional[Dict[int, Tuple[str, str]]] = None,
+              board_override: Optional[Dict[int, str]] = None) -> Dict[int, float]:
+    """Play one hand; the app is styles.index("app"). The deck deals hole cards to six card
+    slots and the button sits at slot `button`. With `rotate` r the players move r slots on
+    (the app takes slot r's cards and position), so the six rotations of one deck give the
+    app, and every bot, each slot's cards from that slot's position once (duplicate deals).
+    With `keyed` each bot decision gets its own seed (Hand.bot_rng)."""
     rng = random.Random(seed)
     deck = list(hands.DECK)
     rng.shuffle(deck)
+    # tests only (tools/hidden.py): deal these hole cards to a seat, or these board cards
+    # (board position 0-4), by swapping cards within the deck so it stays a whole deck
+    wanted = {}
+    for k, cards in (hole_override or {}).items():
+        slot = (k + rotate) % 6
+        wanted.update({2 * slot: cards[0], 2 * slot + 1: cards[1]})
+    wanted.update({12 + pos: c for pos, c in (board_override or {}).items()})
+    for pos, c in wanted.items():
+        j = deck.index(c)
+        deck[pos], deck[j] = deck[j], deck[pos]
     seats = [Seat(st, stack=d * BB) for st, d in zip(styles, stack_sizes(styles, seed, depth_bb, stacks))]
     for k, s in enumerate(seats):
-        s.cards = (deck[2 * k], deck[2 * k + 1])
+        slot = (k + rotate) % 6
+        s.cards = (deck[2 * slot], deck[2 * slot + 1])
         if names:
             s.name = names[k]
+    button = (button - rotate) % 6
     board_cards = deck[12:17]
-    h = Hand(seats, button, profiles=profiles, number=number)
+    h = Hand(seats, button, profiles=profiles, number=number, rng_key=seed * 6 + rotate if keyed else None,
+             split_at=split_at, resample=resample)
+    me = styles.index("app")
     sb_i, bb_i = (button + 1) % 6, (button + 2) % 6
     for i, amt in ((sb_i, SB), (bb_i, BB)):
         seats[i].stack -= amt
@@ -497,6 +718,18 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
                 s.last = None
         h.current = 0.0
         h.min_raise = BB
+        if not seats[me].folded:
+            h.chance.append({"board": tuple(h.board), "deal": tuple(board_cards[len(h.board):n]),
+                             "live": tuple(h.active()), "put_in": tuple(s.put_in for s in seats),
+                             "behind": tuple(s.stack for s in seats)})
+            h.events.append(("card", len(h.chance) - 1))
+        if resample is not None and split_at is not None and len(h.spots) > split_at:
+            dead = {c for st_ in seats for c in st_.cards} | set(h.board)
+            fresh = [c for c in hands.DECK if c not in dead]
+            random.Random(f"{seed}/{rotate}/{resample}/{len(h.board)}").shuffle(fresh)
+            board_cards = list(h.board) + fresh[:5 - len(h.board)]
+            if h.chance and h.chance[-1]["board"] == tuple(h.board):
+                h.chance[-1]["deal"] = tuple(board_cards[len(h.board):n])
         h.board = board_cards[:n]
         if sum(1 for i in h.active() if not seats[i].all_in) >= 2:
             betting_round(h, (button + 1) % 6, bot_rng, budget_ms, stats)
@@ -505,7 +738,14 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     won = showdown(h)
     net = {i: won.get(i, 0.0) - seats[i].put_in for i in range(6)}
     stats["diverged"] = h.diverged
-    me = styles.index("app")
+    # everything tools/luck.py and tools/weakness.py need about the hand just played
+    stats["last"] = {"cards": tuple(s.cards for s in seats), "board": tuple(board_cards), "me": me,
+                     "chance": h.chance, "spots": h.spots, "net": net[me] / BB, "key": seed * 6 + rotate,
+                     "pos": h.position(me), "put_in": seats[me].put_in / BB, "pot_type": pot_type(h),
+                     "diverge_at": h.diverge_at, "bot_decisions": h.bot_decisions, "events": h.events,
+                     "final_put_in": tuple(s.put_in for s in seats), "final_live": tuple(h.active()),
+                     "final_board": tuple(h.board), "seats": tuple((s.style, s.name) for s in seats),
+                     "number": number}
     stats["hands"].append(net[me] / BB)
     pos = h.position(me)
     stats["by_pos"][pos].append(net[me] / BB)
@@ -596,10 +836,34 @@ def report(stats: dict) -> str:
     return "\n".join(lines)
 
 
+def bot_action_report(stats: dict) -> str:
+    """Each bot style's actions by street: checked to (bet share) and facing a bet (fold,
+    call, raise shares), comparable with the HandHQ shares in DATASET.md."""
+    counts = stats.get("bot_actions", {})
+    lines = []
+    for style in sorted({k[0] for k in counts}):
+        parts = []
+        for street in (0, 3, 4, 5):
+            free = {a: n for (st, sr, f, a), n in counts.items() if st == style and sr == street and not f}
+            facing = {a: n for (st, sr, f, a), n in counts.items() if st == style and sr == street and f}
+            nf, nb = sum(free.values()), sum(facing.values())
+            name = STREETS[street]
+            txt = f"{name}: "
+            if nf:
+                txt += f"bets {100 * free.get('raise', 0) / nf:.0f}% of {nf} when free; "
+            if nb:
+                txt += (f"facing {nb}: fold {100 * facing.get('fold', 0) / nb:.0f}% call "
+                        f"{100 * facing.get('call', 0) / nb:.0f}% raise {100 * facing.get('raise', 0) / nb:.0f}%")
+            parts.append(txt)
+        lines.append(f"{style}: " + " | ".join(parts))
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("hands", nargs="?", type=int, default=2000)
-    ap.add_argument("--table", default="mixed", choices=sorted(TABLES))
+    ap.add_argument("--table", default="mixed", choices=sorted(TABLES),
+                    help="held-out tables (never used for tuning): " + ", ".join(HELD_OUT_TABLES))
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--budget", type=int, default=25, help="ms of equity maths per decision")
     ap.add_argument("--deep", action="store_true", help="500 big blinds deep, like 247 Free Poker")
@@ -607,10 +871,13 @@ def main():
                     help="even: everyone the same; uneven: bots 15-250bb; tourney: everyone shallow")
     ap.add_argument("--profiles", action="store_true",
                     help="the app learns each bot's style from the hands, as in watch mode")
+    ap.add_argument("--bot-actions", action="store_true", help="each bot style's action shares by street")
     a = ap.parse_args()
     stats = run(a.hands, a.table, a.seed, a.budget, 500.0 if a.deep else 100.0, stacks=a.stacks,
                 profiles=a.profiles)
     print(report(stats))
+    if a.bot_actions:
+        print(bot_action_report(stats))
     if stats.get("profiles") is not None:
         print("styles learned: " + profile_report(stats["profiles"], a.table))
 

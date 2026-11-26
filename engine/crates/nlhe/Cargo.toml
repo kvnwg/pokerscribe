@@ -1,0 +1,19 @@
+[package]
+name = "nlhe"
+version = "0.1.0"
+edition = "2021"
+description = "Exact No-Limit Hold'em rules engine for 2 to 6 players"
+publish = false
+
+[features]
+# `eval` adds EvalRanker: showdowns ranked by the eval crate's table evaluator. It is on
+# by default; `default-features = false` gives the rules engine with no dependency at all.
+default = ["eval"]
+eval = ["dep:eval"]
+
+[dependencies]
+eval = { path = "../eval", optional = true }
+
+[[example]]
+name = "rankers"
+required-features = ["eval"]

@@ -13,21 +13,31 @@ from .tree import GameTree, Node, describe_action
 Rule = Callable[[Node, Combo], Union[Mapping[str, float], Sequence[float]]]
 
 
+def describe_mix(probs: Mapping[str, float]) -> str:
+    """'bet 75 60%, check 40%' from {action token: probability} (most likely first, under
+    0.5% left out)."""
+    ranked = sorted(probs.items(), key=lambda kv: -kv[1])
+    return ", ".join(f"{describe_action(a)} {int(round(100 * p))}%" for a, p in ranked if p >= 0.005)
+
+
 class RiverStrategy:
     """probs[node key] is an array shaped (combos of the acting player, actions at the node).
     Rows are probabilities: non-negative, adding up to 1.
 
     iterations, elapsed_ms: filled in by the solver. exploitability: its own check, as a
-    share of the pot, when it worked one out."""
+    share of the pot, when it worked one out. backend: which solver made it, "python"
+    (app/solver/cfr.py) or "rust" (the program subgame-solve, through rust_backend.py)."""
 
     def __init__(self, spot: RiverSpot, probs: Mapping[str, np.ndarray], tree: Optional[GameTree] = None,
-                 iterations: int = 0, elapsed_ms: float = 0.0, exploitability: Optional[float] = None):
+                 iterations: int = 0, elapsed_ms: float = 0.0, exploitability: Optional[float] = None,
+                 backend: str = "python"):
         self.spot = spot
         self.tree = tree if tree is not None else GameTree(spot)
         self.probs: Dict[str, np.ndarray] = {k: np.asarray(v, dtype=float) for k, v in probs.items()}
         self.iterations = iterations
         self.elapsed_ms = elapsed_ms
         self.exploitability = exploitability
+        self.backend = backend
         self.validate()
 
     def validate(self, tol: float = 1e-6) -> None:
@@ -111,9 +121,7 @@ class RiverStrategy:
 
     def describe(self, key: str, combo: Sequence[str]) -> str:
         """'bet 75 60%, check 40%' (most likely first, under 0.5% left out)."""
-        probs = sorted(self.action_probs(key, combo).items(), key=lambda kv: -kv[1])
-        parts = [f"{describe_action(a)} {int(round(100 * p))}%" for a, p in probs if p >= 0.005]
-        return ", ".join(parts)
+        return describe_mix(self.action_probs(key, combo))
 
     def __repr__(self) -> str:
         return (f"RiverStrategy({' '.join(self.spot.board)}, pot {self.spot.pot:g}, {len(self.tree)} nodes, "

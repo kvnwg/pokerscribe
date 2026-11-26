@@ -1,0 +1,28 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "py09",
+  "street": "river",
+  "title": "Known answer: too few bluffs for a pot-sized bet, the bluff catcher always folds",
+  "tags": ["closed-form", "polar", "dry"],
+  "board": ["Kh", "8d", "5c", "3s", "2h"],
+  "pot": 100,
+  "stacks": [1000, 1000],
+  "spr": 10.0,
+  "max_raises": 0,
+  "sizes": {
+    "oop": {"bets": [], "raises": [], "allin": false},
+    "ip": {"bets": [1.0], "raises": [], "allin": false}
+  },
+  "range_text": {
+    "oop": "QQ",
+    "ip": "KK,88,55,JTs"
+  },
+  "ranges": {
+    "oop": {"QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0},
+    "ip": {"KsKd": 1.0, "KsKc": 1.0, "KdKc": 1.0, "8s8h": 1.0, "8s8c": 1.0, "8h8c": 1.0, "5s5h": 1.0, "5s5d": 1.0, "5h5d": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "JcTc": 1.0}
+  },
+  "expected": [
+    {"nodes": "^x b100$", "actor": "oop", "action": "f", "min": 0.98, "why": "bluffs are at most 4 of 13 bets, under the 1/3 a call needs"}
+  ]
+}

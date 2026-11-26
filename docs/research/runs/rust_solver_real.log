@@ -1,0 +1,23 @@
+# docs/research/runs/rust_solver_real.py, 26 Nov 2026 (cloud container, Intel Xeon 2.10 GHz, 4 cores)
+
+table mixed: 6000 hands, seed 77: 394 heads-up river decisions, the first 394 used; program engine/target/release/subgame-solve
+  394 spots: answered by subgame-solve 302, can't be written as a SPOT 92, failed 0
+  Python solver:  p50 287, p95 290, max 303 ms; iterations p50 179; from an equilibrium, % of the pot: p50 0.101, p95 0.348, max 0.739 
+  subgame-solve:  p50 56, p95 154, max 228 ms for the whole call; iterations p50 218; from an equilibrium, % of the pot: p50 0.061, p95 0.397, max 0.499 
+    of the call, solving (the program's own count): p50 43.6, p95 135.6, max 206.7 ms
+    of the call, everything else (overhead):        p50 15.0, p95 22.8, max 29.5 ms
+    calls over the 300 ms budget: 0; answers over 1% of the pot: 0
+    the program's own exploitability against the Python checker's, % of the pot: largest difference 0.000031
+  the advice would act the same on both answers in 289 of 297 spots where both have one
+  where it would not, the mix for the hero's hand in each answer:
+    at 'x', pot 9.9 big blinds: Python bet 9.94 44%, check 41%, bet 19.89 15% | subgame-solve check 41%, bet 9.94 36%, bet 19.89 23%
+    at 'b42.22', pot 34.4 big blinds: Python call 58%, fold 42% | subgame-solve fold 50%, call 50%
+    at '', pot 9.0 big blinds: Python bet 8.97 54%, check 46% | subgame-solve check 49%, bet 8.97 44%, bet 17.94 7%
+    at '', pot 9.2 big blinds: Python bet 9.17 55%, bet 18.34 35%, check 9% | subgame-solve bet 18.34 86%, bet 9.17 12%, check 2%
+    at 'b72.32', pot 40.5 big blinds: Python raise to 161 55%, call 45% | subgame-solve call 55%, raise to 161 45%
+    at '', pot 17.4 big blinds: Python bet 17.35 70%, bet 34.7 29%, bet 183.15 1% | subgame-solve bet 34.7 52%, bet 17.35 46%, bet 183.15 2%
+    at '', pot 99.8 big blinds: Python check 41%, bet 99.83 37%, bet 101.67 22% | subgame-solve bet 99.83 43%, check 41%, bet 101.67 16%
+    at '', pot 2.5 big blinds: Python check 56%, bet 2.5 43% | subgame-solve bet 2.5 50%, check 49%, bet 5 1%
+  advise() with the Python solver: p50 294, p95 299, max 441 ms (target 400 ms); answered by the solver: 388 of 394
+  advise() with the subgame-solve: p50 79, p95 297, max 311 ms (target 400 ms); answered by the solver: 389 of 394
+  the same instruction (action and amount) from both: 384 of 394

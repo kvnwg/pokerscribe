@@ -1,0 +1,73 @@
+{
+  "game": "leduc_poker",
+  "open_spiel_version": "2.0.2",
+  "info_states_per_player": [
+    468,
+    468
+  ],
+  "histories": 9457,
+  "terminal_histories": 5520,
+  "uniform_policy": {
+    "nash_conv": 4.747222222222222,
+    "exploitability": 2.373611111111111
+  },
+  "exploitability_definition": "NashConv / num_players, as in open_spiel.python.algorithms.exploitability",
+  "vanilla_cfr_python": [
+    {
+      "iteration": 1,
+      "nash_conv": 4.747222222222222,
+      "exploitability": 2.373611111111111,
+      "value_player0": -0.078125
+    },
+    {
+      "iteration": 10,
+      "nash_conv": 1.777157966337538,
+      "exploitability": 0.888578983168769,
+      "value_player0": -0.4448309409352176
+    },
+    {
+      "iteration": 100,
+      "nash_conv": 0.19143270600919524,
+      "exploitability": 0.09571635300459762,
+      "value_player0": -0.11397530306764395
+    },
+    {
+      "iteration": 1000,
+      "nash_conv": 0.023635620519572575,
+      "exploitability": 0.011817810259786288,
+      "value_player0": -0.08722360294819473
+    }
+  ],
+  "vanilla_cfr_cpp": [
+    {
+      "iteration": 1,
+      "nash_conv": 4.747222222222222,
+      "exploitability": 2.373611111111111,
+      "value_player0": -0.078125
+    },
+    {
+      "iteration": 10,
+      "nash_conv": 1.777157966337538,
+      "exploitability": 0.888578983168769,
+      "value_player0": -0.4448309409352176
+    },
+    {
+      "iteration": 100,
+      "nash_conv": 0.19143270600919524,
+      "exploitability": 0.09571635300459762,
+      "value_player0": -0.11397530306764395
+    },
+    {
+      "iteration": 1000,
+      "nash_conv": 0.023635620519572575,
+      "exploitability": 0.011817810259786288,
+      "value_player0": -0.08722360294819473
+    }
+  ],
+  "equilibrium": {
+    "solver": "OpenSpiel C++ CFRPlusSolver",
+    "iterations": 20000,
+    "value_player0": -0.08560640643865203,
+    "exploitability": 4.127038082363255e-06
+  }
+}

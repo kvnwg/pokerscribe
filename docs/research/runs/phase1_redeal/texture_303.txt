@@ -1,0 +1,8 @@
+{"texture_sizing": true} on mixed (even), seed 303: 1500 hands, 29 differ; CPU s: resampled 34, redeal 25, classes 9
+  raw                -6.05 ±  2.58 bb/100
+  resampled raw      -1.63 ±  2.27 bb/100
+  resampled luck     -2.23 ±  2.27 bb/100
+  redeal raw         -5.02 ±  2.51 bb/100
+  redeal luck        -5.67 ±  2.57 bb/100
+  redeal exact luck   -6.79 ±  3.15 bb/100
+  resampled exact luck   -1.63 ±  2.27 bb/100

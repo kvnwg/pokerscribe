@@ -1,5 +1,9 @@
 # PokerScribe
 
+[![Rust](https://github.com/kvnwg/pokerscribe/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/rust.yml)
+[![Python](https://github.com/kvnwg/pokerscribe/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/python.yml)
+[![Rust slow tests](https://github.com/kvnwg/pokerscribe/actions/workflows/rust-slow.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/rust-slow.yml)
+
 PokerScribe reads a poker table from your screen and turns it into clean, structured text. All image recognition happens locally on your Mac. If you choose an AI provider, the only thing it ever receives is that text: no screenshots, no player names, no site or app names, nothing about your computer.
 
 Built for practice with simulators, reviewing recorded sessions, and platforms that allow AI assistance. Most real-money poker sites prohibit real-time assistance software during play, so check a site's rules before using it there.
@@ -194,6 +198,8 @@ What is exact is the call-or-fold decision when calling ends the betting (heads-
 
 Strategy work follows a written plan with measured gates, kept in `docs/research/` so it never depends on one chat: the research report (where strength is lost, eight research directions, a roadmap toward a Pluribus-style agent), the frozen baseline agent, a log of every experiment with its result and standard error, the dataset report, and the book and paper principles with their status in the engine. A change replaces the baseline only after beating it by at least 2.5 standard errors in paired simulation, without losing to any opponent type. All testing stays offline or on tables you're allowed to use; PokerScribe never plays for you.
 
+The comparisons take out as much luck as they can (Phase 1 of the roadmap): every deck is played six times with the players moved round one seat each time, every bot decision has its own random seed so two versions of the app face the same choices, and a hand where the two versions part is played six more times from that point, with fresh board cards and the opponents dealt fresh hands they could have held given what they did, and averaged. The luck of board cards after which nobody can bet is taken out too (`tools/luck.py`, after the AIVAT method; `tools/hidden.py` has AIVAT's correction for the opponents' hidden cards). Opponents the strategy was never tuned on (`heldout`, `regulars`, `switchers`, `wildcards`) judge whether a change generalises, and `tools/weakness.py` lists the spots where a different move would have won more.
+
 ## Project structure
 
 ```
@@ -205,17 +211,29 @@ app/
                      hand tracker (bets from stack changes while watching)
   state/             JSON game state, positions, text output, privacy check
   poker/             hand evaluation (treys), ranges, equity, pot odds, call-or-fold,
-                     advice (the one instruction in the simple view)
+                     advice (the one instruction in the simple view), opponent profiles and
+                     the record of who bet on each round (while watching)
   solver/            river solver and heads-up push-or-fold solver (Phase 2, not used by the
                      advice yet): spots, betting tree, fast river ranking, exploitability
-                     checker, timing, label format
+                     checker, timing, label format, river ranges from the betting so far, and
+                     rust_backend.py, which hands a river spot to the Rust solver program
+                     (behind a switch that is off)
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
   tests/             test suite, the synthetic table renderer and the demo table (several layouts)
-tools/               benchmarks, template builders, the simulator, paired comparisons and the
-                     self-test (PokerScribe reading our own demo table, checked against the truth)
+engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
+                     the hand evaluator, the river and turn solver (subgame-solve), and
+                     crates/py, the Python module pokerscribe_engine.
+                     Optional: the app runs without Rust (see engine/crates/py/README.md)
+tools/               benchmarks, template builders, the simulator, paired comparisons,
+                     the luck adjustment (luck.py), the opponents' hidden cards (hidden.py),
+                     the weakness report (weakness.py), the self-test (PokerScribe reading our
+                     own demo table, checked against the truth) and fetch_reads.py (saved reads)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
+  slumbot/           heads-up benchmark against Slumbot's bot API (see tools/slumbot/README.md)
+  gtowizard/         heads-up benchmark against GTO Wizard AI: benchmark only, its hands are never
+                     training data (see tools/gtowizard/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```
 
@@ -226,7 +244,21 @@ docs/research/       research report link, frozen baseline, experiment log, data
 .venv/bin/python -m pytest
 ```
 
-The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
+The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the simulator's measurement tools (the luck adjustment averages exactly zero, duplicate deals, identical results when split over processes, the weakness report), the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
+
+## Checks
+
+GitHub Actions tests every pull request and every push to `main`. The workflows are in `.github/workflows/`, and the badges at the top of this page show the latest result on `main`.
+
+| Check | What it runs | When |
+| --- | --- | --- |
+| Rust (`rust.yml`) | `cargo test --release` in `engine/` | every pull request, every push to `main` |
+| Python (`python.yml`) | `python -m pytest`, once on Python 3.12 and once on 3.13 | every pull request, every push to `main` |
+| Rust slow tests (`rust-slow.yml`) | `cargo test --release -- --ignored` | every night, and on demand: Actions tab, "Rust slow tests", "Run workflow" |
+
+All three run on Linux. The Python check installs what the tests need there: a virtual display (Xvfb), the libraries PySide6 loads, Tesseract, PokerKit and the fonts the test tables are drawn with. It also builds the Rust engine the way `setup_mac.sh` does (the Python module `pokerscribe_engine` and the solver program `subgame-solve`). It fails if any test is skipped. No test needs macOS (Apple's text reader is tested through a stand-in), so nothing runs on the more expensive macOS machines.
+
+A red check means a test failed. Fix the cause: never skip, disable or loosen a test to turn a check green.
 
 ## Troubleshooting
 

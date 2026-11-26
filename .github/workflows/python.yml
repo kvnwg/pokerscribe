@@ -1,0 +1,131 @@
+name: Python
+
+# Runs the Python tests (python -m pytest) on every pull request and on every push to main.
+# Linux, with a virtual display (Xvfb) for the tests that need a screen. No test needs macOS:
+# Apple's text reader is tested through a stand-in (app/tests/test_ocr.py).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request stops the run for the push before it. Runs on main are never
+# stopped, so every merge gets its own result.
+concurrency:
+  group: python-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # setup_mac.sh takes Python 3.12 when it finds it, and the cloud sessions use 3.13.
+        # They don't get the same text reader: pip installs RapidOCR 1.4 on 3.12 and older,
+        # and RapidOCR 1.2 on 3.13 and newer. Both are tested.
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            tools/phh/requirements.txt
+
+      # Xvfb is the virtual display (test_capture.py starts it with xvfb-run). The lib*
+      # packages are what PySide6 (Qt) and the screen grabber load. tesseract-ocr is the third
+      # text reader. The fonts are the ones app/tests/synthetic.py draws test tables with.
+      - name: Install the display, text reader and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb \
+            libegl1 libgl1 libdbus-1-3 libfontconfig1 libglib2.0-0t64 \
+            libx11-6 libx11-xcb1 libxrandr2 libxfixes3 libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 \
+            libxcb-util1 libxcb-xfixes0 libxcb-xkb1 \
+            tesseract-ocr \
+            fonts-dejavu-core fonts-liberation fonts-texgyre fonts-adf-gillius \
+            fonts-tlwg-loma-otf fonts-lmodern fonts-noto-cjk
+
+      # Crimson Text is not in Ubuntu's packages. It comes from the Google Fonts repository at
+      # a fixed commit, and the download is checked before it is installed.
+      - name: Install the Crimson Text font and check every test font is there
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$RUNNER_TEMP/CrimsonText-Bold.ttf" \
+            https://raw.githubusercontent.com/google/fonts/5026800714d07231937d92eb4cceabf06e05d74e/ofl/crimsontext/CrimsonText-Bold.ttf
+          echo "a3a0765fc5e8d0b49b540a23aefe0184887dd79f06a0bdf4db7035cea6befa93  $RUNNER_TEMP/CrimsonText-Bold.ttf" | sha256sum --check
+          sudo install -D -m 644 "$RUNNER_TEMP/CrimsonText-Bold.ttf" /usr/share/fonts/truetype/crimsontext/CrimsonText-Bold.ttf
+          for font in texgyreadventor-bold.otf GilliusADF-Bold.otf Loma-Bold.otf lmsans10-bold.otf \
+                      CrimsonText-Bold.ttf texgyreschola-bold.otf NotoSerifCJK-Regular.ttc \
+                      DejaVuSans.ttf DejaVuSans-Bold.ttf; do
+            if ! find /usr/share/fonts /usr/share/texmf/fonts -iname "$font" | grep -q .; then
+              echo "::error::The font $font is missing: the card tests would draw with another font."
+              exit 1
+            fi
+          done
+
+      # tools/phh/requirements.txt adds PokerKit, which test_phh_pipeline.py needs. Without it
+      # that file would be skipped.
+      - name: Install the Python packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -r tools/phh/requirements.txt
+          python -m pip freeze
+
+      # Two test files need the Rust engine built and are skipped without it:
+      # test_engine_bindings.py imports the Python module pokerscribe_engine, and
+      # test_solver_rust_backend.py runs the solver program subgame-solve. These are the same
+      # two builds setup_mac.sh does when Rust is installed (Rust is already on the runner).
+      - name: Build the Rust engine for the Python tests
+        run: |
+          rustc --version
+          python -m pip install ./engine/crates/py
+          cargo build --release --bin subgame-solve --manifest-path engine/Cargo.toml
+
+      - name: python -m pytest
+        run: python -m pytest -rfEs --durations=15 --junitxml="$RUNNER_TEMP/pytest.xml"
+
+      # Several tests skip themselves when a program or package is missing (Xvfb, RapidOCR,
+      # Tesseract, PokerKit, the Rust engine). Everything they need is installed above, so a
+      # skip here means this workflow no longer tests what it should, and the run fails.
+      - name: No test may be skipped
+        if: ${{ !cancelled() }}
+        run: |
+          python - "$RUNNER_TEMP/pytest.xml" <<'EOF'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          report = sys.argv[1]
+          if not os.path.exists(report):
+              sys.exit("pytest wrote no report, so the skipped tests can't be counted.")
+          skipped = []
+          for case in ET.parse(report).getroot().iter("testcase"):
+              skip = case.find("skipped")
+              if skip is not None and skip.get("type") != "pytest.xfail":
+                  name = "::".join(p for p in (case.get("classname"), case.get("name")) if p)
+                  why = skip.get("message")
+                  if why == "collection skipped":  # a whole file: the reason is in the text
+                      why = " ".join((skip.text or why).split())
+                  skipped.append(f"{name}: {why}")
+          for line in skipped:
+              print(f"::error::Skipped: {line}")
+          if skipped:
+              sys.exit(f"{len(skipped)} skipped. Install what they need in this workflow, "
+                       "or run them on a runner that has it.")
+          print("No test was skipped.")
+          EOF
