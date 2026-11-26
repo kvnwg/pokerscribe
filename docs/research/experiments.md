@@ -722,6 +722,50 @@ the rules for that decision.
 - The push-or-fold solver isn't wired into the advice. The `push_chart` option still
   uses its hand-typed table.
 
+## Phase 2: the river solver against B0 (26 Nov 2026)
+
+Phase 1 was closed by Kevin's decision (Phase 1, gate run 5), so the rest of Phase 2's gate
+can run: `river_solver` must beat B0 by 2.5 SE.
+
+### Simulations repeat exactly
+
+In the app the solver stops on its 300 ms budget, so how far it gets depends on the machine.
+In a 300-hand probe on the mixed table (seed 7, one process on a cloud core), the budget
+stopped 12 of its 17 calls, at 246 to 326 iterations (median 278). The other 5 reached 0.1%
+of the pot first. So comparisons with the switch on would change from run to run, between
+one process and `--jobs`, and with how many runs share the machine.
+
+- Simulations (`tools/simulate.py`, `SOLVER_ITERATIONS`) now give the solver a fixed 300
+  iterations in place of the budget. It still stops early at 0.1% of the pot, and it never
+  falls back to the rules for being slow. 300 is about what the budget allows on a cloud
+  core; a faster machine gets further in the app.
+- The app is unchanged: the budget still decides there (`app/poker/advice.py`,
+  `SOLVER_ITERATIONS` is None). With the switch off nothing changes anywhere.
+- Test (`app/tests/test_solver_simulation.py`): 36 hands in which the solver changes a
+  decision give the same results twice, with a 1 ms budget, and split over two processes.
+  Before the change, the 1 ms budget changed them.
+
+### The comparison: rule
+
+`runs/phase2_solver_b0.sh`, committed before any hand on its seeds was played:
+
+- Each run: `tools/compare.py '{"river_solver": true}' 3000 --tables <table> --seed <seed>`
+  with the defaults (Phase 1's way: duplicate decks, 6 replays from the split with the bots
+  redealt, luck only where nobody can bet again; even stacks; no profiles).
+- The estimate: the "replayed 6 times" figure, pooled over a stage's seeds, SE with decks
+  as units.
+- Stage 1: mixed, seeds 1111, 2222, 3333 and 4444 (12000 hands). Passes if `river_solver`
+  minus B0 is at least 2.5 SE.
+- Stage 2, only if stage 1 passes: fish247 and the four held-out tables, seeds 1111 and
+  2222 (6000 hands each). Passes if none loses significantly, taken here as -2 SE or less.
+- Stages 3 and 4, only if 1 and 2 pass: the same on fresh seeds (5555 to 8888 for mixed,
+  5555 and 6666 for the others).
+- The B0 bar is met only if all four pass. Even then the switch stays off until Kevin
+  decides, since it changes what the app tells him at the table. If a stage fails, the
+  later ones aren't run and the switch stays off.
+- Chosen from a pilot on seed 7 (600 hands, mixed, already used for the probe): +15.0 ±
+  12.4 bb/100 with 9 hands that differ. Projected SE at 12000 hands: about 2.8 bb/100.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

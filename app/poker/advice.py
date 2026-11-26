@@ -189,6 +189,11 @@ TUNING = {
     # its time budget; otherwise, and on every other street, the rules above decide
     "river_solver": False,
 }
+# Simulations (tools/simulate.py) set this so the river solver's answer doesn't depend on the
+# machine's speed: that many iterations (it still stops early once its answer is good enough)
+# in place of the time budget, and no falling back to the rules for being slow. None in the
+# app, where the time budget decides. Not a strategy setting, so not in TUNING.
+SOLVER_ITERATIONS: Optional[int] = None
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
 # Push or fold (no antes): the share of hands to open all in by the number of players still
@@ -957,8 +962,14 @@ def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
     budget = solver.DECISION_BUDGET_MS
     start = time.perf_counter()
     try:
-        strategy = solver.solve_river(decision.spot, budget)
-        elapsed_ms = 1000.0 * (time.perf_counter() - start)
+        if SOLVER_ITERATIONS:
+            # a simulation: a fixed amount of work, so the answer doesn't depend on how fast
+            # or busy the machine is
+            strategy = solver.solve_river(decision.spot, None, max_iterations=SOLVER_ITERATIONS)
+            elapsed_ms = 0.0
+        else:
+            strategy = solver.solve_river(decision.spot, budget)
+            elapsed_ms = 1000.0 * (time.perf_counter() - start)
         if strategy is None or elapsed_ms > budget:
             return None
         token, _ = bridge.recommend(strategy, decision)

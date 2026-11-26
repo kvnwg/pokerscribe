@@ -276,6 +276,10 @@ def check_advice(h: Hand, me: int, adv, stats) -> None:
 
 
 ITERATIONS = 400  # Monte Carlo samples per equity estimate: a fixed count keeps every run repeatable
+# The river solver (TUNING["river_solver"]): this many iterations in place of its 300 ms budget,
+# for the same reason. About what the budget allows on a cloud core (246 to 326 iterations when
+# the budget stops it, experiments.md, Phase 2, simulations repeat exactly).
+SOLVER_ITERATIONS = 300
 
 
 def sim_compute(st: GameState) -> dict:
@@ -320,11 +324,13 @@ class variant:
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 60.0, ITERATIONS
         adv_mod.TUNING["allin_budget_s"] = 60.0
         adv_mod.TUNING["sizing_budget_s"], adv_mod.TUNING["sizing_iterations"] = 60.0, ITERATIONS
+        self.saved_solver, adv_mod.SOLVER_ITERATIONS = adv_mod.SOLVER_ITERATIONS, SOLVER_ITERATIONS
         return self
 
     def __exit__(self, *exc):
         from app.poker import advice as adv_mod
 
+        adv_mod.SOLVER_ITERATIONS = self.saved_solver
         adv_mod.TUNING.update(self.saved)
         adv_mod.TUNING["facing_budget_s"], adv_mod.TUNING["facing_iterations"] = 0.12, 60000
         adv_mod.TUNING["allin_budget_s"] = 0.35
