@@ -47,6 +47,8 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `app/solver/`: the Phase 2 solvers. `solve_river` (Discounted CFR on a river spot),
   `solve_push_fold` (heads-up jam-or-fold), the exploitability checker, timing and the label
   format. See `docs/research/SOLVER.md`.
+- `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
+  parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8). The built data isn't in the repo
   (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
