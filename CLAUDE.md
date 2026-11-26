@@ -37,6 +37,14 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 ./run_mac.sh --image app/assets/demo/demo_flop.png   # try it without a poker client
 ```
 
+GitHub Actions runs the tests on every pull request and every push to `main` (`.github/workflows/`):
+`rust.yml` (`cargo test --release` in `engine/`), `python.yml` (`python -m pytest` on Linux, on Python
+3.12 and 3.13) and `rust-slow.yml` (the `#[ignore]` tests, nightly and on demand). Never skip, disable
+or loosen a test to make a check pass. The Python check fails if any test is skipped: when a new
+test needs a program or package, install it in `python.yml`. To run the Python tests in a Linux
+session, install what `python.yml` installs (Xvfb, the Qt libraries, Tesseract, the fonts) and build
+the Rust engine as it does. README.md, "Checks", has the rest.
+
 ## Where things are
 
 - `README.md`: the user guide and the project structure.

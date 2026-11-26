@@ -1,5 +1,9 @@
 # PokerScribe
 
+[![Rust](https://github.com/kvnwg/pokerscribe/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/rust.yml)
+[![Python](https://github.com/kvnwg/pokerscribe/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/python.yml)
+[![Rust slow tests](https://github.com/kvnwg/pokerscribe/actions/workflows/rust-slow.yml/badge.svg?branch=main)](https://github.com/kvnwg/pokerscribe/actions/workflows/rust-slow.yml)
+
 PokerScribe reads a poker table from your screen and turns it into clean, structured text. All image recognition happens locally on your Mac. If you choose an AI provider, the only thing it ever receives is that text: no screenshots, no player names, no site or app names, nothing about your computer.
 
 Built for practice with simulators, reviewing recorded sessions, and platforms that allow AI assistance. Most real-money poker sites prohibit real-time assistance software during play, so check a site's rules before using it there.
@@ -237,6 +241,20 @@ docs/research/       research report link, frozen baseline, experiment log, data
 ```
 
 The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the simulator's measurement tools (the luck adjustment averages exactly zero, duplicate deals, identical results when split over processes, the weakness report), the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
+
+## Checks
+
+GitHub Actions tests every pull request and every push to `main`. The workflows are in `.github/workflows/`, and the badges at the top of this page show the latest result on `main`.
+
+| Check | What it runs | When |
+| --- | --- | --- |
+| Rust (`rust.yml`) | `cargo test --release` in `engine/` | every pull request, every push to `main` |
+| Python (`python.yml`) | `python -m pytest`, once on Python 3.12 and once on 3.13 | every pull request, every push to `main` |
+| Rust slow tests (`rust-slow.yml`) | `cargo test --release -- --ignored` | every night, and on demand: Actions tab, "Rust slow tests", "Run workflow" |
+
+All three run on Linux. The Python check installs what the tests need there: a virtual display (Xvfb), the libraries PySide6 loads, Tesseract, PokerKit and the fonts the test tables are drawn with. It also builds the Rust engine the way `setup_mac.sh` does (the Python module `pokerscribe_engine` and the solver program `subgame-solve`). It fails if any test is skipped. No test needs macOS (Apple's text reader is tested through a stand-in), so nothing runs on the more expensive macOS machines.
+
+A red check means a test failed. Fix the cause: never skip, disable or loosen a test to turn a check green.
 
 ## Troubleshooting
 
