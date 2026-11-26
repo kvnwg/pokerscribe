@@ -13,7 +13,9 @@ Status, 26 Nov 2026:
   of the pot of an equilibrium.
 - **The Python numbers are in the table below.** They pass the EV and exploitability gates on all
   40 spots, and the time gate on the river on this machine.
-- **The Rust solver hasn't been run yet.** Its rows go in the same table.
+- **The Rust solver (`engine/crates/subgame`) has been run through it.** At a target of 0.3% of
+  the pot, its default, it passes every gate on all 40 spots. At 0.5% it misses the EV gate on
+  three river spots. See "The Rust solver" under the results.
 - **One finding about the answer keys:** TexasSolver's turn answers are for a slightly different
   game from the exact one. See "TexasSolver on the turn" before reading any turn number. For turn
   spots, check against the Python reference first.
@@ -42,9 +44,10 @@ The spots and the answer keys are described in `data/answer_keys/README.md`, the
 #    River spots take a few seconds in all, turn spots about 5 minutes (--spots river skips them).
 .venv/bin/python -m tools.answer_keys export-python
 
-# 2. Run the Rust binary on the spots (3 runs each), save its RESULTs, time it.
-#    --spots turn or all once it solves turn spots.
-.venv/bin/python -m tools.answer_keys run --solver engine/target/release/subgame-solve --name rust_solver --spots river
+# 2. Build the Rust binary, run it on the spots (3 runs each), save its RESULTs, time it.
+#    --target 0.2: see "The Rust solver" for why not the default of 0.5.
+(cd engine && cargo build --release -p subgame)
+.venv/bin/python -m tools.answer_keys run --solver engine/target/release/subgame-solve --name rust_solver --target 0.2
 
 # 3. Compare what it saved with each reference
 .venv/bin/python -m tools.answer_keys compare rust_solver --against python_solver
@@ -166,8 +169,12 @@ on another machine: measure both solvers on the same one. Add a row with `compar
 | standin (Python through the command line, target 0.5%) | 40 | texassolver | 0.265% (r17) | 0.482% (t09) | 3 of 3 | 4.0 / 69.4 | 20 / 39 | 141 / 191 | 3180 / 6897 | 4133 / 8039 | PASS |
 | standin (the same run) | 40 | python_solver | 0.366% (r17) | 0.482% (t09) | 3 of 3 | 2.5 / 51.9 | 20 / 39 | 141 / 191 | 3180 / 6897 | 4133 / 8039 | PASS |
 | texassolver (the answer keys themselves) | 40 | python_solver | 0.330% (t10) | 0.710% (t06) | 3 of 3 | 4.3 / 70.8 | - | - | - | - | FAIL on the turn: see "TexasSolver on the turn" |
-| Rust solver, river | | | | | | | | | | | to do |
-| Rust solver, turn | | | | | | | | | | | to do |
+| Rust solver (`subgame-solve`), target 0.5% | 40 | python_solver | 0.787% (r02) | 0.499% (r07) | 3 of 3 | 3.6 / 55.6 | 2 / 6 | 4 / 9 | 118 / 250 | 161 / 334 | FAIL on EV: r02, r20, r26 |
+| Rust solver (the same run) | 40 | texassolver | 0.570% (r02) | 0.499% (r07) | 3 of 3 | 4.9 / 69.4 | 2 / 6 | 4 / 9 | 118 / 250 | 161 / 334 | FAIL on EV: r02, r20 |
+| Rust solver, target 0.3% (its default) | 40 | python_solver | 0.498% (r02) | 0.298% (r21) | 3 of 3 | 2.5 / 50.9 | 2 / 5 | 4 / 8 | 147 / 326 | 202 / 387 | PASS |
+| Rust solver (the same run) | 40 | texassolver | 0.281% (r02) | 0.298% (r21) | 3 of 3 | 4.0 / 69.4 | 2 / 5 | 4 / 8 | 147 / 326 | 202 / 387 | PASS |
+| Rust solver, target 0.2% | 40 | python_solver | 0.334% (r02) | 0.200% (r12) | 3 of 3 | 1.8 / 44.0 | 2 / 7 | 4 / 12 | 171 / 441 | 213 / 505 | PASS |
+| Rust solver, target 0.1% | 40 | python_solver | 0.170% (r02) | 0.100% (t07) | 3 of 3 | 1.1 / 37.6 | 4 / 19 | 6 / 19 | 235 / 568 | 284 / 633 | PASS |
 
 - **`python_solver`** is the Python reference, saved in `data/answer_keys/python_solver/`: the river
   spots by `solve_river` (Phase 2), the turn spots by the turn solver above, each run to 0.01% of
@@ -194,6 +201,34 @@ Three things the Python rows say about the Rust solver's settings:
 - **The turn has no time gate**, and numpy needs 2 to 7 s a spot for 0.5%. A turn spot is many
   river spots: every line of turn betting that ends in a call or in two checks is followed by a
   river tree for each of the 44 cards.
+
+### The Rust solver
+
+`engine/crates/subgame` reached main on 26 Nov 2026 while this page was being written, so it was run
+through the harness the same day: `run --solver engine/target/release/subgame-solve --spots all`
+(release build, 4 threads on turn spots, 3 runs a spot), then `compare` against both references.
+Its RESULTs are not saved in the repo; the commands in "How to run the check" make them again in
+a few seconds.
+
+- **The command line works as assumed.** All 40 spots ran and were read on the first try: the
+  target is in percent of the pot, the file at `--out` is the spot's RESULT, and the header has
+  the time, iterations and exploitability.
+- **At 0.3% of the pot, its default, it passes every gate on all 40 spots**, against the Python
+  reference and against TexasSolver. River p95 is 8 ms of wall time against a gate of 400 ms.
+- **At 0.5%, the gate's own number, it fails the EV gate on r02, r20 and r26** (0.63% to 0.79% from
+  the reference), while its exploitability is under 0.5% everywhere. These are spots where the out
+  of position player's true value is 0: nearly all of the answer's remaining error is that
+  player's own loss, so the EV is off by up to twice the exploitability. This is "Stopping at 0.5%
+  leaves little room on EV", above, in practice. It is not a bug in the solver.
+- **Even 0.3% has almost no room on r02**: 0.498% against a gate of 0.5%. At 0.2% the largest EV
+  difference is 0.33% and river p95 is 12 ms. At 0.1% it is 0.17% and 19 ms. Speed is not the
+  constraint, so 0.2% or lower is the target to use for gate runs.
+- **Two exact turn checkers now agree.** The exploitability `values.py` works out for the Rust
+  solver's turn answers is the number the Rust solver reports for itself, to the third decimal, on
+  all ten turn spots. The two were written separately, in two languages. They also found the 1/46
+  rule separately, with the same numbers for TexasSolver's turn answers (0.42% to 0.71%).
+- **Turn times**: 161 ms (p50) and 334 ms (p95) of wall time at 0.5%, 202 and 387 ms at 0.3%.
+  There is no gate for them.
 
 ### The Python reference, spot by spot
 
@@ -312,16 +347,12 @@ or setting that deals exactly.
   trees need their own timing run (`app/solver/timing.py` has the Phase 2 benchmark spots).
 - **A time gate for the turn.** The roadmap has none. `run` reports the turn's p50 and p95 all the
   same.
-- **Two files weren't edited and are out of date on the turn** (they are outside what this work was
-  allowed to change):
-  - `data/answer_keys/README.md` says every answer is under 0.3% of the pot, which for the turn
-    spots is true by TexasSolver's rule only, and that no turn checker exists. It doesn't mention
-    `python_solver/`.
-  - `data/SPOT_FORMAT.md` says `checks.exploitability_pot`, `checks.values` and
-    `checks.oop_value_bounds` are `null` for turn spots. That holds for TexasSolver's keys. Results
-    this harness writes (`python_solver/`, and anything saved by `run`) fill them for turn spots
-    too, worked out by `values.py`. It also says only the expected checks and frequencies can be
-    checked against a turn key; `compare` now checks EV and exploitability as well.
+- **Three files weren't edited and are out of date on one point** (they are outside what this work
+  was allowed to change). `data/answer_keys/README.md`, `data/SPOT_FORMAT.md` and
+  `engine/crates/subgame/README.md` say that Python has no turn checker and that the Rust crate is
+  the only exact measure of a turn answer. `values.py` is one too, and `python_solver/` holds
+  exact turn answers with values and bounds in their `checks` block. The first two also don't
+  mention `python_solver/`.
 
 ## Files
 
