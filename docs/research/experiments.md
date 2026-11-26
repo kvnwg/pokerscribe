@@ -766,6 +766,38 @@ one process and `--jobs`, and with how many runs share the machine.
 - Chosen from a pilot on seed 7 (600 hands, mixed, already used for the probe): +15.0 ±
   12.4 bb/100 with 9 hands that differ. Projected SE at 12000 hands: about 2.8 bb/100.
 
+All figures below are `river_solver` minus B0, "replayed 6 times", in bb/100
+(`runs/phase2_solver_b0/`, one `stage<n>.md` per stage). No run had any always-wrong
+instruction.
+
+### Stage 1: mixed (passes)
+
+| Seed | Hands that differ | river_solver minus B0 |
+|---|---|---|
+| 1111 | 77 | +12.8 ± 4.8 |
+| 2222 | 57 | -0.9 ± 2.9 |
+| 3333 | 59 | +8.1 ± 4.5 |
+| 4444 | 60 | +3.2 ± 3.3 |
+| **Pooled, 12000 hands** | **253 (2.1%)** | **+5.8 ± 2.0, that is 2.94 SE** |
+
+The four seeds spread a bit more than their SEs suggest (Cochran's Q 7.0 on 3 degrees of
+freedom, p about 0.07), so the SE may be a little small. Stage 3, on fresh seeds, checks
+that.
+
+### Stage 2: fish247 and the held-out tables (passes)
+
+6000 hands each, seeds 1111 and 2222:
+
+| Table | Hands that differ | river_solver minus B0 | In SE |
+|---|---|---|---|
+| fish247 | 205 (3.4%) | +1.6 ± 2.9 | +0.55 |
+| heldout | 169 (2.8%) | +1.0 ± 2.9 | +0.33 |
+| regulars | 109 (1.8%) | +5.0 ± 2.1 | +2.44 |
+| switchers | 121 (2.0%) | +3.9 ± 3.5 | +1.12 |
+| wildcards | 148 (2.5%) | +2.4 ± 3.6 | +0.66 |
+
+None loses significantly (the bar was -2 SE). All five are ahead, none by 2.5 SE.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open
