@@ -10,7 +10,7 @@ justify it (see `experiments.md`); "planned" means a phase of the research roadm
 | --- | --- |
 | Call when your chance to win is above the price: call / (pot + call) | Rule (pot odds on every call) |
 | A bet's value adds the times they fold: EV = fold share x pot + call share x (equity x (pot + 2 x bet) - bet) | Setting `ev_sizing` |
-| Half-street game: a balanced bettor using s times the pot bluffs s/(1+2s) of its bets (one third at pot size); the caller defends 1/(1+s) of its range | Setting `balanced_river`; planned as a solver check (Phase 2) |
+| Half-street game: a balanced bettor using s times the pot bluffs s/(1+2s) of its bets (one third at pot size); the caller defends 1/(1+s) of its range | Setting `balanced_river`; answer-key tests for the river solver (`test_solver_answer_keys.py`, waiting for the solver) |
 | Checked to on the river in position (no raise possible): bet when you beat more than half of the hands that would call | Setting `river_ip_call_share` |
 | Polarized ranges over several streets: grow the pot by the same fraction each street so the stacks go in by the river (geometric sizing); very deep stacks cap it because worse hands stop calling | Setting `geometric` |
 | Jam-or-fold is close to optimal up to about 10 to 11 big blinds heads-up (12 to 13 out of position later); ranges are far looser than intuition; equity against the calling range matters more than against random hands | Setting `push_chart` (measured +0.6 +/- 0.9, stays off) |

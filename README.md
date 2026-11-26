@@ -203,6 +203,8 @@ app/
   state/             JSON game state, positions, text output, privacy check
   poker/             hand evaluation (treys), ranges, equity, pot odds, call-or-fold,
                      advice (the one instruction in the simple view)
+  solver/            river solver groundwork (Phase 2): spots, betting tree, fast river
+                     ranking, exploitability checker, timing, label format
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface

@@ -122,6 +122,50 @@ Over 2000 to 3000 hands the labels were:
 - the maniac labelled lag (VPIP 49%), just under the 50% maniac line;
 - all five fish247 bots labelled station (VPIP 32 to 34%, PFR 4 to 5%).
 
+## Phase 2 groundwork: river solver (26 Nov 2026)
+
+Nothing the advice does has changed, so no strategy comparison was needed. The solving
+algorithm itself comes in a later session. See `SOLVER.md`.
+
+One paired run checked that nothing changes:
+`tools/compare.py '{"river_solver": true}' 150 --tables mixed` (seed 101). Result: 0 of
+150 hands differ, +0.0 ± 0.0 bb/100. With the stub, the switch falls back to the rules
+every time.
+
+- **New switch `river_solver`: off.** When it's on, heads-up river decisions use the
+  solver's strategy if it answers within its time budget (300 ms of the 400 ms target).
+  Otherwise the rules decide: the solver isn't written yet, it fails, it is too slow, the
+  hero faces a raise, or the stacks weren't read reliably. Like every option, it needs the
+  B0 bar (2.5 SE, no significant loss to any table, repeated on fresh seeds) before it can
+  become a default.
+- **`baseline_tuning.json`**: `"river_solver": false` was added (only added to, nothing
+  edited). B0 plays exactly as before, and the test that the defaults match the file still
+  holds.
+- **Built and tested** (`app/solver/`):
+  - `RiverSpot`;
+  - the betting tree;
+  - fast river ranking;
+  - `RiverStrategy`;
+  - an exact exploitability checker;
+  - the timing harness;
+  - the label format;
+  - the bridge from the advice;
+  - two scripts, `tools/solver_timing.py` and `tools/label_river.py`.
+- **Checks that pass now**:
+  - ranking orders every combo exactly as treys does on 30 boards (flush, straight-flush,
+    quads, full-house and wheel boards included). It takes about 0.5 ms for all 1,081
+    combos of a board.
+  - the exploitability checker gives exactly 0 for the closed-form half-street
+    equilibrium at bet sizes 0.5, 0.75, 1 and 2 times the pot. It gives the hand-worked
+    losses for two mistakes:
+    - a caller who always folds: 725/19 chips in a pot of 100;
+    - a bettor who never bluffs: 75/19.
+  - on a small game with card clashes, it matches brute force over every pure
+    counter-strategy. It takes about 5 ms on a spot with medium ranges.
+- **Waiting for the solver**: the answer-key tests (bluff share s/(1+2s), call share
+  1/(1+s) and the game value, at four bet sizes) are skipped until `solve_river` stops
+  raising `NotImplementedError`. There are no timing numbers yet.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open
