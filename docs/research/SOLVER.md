@@ -18,11 +18,16 @@ Status, 26 Nov 2026:
   (mixed and fish247 tables), against 59% and 81% for the old placeholder.
 - **Facing a raise: done.** A raise of the hero's bet is solved too (fold, call or all in).
   Checked on made-up raises only: the simulator's bots next to never raise the river.
+- **Repeats exactly in the simulator: done.** There the clock is replaced by a fixed amount
+  of work, so a comparison with the solver on gives the same result every run.
+- **Time that follows the pot: done.** The solver stops at the same accuracy in chips for
+  every pot, inside the same 300 ms. Small pots answer sooner, big ones are solved closer.
 - **Beats B0 by 2.5 SE: not started.** It waits for Phase 1. The advice switch
   `river_solver` is off.
 
-Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold" and "Phase
-2: river ranges from the betting, and facing a raise".
+Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold", "Phase 2:
+river ranges from the betting, and facing a raise" and "Phase 2: the same answer every run,
+and time by pot size".
 
 ## The package, `app/solver/`
 
@@ -32,7 +37,7 @@ Numbers and tables: `experiments.md`, "Phase 2: river solver and push-or-fold" a
 | `tree.py` | `GameTree`: the river betting tree of a spot. |
 | `ranking.py` | Hand values for every combo on a river board (table lookups after one setup per board), and `matchups`, the showdown table between two ranges. |
 | `strategy.py` | `RiverStrategy`: for every decision node, one row of action probabilities per combo of the player to act. |
-| `solve.py` | `solve_river(spot, time_budget_ms) -> RiverStrategy`, the entry point. `DECISION_BUDGET_MS = 300`. |
+| `solve.py` | `solve_river(spot, time_budget_ms) -> RiverStrategy`, the entry point. `DECISION_BUDGET_MS = 300`. `decision_settings`: how the advice calls it (below). |
 | `cfr.py` | The method: Discounted CFR (default) and CFR+, vectorised over combos. |
 | `pushfold.py` | `solve_push_fold(stack_bb)`: heads-up jam-or-fold for all 169 starting hands. |
 | `data/preflop_equity.npz` | Exact all-in equity of every starting hand against every other, with card removal (210 KB). Rebuilt by `tools/build_preflop_equity.py` in about 2 minutes. |
@@ -54,6 +59,7 @@ Scripts:
 .venv/bin/python tools/build_preflop_equity.py --verify      # rebuild the equity table
 .venv/bin/python docs/research/runs/phase2_solver.py         # every table in experiments.md
 .venv/bin/python docs/research/runs/phase2_ranges.py         # how well the ranges predict real cards
+.venv/bin/python docs/research/runs/phase2_budget.py         # time by pot size, and whether runs repeat
 ```
 
 ## Conventions
@@ -105,6 +111,16 @@ Scripts:
     checked at iterations 8, 16, 32 and so on.
 
   At least one iteration always runs.
+- **How the advice calls it** (`decision_settings`):
+  - The early stop follows the pot (`target_for`): a hundredth of a big blind, which is
+    0.1% of a pot of 10 big blinds, 0.4% of 2.5 and 0.02% of 50. Never looser than 0.5% of
+    the pot, never tighter than 0.01%. A share of the pot alone had the pots of 2 to 3 big
+    blinds use the whole 300 ms while pots over 50 were done in about 40 ms.
+  - In the simulator (`TUNING["river_solver_fixed_work"]`, which `tools/simulate.py` turns
+    on) there is no clock. The solve runs the iterations 300 ms buys on the reference
+    machine (`reference_iterations`): a number worked out from the sizes of the ranges and
+    of the tree, so the same spot gets the same answer on every run. The early stop is the
+    same as by the clock.
 - **What comes back.** A `RiverStrategy` with `iterations`, `elapsed_ms` and
   `exploitability`. The exploitability is a share of the pot, worked out exactly on the
   returned strategy with the same maths as `exploitability.py`.
@@ -189,14 +205,16 @@ ranges for hands with three or more players on the river.
 1. After Phase 1: compare `river_solver` on against B0 (rule 1). Nothing else may turn it
    on. Run it with `--profiles`: without them the simulator keeps no record of the betting
    and the ranges are only guessed from the pot.
-2. Make the solver repeat exactly in the simulator (a fixed number of iterations, not a
-   time limit), so paired comparisons are paired.
-3. More time for big pots, less for small ones.
-4. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo). Only the all in follows
-   it so far.
-5. Try `solve_push_fold` in place of the `push_chart` table, as its own experiment.
-6. A showdown pass that sorts by hand value in place of the full table would cut the cost
+2. Bet sizes chosen by stack-to-pot ratio (KNOWLEDGE.md, Acevedo). Only the all in follows
+   it so far. Big pots finish with time to spare, so more sizes there are the next use of
+   it.
+3. Try `solve_push_fold` in place of the `push_chart` table, as its own experiment.
+4. A showdown pass that sorts by hand value in place of the full table would cut the cost
    per iteration, if bigger ranges or trees are needed.
+5. Check the early stop more often than at iterations 8, 16, 32 and so on. A small pot
+   that is good enough at iteration 70 now runs to 128.
+6. A longer limit than 300 ms for the biggest pots would need the 400 ms rule to change:
+   pots over 50 big blinds are about 1 river decision in 12.
 
 ## In the advice
 
@@ -219,7 +237,8 @@ builds the spot through `bridge.river_decision`:
 
 The rules decide instead in any of these cases:
 
-- the solver raises an error, or takes longer than its budget;
+- the solver raises an error, or takes longer than its budget (by the clock; with fixed
+  work in the simulator nothing is ever late);
 - its answer is more than 1% of the pot from an equilibrium (a slow machine);
 - next to none of the opponent's range makes this bet in the solution (under 0.2%), so the
   solution has no answer to it;

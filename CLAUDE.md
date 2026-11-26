@@ -72,8 +72,9 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   thanks to the profile; the raise answers were only checked on made-up raises, because the
   simulator's bots almost never raise the river. The switch `river_solver` is still off.
   Left for its gate: beating B0 by 2.5 SE, which waits for Phase 1 (run that comparison with
-  `--profiles`, or the solver sees no betting record). Smaller jobs left: make the solver
-  repeat exactly in the simulator, and give big pots more time.
+  `--profiles`, or the solver sees no betting record). In the simulator the solver now does a
+  fixed amount of work in place of the clock, so that comparison repeats exactly, and its
+  accuracy follows the pot (the same in chips for every pot, inside the same 300 ms).
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not approved).
 
 ## Writing for Kevin
