@@ -1,4 +1,5 @@
-"""Answer keys from TexasSolver (data/answer_keys/README.md).
+"""Answer keys from TexasSolver (data/answer_keys/README.md), and checking solvers against
+them (docs/research/PHASE4.md).
 
     python -m tools.answer_keys make-spots              # spot_defs.py -> data/answer_keys/spots/
     python -m tools.answer_keys validate                # every spot, and every saved result
@@ -7,9 +8,19 @@
     python -m tools.answer_keys parse r04 --dump r04.json [--log r04.log]   # a dump you ran yourself
     python -m tools.answer_keys report                  # rewrite the solve table in the README
 
+    python -m tools.answer_keys export-python           # river spots by app/solver -> data/answer_keys/python_solver/
+    python -m tools.answer_keys compare <results dir> [--against texassolver|python_solver]
+    python -m tools.answer_keys run --solver <path to subgame-solve> [--spots river|turn|all] [--target 0.5]
+                                    [--repeat 3]
+
 solve skips spots whose saved result is for the same spot (same sha256) unless --force.
 Configs, raw dumps and logs go to --workdir (default ~/answer-keys/work), outside the repo;
 only the parsed results are saved here, in data/answer_keys/texassolver/.
+
+compare prints one row per spot and a pass/fail line for the Phase 4 gates (EV within 0.5%
+of the pot of the reference, exploitability under 0.5% of the pot); it exits with 1 when
+they fail. run times any binary that follows the subgame-solve command line (runner.py),
+saves its RESULTs to data/answer_keys/<name>/ and reports p50 and p95 wall time per street.
 """
 from __future__ import annotations
 
@@ -21,6 +32,8 @@ from typing import List, Mapping, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from tools.answer_keys import compare as cmp  # noqa: E402
+from tools.answer_keys import python_solver, runner  # noqa: E402
 from tools.answer_keys import texassolver as ts  # noqa: E402
 from tools.answer_keys.build import write_spots  # noqa: E402
 from tools.answer_keys.checks import check_expected, river_exploitability  # noqa: E402
@@ -241,6 +254,88 @@ def cmd_report(args) -> int:
     return 0
 
 
+def select_spots(spots_dir: str, which: str = "all", ids: Optional[List[str]] = None) -> List[dict]:
+    """The spots of a street ("river", "turn" or "all"), or just the ones named."""
+    spots = load_spots(spots_dir, ids or None)
+    return [s for s in spots if which == "all" or s["street"] == which]
+
+
+def cmd_export_python(args) -> int:
+    spots = select_spots(args.spots_dir, "all", args.ids)
+    index = python_solver.export(spots, args.out, args.target, args.max_iterations)
+    entries = index["spots"]
+    if not entries:
+        print("No river spot to solve.")
+        return 2
+    worst = max(entries, key=lambda k: entries[k]["checked_exploitability_pot"])
+    t = index["timing"]["river"]
+    print(f"{args.out} holds {len(entries)} river RESULTs: largest exploitability "
+          f"{100 * entries[worst]['checked_exploitability_pot']:.4f}% of the pot ({worst}), "
+          f"solve time p50 {t['solver_ms_p50']:.0f} ms, p95 {t['solver_ms_p95']:.0f} ms")
+    return 0 if all(e["status"] == "ok" for e in entries.values()) else 1
+
+
+def cmd_compare(args) -> int:
+    results = cmp.resolve_dir(args.results)
+    against = cmp.resolve_dir(args.against)
+    for folder in (results, against):
+        if not os.path.isdir(folder):
+            print(f"No results folder at {folder}.")
+            return 2
+    name, against_name = (os.path.basename(os.path.normpath(d)) for d in (results, against))
+    spots = select_spots(args.spots_dir, args.spots, args.ids)
+    rows = cmp.compare_dirs(results, against, spots, args.turn_exploitability, args.min_reach)
+    print(f"{name} against {against_name}")
+    print(cmp.format_table(rows, markdown=args.markdown))
+    print()
+    print(cmp.legend(against_name, args.turn_exploitability, args.min_reach))
+    remarks = []
+    for row in rows:
+        remarks += [f"{row.spot_id}: {p}" for p in row.problems]
+        remarks += [f"{row.spot_id}: {n}" for n in row.notes if n != "no reference answer"]
+        if args.verbose and row.freq_max_detail:
+            remarks.append(f"{row.spot_id}: largest frequency difference, {row.freq_max_detail} "
+                           f"(this answer/reference, %)")
+    if remarks:
+        print()
+        print("\n".join(remarks))
+    summary = cmp.summarize(rows, against_name, results)
+    print()
+    print("\n".join(summary.lines))
+    if args.markdown:
+        print()
+        print(cmp.MARKDOWN_ROW_HEADER)
+        print(cmp.markdown_row(name, against_name, summary))
+    return 0 if summary.passed else 1
+
+
+def cmd_run(args) -> int:
+    solver = os.path.expanduser(args.solver)
+    if not os.path.isfile(solver):
+        print(f"No solver at {solver}.")
+        return 2
+    name = args.name or runner.default_name(solver)
+    try:
+        out_dir = args.out or runner.results_dir_for(name)
+    except ValueError as e:
+        print(e)
+        return 2
+    reserved = {os.path.realpath(os.path.join(cmp.KEYS_DIR, r)) for r in runner.RESERVED}
+    if os.path.realpath(out_dir) in reserved:
+        print(f"{out_dir} holds reference answers; run never writes there.")
+        return 2
+    spots = select_spots(args.spots_dir, args.spots, args.ids)
+    print(f"{name}: {len(spots)} spots, {args.repeat} runs each, target {args.target:g}% of the pot")
+    index = runner.run_spots(solver, spots, out_dir, name, spots_dir=args.spots_dir, target_pct=args.target,
+                             repeat=args.repeat, max_iterations=args.max_iterations, time_ms=args.time_ms,
+                             threads=args.threads, timeout_s=args.timeout)
+    print()
+    print("\n".join(runner.timing_lines(index)))
+    saved = sum(e["status"] == "ok" for e in index["spots"].values())
+    print(f"Saved {saved} RESULTs to {out_dir}. Check them: python -m tools.answer_keys compare {out_dir}")
+    return 0 if saved == len(index["spots"]) and saved else 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="python -m tools.answer_keys", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -281,6 +376,43 @@ def main(argv: Optional[List[str]] = None) -> int:
     solver_options(q, False)
     q.set_defaults(fn=cmd_parse)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+
+    q = sub.add_parser("export-python", help="solve the river spots with app/solver: the Phase 2 reference answers")
+    q.add_argument("ids", nargs="*", help="only these spots (default: every river spot)")
+    q.add_argument("--out", default=python_solver.RESULTS_DIR)
+    q.add_argument("--target", type=float, default=python_solver.REFERENCE_TARGET_PCT,
+                   help="stop at this exploitability, percent of the pot")
+    q.add_argument("--max-iterations", type=int, default=python_solver.MAX_ITERATIONS)
+    q.set_defaults(fn=cmd_export_python)
+
+    q = sub.add_parser("compare", help="compare a folder of RESULTs with a reference; pass/fail on the Phase 4 gates")
+    q.add_argument("results", help="a folder of RESULTs, or its name in data/answer_keys")
+    q.add_argument("ids", nargs="*", help="only these spots")
+    q.add_argument("--against", default="texassolver",
+                   help="texassolver (default), python_solver, or any folder of RESULTs")
+    q.add_argument("--spots", choices=("river", "turn", "all"), default="all")
+    q.add_argument("--turn-exploitability", choices=cmp.TURN_EXPLOITABILITY, default="checked",
+                   help="turn spots: our own exact check (default), or the number the solver reported")
+    q.add_argument("--min-reach", type=float, default=cmp.MIN_REACH,
+                   help="Freq max only looks at nodes reached at least this often")
+    q.add_argument("--markdown", action="store_true", help="the table in Markdown, and a row for PHASE4.md")
+    q.add_argument("-v", "--verbose", action="store_true", help="also show where each spot's frequencies differ most")
+    q.set_defaults(fn=cmd_compare)
+
+    q = sub.add_parser("run", help="run a solver binary on the spots, save its RESULTs and time it")
+    q.add_argument("ids", nargs="*", help="only these spots")
+    q.add_argument("--solver", required=True, help="a binary that follows the subgame-solve command line")
+    q.add_argument("--spots", choices=("river", "turn", "all"), default="all")
+    q.add_argument("--target", type=float, default=runner.DEFAULT_TARGET_PCT,
+                   help="--target-exploitability for the binary, percent of the pot")
+    q.add_argument("--repeat", type=int, default=runner.DEFAULT_REPEAT, help="runs per spot")
+    q.add_argument("--name", help="the results folder in data/answer_keys (default: the binary's file name)")
+    q.add_argument("--out", help="save the RESULTs here instead of data/answer_keys/<name>/")
+    q.add_argument("--max-iterations", type=int, help="passed on to the binary")
+    q.add_argument("--time-ms", type=float, help="passed on to the binary")
+    q.add_argument("--threads", type=int, help="passed on to the binary")
+    q.add_argument("--timeout", type=float, default=runner.DEFAULT_TIMEOUT_S, help="seconds before a run is given up")
+    q.set_defaults(fn=cmd_run)
     args = p.parse_args(argv)
     return args.fn(args)
 
