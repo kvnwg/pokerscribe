@@ -1,0 +1,25 @@
+{
+  "format": "pokerscribe-spot",
+  "version": 1,
+  "id": "py07",
+  "street": "river",
+  "title": "Known answer: nuts or air out of position bets 1 pot into a bluff catcher",
+  "tags": ["closed-form", "polar", "dry"],
+  "board": ["Kh", "8d", "5c", "3s", "2h"],
+  "pot": 100,
+  "stacks": [1000, 1000],
+  "spr": 10.0,
+  "max_raises": 0,
+  "sizes": {
+    "oop": {"bets": [1.0], "raises": [], "allin": false},
+    "ip": {"bets": [], "raises": [], "allin": false}
+  },
+  "range_text": {
+    "oop": "KK,JT",
+    "ip": "QQ"
+  },
+  "ranges": {
+    "oop": {"KsKd": 1.0, "KsKc": 1.0, "KdKc": 1.0, "JsTs": 1.0, "JhTh": 1.0, "JdTd": 1.0, "JcTc": 1.0, "JsTh": 1.0, "JsTd": 1.0, "JsTc": 1.0, "JhTs": 1.0, "JhTd": 1.0, "JhTc": 1.0, "JdTs": 1.0, "JdTh": 1.0, "JdTc": 1.0, "JcTs": 1.0, "JcTh": 1.0, "JcTd": 1.0},
+    "ip": {"QsQh": 1.0, "QsQd": 1.0, "QsQc": 1.0, "QhQd": 1.0, "QhQc": 1.0, "QdQc": 1.0}
+  }
+}

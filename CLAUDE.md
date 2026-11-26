@@ -67,6 +67,10 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 - `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
   keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
   built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
+- `data/reference_spots/python_solver/`, `tools/reference_spots/`: 20 river spots solved by the Python
+  solver to 0.001% of the pot (12 with answers known by hand), the reference a faster solver is checked
+  against. `python -m tools.reference_spots rust` checks the Rust solver. Write-up:
+  `docs/research/RIVER_SOLVER.md`.
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data

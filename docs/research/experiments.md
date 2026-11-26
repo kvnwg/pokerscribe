@@ -1132,6 +1132,44 @@ Not done: a longer limit than 300 ms for the biggest pots. It would break the 40
 (pots over 50 big blinds are about 1 river decision in 12), and the early stop, not the
 clock, was what ended those solves.
 
+## Phase 2: the Python solver as a reference (26 Nov 2026)
+
+Not a strategy experiment: nothing was compared for strength, and the app and B0 are
+untouched. Under the new roadmap the Python river solver is the reference the Rust solver
+must match, so this measures how far it can be trusted. Script and raw output:
+`runs/phase2_reference.py`, `runs/phase2_reference.log`. Write-up: `RIVER_SOLVER.md`.
+
+**What was made.** 20 river spots with the Python solver's answer to each, in
+`data/reference_spots/python_solver/` (formats of `data/SPOT_FORMAT.md`): 12 with an answer
+worked out by hand, 4 realistic ones written as ranges, 4 with the ranges the app builds
+from a betting line. Each solved with no clock to 0.001% of the pot.
+
+**Results.**
+
+| Check | Result |
+| --- | --- |
+| Known answers (half-street game at 8 sizes and shapes: bluff share s/(1+2s), call share 1/(1+s), value) | Shares within 0.0002, values within 0.0001 chips of a pot of 100 |
+| Known values of the 4 trivial spots (0, 0, 100, 50) | Within 0.001 chips |
+| Exploitability of the 20 saved answers | 0.0001% to 0.0010% of the pot, so each true value is known to within 0.002 chips |
+| The same 20 spots in the app's 300 ms | 0.02% to 0.08% of the pot, in 2 to 290 ms |
+| Time to 0.5% / 0.1% / 0.01% of the pot | Median 5 / 12 / 61 ms, slowest 131 / 382 / 1,366 ms |
+| Against TexasSolver's 30 river keys | Bounds meet on all 30. Values differ by 0.09 chips on average, 0.31 at most (r01, where the true value is 100 and TexasSolver says 100.307) |
+| The Rust solver (`engine/crates/subgame`) on the 20 spots, default target 0.3% | No problems. Value within 0.38 chips of the reference on every spot, bounds meet on all 20 |
+| The Rust solver at a 0.01% target | No problems. Value within 0.016 chips, known bluff and call shares within half a point |
+| Push-or-fold at 5, 8, 10, 12, 15 big blinds | 11 to 21 ms, exploitability under 0.000001 big blinds a hand, shares within 0.7 points of the published chart |
+
+**Two things learned.**
+
+- Frequencies move far more than values. At 0.3% of the pot from an equilibrium the Rust
+  solver's call share on py05 (a quarter-pot bet) is 7 points from the known one, while its
+  value is 0.1 chips off. So a solver is checked by value and bounds, and the known shares
+  are only asked of a tight solve.
+- The last decimals are expensive: the 2-pot bet (py04) needs 2,048 iterations for 0.01%
+  and 32,768 for 0.001%.
+
+**Decision.** The reference set stays as the check for the Rust solver and what follows it
+(`python -m tools.reference_spots rust`). Nothing to switch on.
+
 ## Slumbot harness check (26 Nov 2026)
 
 A test of `tools/slumbot`, not a strategy experiment. The check/call bot played 200 hands
