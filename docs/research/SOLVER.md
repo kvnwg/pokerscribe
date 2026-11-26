@@ -376,33 +376,44 @@ Python exploitability checker. It is skipped until then.
 
 Running a program per decision costs time that is not solving: starting it, writing the
 spot, and reading the answer back. It counts against the 400 ms decision budget.
-`tools/rust_solver_overhead.py` measures it on the benchmark spots (40 spots, 5 calls
-each, per range size). The program is a stand-in that does no solving
-(`tools/replay_solve.rs`): it reads the spot and hands back an answer solved beforehand,
-so the whole call is overhead. Log: `runs/rust_solver_overhead.log`.
+`tools/rust_solver_overhead.py --advice-hands 6000 --advice-spots 400` measures it, 5
+calls a spot, on two kinds of spots:
 
-| Ranges | Combos, both ranges | Answer file | p50 | p95 | max |
+- the benchmark spots (40 per range size);
+- the advice's own spots: every heads-up river decision of the app's seat in 6,000
+  simulated hands (table mixed, seed 77), 394 in all. 92 of them can't be written as a
+  SPOT (previous section) and cost no call; the other 302 are measured.
+
+The program is a stand-in that does no solving (`tools/replay_solve.rs`): it reads the
+spot and hands back an answer solved beforehand, so the whole call is overhead. Log:
+`runs/rust_solver_overhead.log`.
+
+| Spots | Combos, both ranges | Answer file | p50 | p95 | max |
 | --- | --- | --- | --- | --- | --- |
-| narrow | 219 to 340 | 18 to 123 kB | 5.7 ms | 7.6 ms | 17.5 ms |
-| medium | 462 to 685 | 37 to 249 kB | 9.3 ms | 13.8 ms | 22.8 ms |
-| wide | 909 to 1,145 | 71 to 415 kB | 12.3 ms | 20.2 ms | 31.3 ms |
+| narrow ranges | 219 to 340 | 18 to 123 kB | 5.7 ms | 7.2 ms | 17.3 ms |
+| medium ranges | 462 to 685 | 37 to 249 kB | 10.2 ms | 16.4 ms | 37.7 ms |
+| wide ranges | 909 to 1,145 | 71 to 415 kB | 13.4 ms | 20.7 ms | 35.9 ms |
+| **the advice's spots** | 110 to 1,401 (median 833) | 9 to 467 kB | **11.7 ms** | **19.7 ms** | 28.4 ms |
 
 Where the median call goes:
 
-| Ranges | Writing the spot | The program, start to exit | Reading the answer |
+| Spots | Writing the spot | The program, start to exit | Reading the answer |
 | --- | --- | --- | --- |
-| narrow | 0.6 ms | 1.9 ms | 3.2 ms |
-| medium | 0.9 ms | 3.4 ms | 4.9 ms |
-| wide | 1.3 ms | 3.4 ms | 7.7 ms |
+| narrow ranges | 0.6 ms | 1.9 ms | 3.2 ms |
+| medium ranges | 1.0 ms | 3.5 ms | 5.3 ms |
+| wide ranges | 1.3 ms | 3.7 ms | 7.8 ms |
+| the advice's spots | 1.8 ms | 2.7 ms | 6.8 ms |
 
-- Starting a native program and waiting for it takes 1.4 ms (p95 1.8 ms). Most of the
+- Starting a native program and waiting for it takes 1.5 ms (p95 2.0 ms). Most of the
   cost is Python reading the answer: parsing the JSON, then building the arrays.
-- The advice's spots today are the size of the medium line (524 combos, 16 to 19
-  decision nodes): about 9 ms, 14 ms at p95, which is 3.4% of the 400 ms budget. The
-  worst line, wide ranges at p95, is 5.0%.
+- On the advice's spots the call costs about 12 ms, 20 ms at p95: 4.9% of the 400 ms
+  budget. Their ranges come from the betting and are wider than the benchmark's medium
+  ones. Writing the spot takes longer there too, because that is where the bet sizes are
+  put into the format's three keys (a few trees built, well under a millisecond each).
 - `rust_backend` keeps 40 ms back from the solver's 300 ms (`OVERHEAD_RESERVE_MS`), so the
-  program is given 260 ms. That covers the largest call measured (31 ms) with room for
-  what was not measured.
+  program is given 260 ms. That is twice the p95. The largest single call measured
+  (37.7 ms, on a medium benchmark spot) just fits. A call that costs more than the reserve
+  loses nothing but that decision: the advice sees the budget passed and the rules decide.
 - Not measured: the real program's own time to read the spot and write the answer as
   JSON (the stand-in copies bytes), and a Mac (this ran in a Linux cloud container, Intel
   Xeon at 2.10 GHz). Run the script again with `--binary engine/target/release/subgame-solve`

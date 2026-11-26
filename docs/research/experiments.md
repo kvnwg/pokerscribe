@@ -658,31 +658,65 @@ engine are now connected in two places. See `SOLVER.md`, "The Rust backend", and
   is missing or fails, the Python solver answers.
 - **`baseline_tuning.json`**: `"rust_solver": false` was added (only added to, nothing
   edited). The test that the defaults match the file still holds.
-- **One paired run checked that nothing changes:**
-  `tools/compare.py '{"rust_solver": true}' 150 --tables mixed` (seed 101). Result: 0 of
-  150 hands differ, +0.0 ± 0.0 bb/100. Log: `runs/rust_solver_switch_check.log`.
+- **Paired runs checked that nothing changes** (`tools/compare.py`, table mixed, seed
+  101, no program built, so the Python solver answers). Log:
+  `runs/rust_solver_switch_check.log`.
+  - `{"rust_solver": true}` against the baseline, 150 hands: 0 hands differ.
+  - `{"river_solver": true, "rust_solver": true}` against `{"river_solver": true}`
+    (`--base`), 1,000 hands: 0 hands differ. So with the program missing, the Rust switch
+    leaves the river solver's play exactly as it was. (The simulator runs the solver
+    with fixed work, so this repeats.)
+  - Also in the log, because they were run: each of those two solver variants against
+    the baseline over 150 hands. Both give the same line, +11.7 ± 8.3 bb/100 from 3
+    hands that differ. That is 1.4 standard errors on 150 hands. It was run to see the
+    two lines agree and says nothing about `river_solver` against B0.
 - **Not compared against B0**, and not to be turned on: `river_solver` itself has not
   passed the B0 bar, and the Rust program was not in the repo yet. The backend was tested
   against a stand-in that follows the program's command line and file formats.
 
+### Bet sizes the SPOT format can't say
+
+The SPOT format's bet sizes are `bets`, `raises` and `allin`. The river solver's sizes
+got three more options today (`reraises`, `allin_within`, `exact`), which the format
+doesn't describe and the advice uses on every spot. The backend says them with the
+format's three keys wherever that gives exactly the same tree, and sends everything else
+to the Python solver without a call.
+
+Counted on the advice's own spots: every heads-up river decision of the app's seat in
+6,000 simulated hands (table mixed, seed 77), collected as `runs/phase2_budget.py`
+collects them.
+
+| | Spots |
+| --- | --- |
+| Heads-up river decisions | 394 |
+| Written as a SPOT, same tree | 302 (77%) |
+| Can't be written, the Python solver's | 92 (23%) |
+
+All 92 have stacks of 12.6 to 17.7 pots. There, all in is within six pots as a raise of
+the pot-sized bet but not as a raise of the half-pot bet (the line is at 12.5 and 19
+pots), and one list of raise sizes can't say both. No decision in the sample faced a
+raise. The fix belongs on the Rust side: `subgame-solve` reading the three options, then
+`EXTENDED_SIZES = True` in `rust_backend.py`.
+
 ### What the call costs
 
 Each decision that goes to the Rust program pays for starting it, writing the spot and
-reading the answer back. `tools/rust_solver_overhead.py`, 40 benchmark spots and 5 calls
-each per range size, with a stand-in program that does no solving
+reading the answer back. `tools/rust_solver_overhead.py --advice-hands 6000
+--advice-spots 400`, 5 calls a spot, with a stand-in program that does no solving
 (`tools/replay_solve.rs`), in a Linux cloud container (Intel Xeon at 2.10 GHz). Log:
 `runs/rust_solver_overhead.log`.
 
-| Ranges | Combos, both ranges | Overhead p50 | p95 | max | p95 as a share of 400 ms |
+| Spots | Combos, both ranges | Overhead p50 | p95 | max | p95 as a share of 400 ms |
 | --- | --- | --- | --- | --- | --- |
-| narrow | 219 to 340 | 5.7 ms | 7.6 ms | 17.5 ms | 1.9% |
-| medium | 462 to 685 | 9.3 ms | 13.8 ms | 22.8 ms | 3.4% |
-| wide | 909 to 1,145 | 12.3 ms | 20.2 ms | 31.3 ms | 5.0% |
+| narrow ranges, 40 | 219 to 340 | 5.7 ms | 7.2 ms | 17.3 ms | 1.8% |
+| medium ranges, 40 | 462 to 685 | 10.2 ms | 16.4 ms | 37.7 ms | 4.1% |
+| wide ranges, 40 | 909 to 1,145 | 13.4 ms | 20.7 ms | 35.9 ms | 5.2% |
+| the advice's spots, 302 | 110 to 1,401 (median 833) | 11.7 ms | 19.7 ms | 28.4 ms | 4.9% |
 
-- Starting the program is 1.4 ms of it. Reading the answer in Python is the largest part
-  (3.2, 4.9 and 7.7 ms at the median).
-- The advice's spots today are the size of the medium line.
-- The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets 260 ms.
+- Starting the program is 1.5 ms of it. Reading the answer in Python is the largest part
+  (3.2, 5.3, 7.8 and 6.8 ms at the median).
+- The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets
+  260 ms. That is twice the p95; the largest single call measured (37.7 ms) just fits.
 - Not in these numbers: the real program's own JSON reading and writing, and a Mac. To be
   measured again with `--binary` once `subgame-solve` is built.
 

@@ -1,2 +1,18 @@
+# Paired checks of the rust_solver switch, 26 Nov 2026. No subgame-solve built: the Python solver answers.
+# The simulator runs the river solver with a fixed amount of work, so these repeat exactly.
+
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed --base '{"river_solver": true}'
+mixed     base   +44.3 (± 40.9)  other   +44.3 (± 40.9)  difference   +0.0 ±  0.0 bb/100  [0/1000 hands differ, problems none]
+ALL       difference   +0.0 ±  0.0 bb/100 over 1000 hands
+
+# tools/compare.py '{"rust_solver": true}' 150 --tables mixed
 mixed     base   -46.3 (± 79.5)  other   -46.3 (± 79.5)  difference   +0.0 ±  0.0 bb/100  [0/150 hands differ, problems none]
-ALL       difference   +0.0 ±  0.0 bb/100 over 150 hands (10s)
+ALL       difference   +0.0 ±  0.0 bb/100 over 150 hands
+
+# tools/compare.py '{"river_solver": true}' 150 --tables mixed
+mixed     base   -46.3 (± 79.5)  other   -34.7 (± 79.6)  difference  +11.7 ±  8.3 bb/100  [3/150 hands differ, problems none]
+ALL       difference  +11.7 ±  8.3 bb/100 over 150 hands
+
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 150 --tables mixed
+mixed     base   -46.3 (± 79.5)  other   -34.7 (± 79.6)  difference  +11.7 ±  8.3 bb/100  [3/150 hands differ, problems none]
+ALL       difference  +11.7 ±  8.3 bb/100 over 150 hands
