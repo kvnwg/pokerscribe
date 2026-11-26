@@ -79,6 +79,8 @@ impl Line {
 const ANCHORS: usize = 12;
 /// Flow below this is rounding noise.
 const FLOW_EPS: f32 = 1e-6;
+/// Safety margin on the early exit of [`Matrix::greedy`], against rounding.
+const PENDING_MARGIN: f32 = 0.9999;
 
 /// Any ground distance, as a full table.
 #[derive(Clone, Debug)]
@@ -215,7 +217,8 @@ impl Matrix {
     /// as fit to its `r`-th nearest bucket of the centre. Round 0 is the bucket itself, at
     /// no cost. The result is the cost of a real plan, so it is at least the true distance.
     ///
-    /// Stops early and returns a number at or above `bound` once the cost reaches it.
+    /// Stops early and returns a number at or above `bound` once the cost is sure to reach
+    /// it: the cost so far plus a floor under the cost still to come.
     pub fn greedy(
         &self,
         buckets: &[u16],
@@ -240,29 +243,41 @@ impl Matrix {
         let mut total = 0f32;
         for r in 0..k {
             let mut kept = 0;
+            // What is still to place after this round goes at least as far as each
+            // bucket's next nearest: a floor under the cost still to come.
+            let mut pending = 0f32;
+            let last = r + 1 == k;
             for at in 0..scratch.active.len() {
                 let e = scratch.active[at] as usize;
                 let row = buckets[e] as usize * k + r;
                 let j = self.order[row] as usize;
                 let free = mean[j] - scratch.used[j];
+                let mut need = scratch.need[e];
                 if free > FLOW_EPS {
-                    let need = scratch.need[e];
                     let flow = free.min(need);
                     total += flow * self.sorted[row];
                     if scratch.used[j] == 0.0 {
                         scratch.touched.push(j as u16);
                     }
                     scratch.used[j] += flow;
-                    scratch.need[e] = need - flow;
-                    if need - flow <= FLOW_EPS {
+                    need -= flow;
+                    scratch.need[e] = need;
+                    if need <= FLOW_EPS {
                         continue;
                     }
+                }
+                if !last {
+                    pending += need * self.sorted[row + 1];
                 }
                 scratch.active[kept] = e as u16;
                 kept += 1;
             }
             scratch.active.truncate(kept);
-            if kept == 0 || total >= bound {
+            if kept == 0 {
+                break;
+            }
+            if (total + pending) * PENDING_MARGIN >= bound {
+                total += pending;
                 break;
             }
         }

@@ -1,6 +1,6 @@
 //! Builds, inspects and checks the abstraction tables. See the crate's README.
 
-use abstraction::builder::{self, NextLabels, Report, RiverEquity, Settings};
+use abstraction::builder::{self, HandEquity, NextEquity, NextLabels, Report, RiverEquity, Settings};
 use abstraction::table::{Feature, Street, Table};
 use abstraction::{checks, format_cards, parse_cards, Abstraction};
 use std::io::Write;
@@ -12,6 +12,8 @@ abstraction-build build --out DIR [options]   build tables into DIR
 abstraction-build info FILE...                print a table's header and check its checksum
 abstraction-build check DIR                   load the tables in DIR and run the sanity checks
 abstraction-build bucket DIR HOLE [BOARD]     the bucket of a hand, for example: AhKh QhJh2c
+abstraction-build gap DIR [HANDS]             how far the fast earth mover's distance is from the
+                                              exact one, on HANDS random turn hands (default 300)
 
 build options:
   --buckets N              buckets on each street (default 200)
@@ -33,7 +35,7 @@ build options:
                            (default river 4000000, turn 2000000, flop 0)
   --river-init N, --turn-init N, --flop-init N
                            seed the centres from N of the training hands, 0 for all
-                           (default river 400000, turn 200000, flop 0)
+                           (default river 400000, turn 200000, flop 200000)
   --ranks N                deck of the top N ranks (default 13, the real game)
   --threads N              worker threads (default: every core)
 ";
@@ -50,6 +52,7 @@ fn main() {
         Some("info") => info(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("bucket") => bucket(&args[1..]),
+        Some("gap") => gap(&args[1..]),
         Some("--help") | Some("-h") | None => print!("{USAGE}"),
         Some(other) => fail(&format!("unknown command {other}\n\n{USAGE}")),
     }
@@ -161,6 +164,7 @@ fn build(args: &[String]) {
     };
 
     let mut equity: Option<RiverEquity> = None;
+    let mut turn_equity: Option<HandEquity> = None;
     let mut river: Option<Table> = None;
     let mut turn: Option<Table> = None;
     for street in streets {
@@ -171,36 +175,48 @@ fn build(args: &[String]) {
             rayon::current_num_threads()
         );
         let started = Instant::now();
+        // Every street needs the exact river equities: for the river's features, and for
+        // the average equity of the turn's and flop's buckets.
+        let equity = equity.get_or_insert_with(|| builder::river_equity(deck));
         let (table, mut report) = match street {
-            Street::River => {
-                let equity = equity.get_or_insert_with(|| builder::river_equity(deck));
-                eprintln!("river: equities done after {:.1} s", started.elapsed().as_secs_f64());
-                builder::build_river(equity, &settings.river, settings.seed)
-            }
-            Street::Turn => match settings.turn.feature {
-                Feature::EquityBins { bins } => {
-                    let equity = equity.get_or_insert_with(|| builder::river_equity(deck));
-                    let next = NextLabels::EquityBins {
+            Street::River => builder::build_river(equity, &settings.river, settings.seed),
+            Street::Turn => {
+                let next = match settings.turn.feature {
+                    Feature::EquityBins { bins } => NextLabels::EquityBins {
                         equity,
                         bins: bins as u32,
-                    };
-                    builder::build_histogram_street(deck, Street::Turn, &next, &settings.turn, settings.seed)
-                }
-                _ => {
-                    let river = river.get_or_insert_with(|| load(Street::River));
-                    let next = NextLabels::Table(river);
-                    builder::build_histogram_street(deck, Street::Turn, &next, &settings.turn, settings.seed)
-                }
-            },
+                    },
+                    _ => NextLabels::Table(river.get_or_insert_with(|| load(Street::River))),
+                };
+                let (table, report, hand_equity) = builder::build_histogram_street(
+                    deck,
+                    Street::Turn,
+                    &next,
+                    &NextEquity::River(equity),
+                    &settings.turn,
+                    settings.seed,
+                );
+                turn_equity = Some(hand_equity);
+                (table, report)
+            }
             Street::Flop => {
                 let turn = turn.get_or_insert_with(|| load(Street::Turn));
-                let next = NextLabels::Table(turn);
-                builder::build_histogram_street(deck, Street::Flop, &next, &settings.flop, settings.seed)
+                let turn_equity = turn_equity
+                    .get_or_insert_with(|| builder::hand_equity(deck, Street::Turn, &NextEquity::River(equity)));
+                let (table, report, _) = builder::build_histogram_street(
+                    deck,
+                    Street::Flop,
+                    &NextLabels::Table(turn),
+                    &NextEquity::Later(turn_equity),
+                    &settings.flop,
+                    settings.seed,
+                );
+                (table, report)
             }
             Street::Preflop => unreachable!(),
         };
-        // What came before the clustering (river equities, reading the next street's table)
-        // counts as making the features.
+        // What came before the clustering (river equities, reading the next street's table,
+        // the turn's equities for a flop built on its own) counts as making the features.
         report.features_seconds += started.elapsed().as_secs_f64() - report.total_seconds;
         let path = out.join(street.file_name());
         report.file_bytes = table.save(&path).unwrap_or_else(|e| fail(&format!("{}: {e}", path.display())));
@@ -264,13 +280,29 @@ fn info(args: &[String]) {
         let seconds = started.elapsed().as_secs_f64();
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         println!("{arg}");
-        println!("  {}", serde_json::to_string(&table.header).unwrap());
+        println!("  {}", serde_json::to_string(table.header()).unwrap());
         println!(
             "  {} bytes, checksum {} ok, read and checked in {:.3} s",
             size,
             table.checksum(),
             seconds
         );
+        if !table.header().opponent_clusters.is_empty() {
+            let preflop = abstraction::Preflop::with_deck(abstraction::Deck::new(table.header().ranks));
+            let groups = table.header().opponent_clusters.iter().max().map_or(0, |&g| g as usize + 1);
+            for g in 0..groups {
+                let mut names: Vec<(u8, u8, String)> = (0..preflop.classes() as u16)
+                    .filter(|&c| table.header().opponent_clusters[c as usize] as usize == g)
+                    .map(|c| {
+                        let [a, b] = preflop.cards(c);
+                        ((a >> 2).max(b >> 2), (a >> 2).min(b >> 2), preflop.name(c))
+                    })
+                    .collect();
+                names.sort_by(|a, b| b.cmp(a));
+                let names: Vec<String> = names.into_iter().map(|n| n.2).collect();
+                println!("  opponent group {g} ({} classes): {}", names.len(), names.join(" "));
+            }
+        }
         let largest = table.sizes.iter().max().unwrap();
         let smallest = table.sizes.iter().min().unwrap();
         let total: u64 = table.sizes.iter().sum();
@@ -344,5 +376,100 @@ fn bucket(args: &[String]) {
             table.equity[bucket as usize],
             table.sizes[bucket as usize] as f64 * 100.0 / table.sizes.iter().sum::<u64>() as f64
         ),
+    }
+}
+
+/// Measures the greedy earth mover's distance against the exact one on random turn hands:
+/// each hand against its own bucket's centre and against another bucket's.
+fn gap(args: &[String]) {
+    use abstraction::emd::{self, GreedyScratch, Metric};
+    use abstraction::rng::Rng;
+    use abstraction::HandIndexer;
+    let dir = Path::new(args.first().unwrap_or_else(|| fail("gap needs the tables' directory")));
+    let hands: usize = args.get(1).map_or(300, |v| number("HANDS", v));
+    let river = Table::load(&dir.join(Street::River.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
+    let turn = Table::load(&dir.join(Street::Turn.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
+    let deck = abstraction::Deck::new(river.header().ranks);
+    let Some(Metric::Matrix(metric)) = river.ground_metric() else {
+        fail("the river table's buckets are on a line: the distance used is already exact");
+    };
+    if turn.header().settings.feature != Feature::NextBuckets {
+        fail("the turn table is not built over the river table's buckets");
+    }
+    let indexer = HandIndexer::with_deck(deck, &[2, 4]);
+    let next_indexer = HandIndexer::with_deck(deck, &[2, 5]);
+    let next = NextLabels::Table(&river);
+    let outcomes = deck.len() - 6;
+    let next_k = river.buckets();
+    let k = turn.buckets();
+    // Whole-number histograms with the same total for the exact solver.
+    const SCALE: u64 = 1000;
+    let total = outcomes as u64 * SCALE;
+    let whole = |centre: &[f32]| -> Vec<u64> {
+        let mut counts: Vec<u64> = centre.iter().map(|&x| (x as f64 * total as f64).floor() as u64).collect();
+        let mut short = total - counts.iter().sum::<u64>();
+        let mut order: Vec<usize> = (0..centre.len()).collect();
+        order.sort_by(|&a, &b| {
+            let frac = |i: usize| centre[i] as f64 * total as f64 - counts[i] as f64;
+            frac(b).partial_cmp(&frac(a)).unwrap()
+        });
+        for &i in order.iter().cycle() {
+            if short == 0 {
+                break;
+            }
+            counts[i] += 1;
+            short -= 1;
+        }
+        counts
+    };
+    let mut rng = Rng::new(7);
+    let mut scratch = GreedyScratch::default();
+    let mut row = vec![0u16; outcomes];
+    // Sums for the hand's own centre and for another centre: greedy, exact, lower bound.
+    let mut sums = [[0f64; 3]; 2];
+    let mut worst = [1f64; 2];
+    for _ in 0..hands {
+        let index = rng.below(indexer.size());
+        builder::histogram_row(deck, &indexer, &next_indexer, Some(&next), None, index, &mut row);
+        let mut counts = vec![0u64; next_k];
+        for &label in &row {
+            counts[label as usize] += SCALE;
+        }
+        let (buckets, shares): (Vec<u16>, Vec<f32>) = counts
+            .iter()
+            .enumerate()
+            .filter(|(_, &c)| c > 0)
+            .map(|(b, &c)| (b as u16, c as f32 / total as f32))
+            .unzip();
+        let own = turn.bucket(index) as usize;
+        let other = (own + 1 + rng.below(k as u64 - 1) as usize) % k;
+        for (which, c) in [own, other].into_iter().enumerate() {
+            let centre = &turn.centroids[c * next_k..(c + 1) * next_k];
+            let greedy = metric.greedy(&buckets, &shares, centre, f32::INFINITY, &mut scratch) as f64;
+            let exact = emd::exact(&counts, &whole(centre), |i, j| metric.d[i * next_k + j] as f64);
+            let mut a = vec![0f32; metric.sketch_len()];
+            let mut b = vec![0f32; metric.sketch_len()];
+            metric.sketch(buckets.iter().map(|&x| x as usize).zip(shares.iter().cloned()), &mut a);
+            metric.sketch(centre.iter().cloned().enumerate(), &mut b);
+            let bound = metric.lower_bound(&a, &b) as f64;
+            sums[which][0] += greedy;
+            sums[which][1] += exact;
+            sums[which][2] += bound;
+            if exact > 1e-9 {
+                worst[which] = worst[which].max(greedy / exact);
+            }
+        }
+    }
+    for (which, name) in ["its own bucket's centre", "another bucket's centre"].iter().enumerate() {
+        let [greedy, exact, bound] = sums[which];
+        println!(
+            "{hands} turn hands against {name}: exact {:.4}, greedy {:.4} ({:+.1}%, worst hand {:+.1}%), lower bound {:.4} ({:.0}% of exact)",
+            exact / hands as f64,
+            greedy / hands as f64,
+            (greedy / exact - 1.0) * 100.0,
+            (worst[which] - 1.0) * 100.0,
+            bound / hands as f64,
+            bound / exact * 100.0
+        );
     }
 }

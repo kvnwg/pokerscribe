@@ -52,7 +52,10 @@ impl Settings {
             flop: StreetSettings {
                 buckets,
                 feature: Feature::NextBuckets,
-                kmeans: KMeansSettings::default(),
+                kmeans: KMeansSettings {
+                    init_samples: 200_000,
+                    ..KMeansSettings::default()
+                },
             },
             turn: StreetSettings {
                 buckets,
@@ -184,6 +187,62 @@ impl RiverEquity {
     #[inline]
     pub fn bin(&self, numerator: u16, bins: u32) -> u16 {
         (numerator as u32 * bins / (self.denominator + 1)) as u16
+    }
+}
+
+/// Every canonical flop or turn hand's exact equity at showdown against a random hand, as
+/// a whole number: the river numerators added up over every way the board can run out.
+pub struct HandEquity {
+    pub sums: Vec<u32>,
+    /// What to divide the sums by.
+    pub denominator: u64,
+}
+
+impl HandEquity {
+    /// The equity of a canonical hand, 0 to 1.
+    #[inline]
+    pub fn equity(&self, index: u64) -> f64 {
+        self.sums[index as usize] as f64 / self.denominator as f64
+    }
+}
+
+/// The exact equities of the next street's hands.
+pub enum NextEquity<'a> {
+    River(&'a RiverEquity),
+    Later(&'a HandEquity),
+}
+
+impl NextEquity<'_> {
+    #[inline]
+    fn sum(&self, index: u64) -> u32 {
+        match self {
+            NextEquity::River(e) => e.numerators[index as usize] as u32,
+            NextEquity::Later(e) => e.sums[index as usize],
+        }
+    }
+
+    fn denominator(&self) -> u64 {
+        match self {
+            NextEquity::River(e) => e.denominator as u64,
+            NextEquity::Later(e) => e.denominator,
+        }
+    }
+}
+
+/// The exact equity of every canonical hand of the flop or turn, from the next street's.
+/// The table builds work this out as they go; this is for building the flop on its own.
+pub fn hand_equity(deck: Deck, street: Street, next_equity: &NextEquity) -> HandEquity {
+    let board = street.board_cards();
+    let indexer = HandIndexer::with_deck(deck, &[2, board as u8]);
+    let next_indexer = HandIndexer::with_deck(deck, &[2, board as u8 + 1]);
+    let outcomes = deck.len() - 2 - board;
+    let sums = (0..indexer.size())
+        .into_par_iter()
+        .map(|i| histogram_row(deck, &indexer, &next_indexer, None, Some(next_equity), i, &mut []))
+        .collect();
+    HandEquity {
+        sums,
+        denominator: outcomes as u64 * next_equity.denominator(),
     }
 }
 
@@ -557,22 +616,25 @@ pub enum NextLabels<'a> {
 }
 
 impl NextLabels<'_> {
-    fn k(&self) -> usize {
+    /// Number of labels.
+    pub fn k(&self) -> usize {
         match self {
             NextLabels::Table(t) => t.buckets(),
             NextLabels::EquityBins { bins, .. } => *bins as usize,
         }
     }
 
+    /// The label of a canonical hand of the next street.
     #[inline]
-    fn label(&self, index: u64) -> u16 {
+    pub fn label(&self, index: u64) -> u16 {
         match self {
             NextLabels::Table(t) => t.bucket(index),
             NextLabels::EquityBins { equity, bins } => equity.bin(equity.numerators[index as usize], *bins),
         }
     }
 
-    fn metric(&self) -> Metric {
+    /// The ground distance between labels.
+    pub fn metric(&self) -> Metric {
         match self {
             NextLabels::Table(t) => t
                 .ground_metric()
@@ -583,19 +645,50 @@ impl NextLabels<'_> {
         }
     }
 
-    fn equity(&self) -> Vec<f32> {
-        match self {
-            NextLabels::Table(t) => t.equity.clone(),
-            NextLabels::EquityBins { bins, .. } => (0..*bins).map(|b| (b as f32 + 0.5) / *bins as f32).collect(),
-        }
-    }
-
     fn source(&self) -> String {
         match self {
-            NextLabels::Table(t) => format!("{} table {}", t.header.street.name(), t.checksum()),
+            NextLabels::Table(t) => format!("{} table {}", t.header().street.name(), t.checksum()),
             NextLabels::EquityBins { bins, .. } => format!("{bins} slices of river equity"),
         }
     }
+}
+
+/// One canonical flop or turn hand against every card that can come. With `next`, fills
+/// `row` (one entry per card left in the deck) with the labels of the hands it makes, in
+/// increasing order. With `next_equity`, returns the sum of those hands' equity sums.
+pub fn histogram_row(
+    deck: Deck,
+    indexer: &HandIndexer,
+    next_indexer: &HandIndexer,
+    next: Option<&NextLabels>,
+    next_equity: Option<&NextEquity>,
+    index: u64,
+    row: &mut [u16],
+) -> u32 {
+    let cards = indexer.cards();
+    let mut hand = [0u8; 7];
+    indexer.unindex(index, &mut hand[..cards]);
+    let used = hand[..cards].iter().fold(0u64, |m, &c| m | 1 << c);
+    let mut at = 0;
+    let mut sum = 0u32;
+    for c in deck.cards() {
+        if used & (1 << c) == 0 {
+            hand[cards] = c;
+            let next_index = next_indexer.index(&hand[..cards + 1]);
+            if let Some(next) = next {
+                row[at] = next.label(next_index);
+            }
+            if let Some(equity) = next_equity {
+                sum += equity.sum(next_index);
+            }
+            at += 1;
+        }
+    }
+    if next.is_some() {
+        debug_assert_eq!(at, row.len());
+        row.sort_unstable();
+    }
+    sum
 }
 
 /// Builds the turn or flop table from the next street's labels.
@@ -603,9 +696,10 @@ pub fn build_histogram_street(
     deck: Deck,
     street: Street,
     next: &NextLabels,
+    next_equity: &NextEquity,
     settings: &StreetSettings,
     seed: u64,
-) -> (Table, Report) {
+) -> (Table, Report, HandEquity) {
     assert!(matches!(street, Street::Flop | Street::Turn));
     let started = Instant::now();
     let board = street.board_cards();
@@ -618,30 +712,24 @@ pub fn build_histogram_street(
     let outcomes = deck.len() - 2 - board;
     let metric = next.metric();
     let next_k = next.k();
-    let next_equity = next.equity();
 
     // The histogram of every canonical hand: the label of each card that can come.
     let mut labels = vec![0u16; hands * outcomes];
     let mut weights = vec![0u8; hands];
+    let mut sums = vec![0u32; hands];
     labels
         .par_chunks_mut(outcomes)
         .zip(weights.par_iter_mut())
+        .zip(sums.par_iter_mut())
         .enumerate()
-        .for_each(|(i, (row, weight))| {
-            let mut hand = [0u8; 7];
-            indexer.unindex(i as u64, &mut hand[..2 + board]);
-            let used = hand[..2 + board].iter().fold(0u64, |m, &c| m | 1 << c);
-            let mut at = 0;
-            for c in deck.cards() {
-                if used & (1 << c) == 0 {
-                    hand[2 + board] = c;
-                    row[at] = next.label(next_indexer.index(&hand[..3 + board]));
-                    at += 1;
-                }
-            }
-            row.sort_unstable();
+        .for_each(|(i, ((row, weight), sum))| {
+            *sum = histogram_row(deck, &indexer, &next_indexer, Some(next), Some(next_equity), i as u64, row);
             *weight = indexer.multiplicity(i as u64) as u8;
         });
+    let hand_equity = HandEquity {
+        sums,
+        denominator: outcomes as u64 * next_equity.denominator(),
+    };
     let features_seconds = started.elapsed().as_secs_f64();
 
     let space = HistogramSpace {
@@ -655,15 +743,26 @@ pub fn build_histogram_street(
     drop(labels);
     let k = clustering.k;
 
-    // A bucket's equity: its centre's shares times the next street's bucket equities.
+    // A bucket's equity: the exact average over its hands. Whole numbers, so the order the
+    // threads add them in doesn't matter.
+    let equity_sums = (0..hands)
+        .into_par_iter()
+        .fold(
+            || vec![0u64; k],
+            |mut acc, i| {
+                acc[clustering.assignment[i] as usize] += weights[i] as u64 * hand_equity.sums[i] as u64;
+                acc
+            },
+        )
+        .reduce(
+            || vec![0u64; k],
+            |mut a, b| {
+                a.iter_mut().zip(&b).for_each(|(x, y)| *x += y);
+                a
+            },
+        );
     let bucket_equity: Vec<f64> = (0..k)
-        .map(|c| {
-            clustering.centroids[c * next_k..(c + 1) * next_k]
-                .iter()
-                .zip(&next_equity)
-                .map(|(&share, &e)| share as f64 * e as f64)
-                .sum()
-        })
+        .map(|c| equity_sums[c] as f64 / (clustering.weights[c] as f64 * hand_equity.denominator as f64))
         .collect();
     let order = sort_buckets(&mut clustering, next_k, &bucket_equity);
     let bucket_equity: Vec<f32> = order.iter().map(|&old| bucket_equity[old] as f32).collect();
@@ -702,7 +801,7 @@ pub fn build_histogram_street(
         metric_data,
     );
     let report = report(street, settings, &table, &clustering, features_seconds, started);
-    (table, report)
+    (table, report, hand_equity)
 }
 
 /// Builds all three tables in memory: river, turn, flop. For small decks and tests; the
@@ -711,7 +810,7 @@ pub fn build_all(settings: &Settings) -> ([Table; 3], [Report; 3]) {
     let deck = settings.deck();
     let equity = river_equity(deck);
     let (river, river_report) = build_river(&equity, &settings.river, settings.seed);
-    let (turn, turn_report) = {
+    let (turn, turn_report, turn_equity) = {
         let next = match settings.turn.feature {
             Feature::NextBuckets => NextLabels::Table(&river),
             Feature::EquityBins { bins } => NextLabels::EquityBins {
@@ -720,13 +819,26 @@ pub fn build_all(settings: &Settings) -> ([Table; 3], [Report; 3]) {
             },
             _ => panic!("the turn is clustered over river buckets or slices of river equity"),
         };
-        build_histogram_street(deck, Street::Turn, &next, &settings.turn, settings.seed)
+        build_histogram_street(
+            deck,
+            Street::Turn,
+            &next,
+            &NextEquity::River(&equity),
+            &settings.turn,
+            settings.seed,
+        )
     };
     assert!(
         settings.flop.feature == Feature::NextBuckets,
         "the flop is clustered over turn buckets"
     );
-    let (flop, flop_report) =
-        build_histogram_street(deck, Street::Flop, &NextLabels::Table(&turn), &settings.flop, settings.seed);
+    let (flop, flop_report, _) = build_histogram_street(
+        deck,
+        Street::Flop,
+        &NextLabels::Table(&turn),
+        &NextEquity::Later(&turn_equity),
+        &settings.flop,
+        settings.seed,
+    );
     ([flop, turn, river], [flop_report, turn_report, river_report])
 }

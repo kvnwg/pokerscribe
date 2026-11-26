@@ -157,7 +157,10 @@ pub enum MetricData {
 /// One street's bucket table.
 #[derive(Clone, Debug)]
 pub struct Table {
-    pub header: Header,
+    header: Header,
+    /// The header exactly as it is in the file, so that a table read from disk writes back
+    /// the same bytes.
+    header_json: Vec<u8>,
     /// The buckets, `bytes_per_bucket` bytes each.
     payload: Vec<u8>,
     /// Real hands in each bucket.
@@ -219,14 +222,23 @@ impl Table {
                 (MetricKind::Matrix, (embed.len() / k) as u32)
             }
         };
+        // Nine decimals are plenty, and a short number reads back from JSON exactly.
+        header.cost = (header.cost * 1e9).round() / 1e9;
+        let header_json = serde_json::to_vec(&header).expect("the header is plain data");
         Table {
             header,
+            header_json,
             payload,
             sizes,
             equity,
             centroids,
             metric,
         }
+    }
+
+    /// The settings and counts the table was built with.
+    pub fn header(&self) -> &Header {
+        &self.header
     }
 
     /// Canonical hands in the table.
@@ -271,11 +283,10 @@ impl Table {
 
     /// Feeds the file's bytes, all but the checksum at the end, to `f` in pieces.
     fn pieces(&self, mut f: impl FnMut(&[u8])) {
-        let header = serde_json::to_vec(&self.header).expect("the header is plain data");
         f(MAGIC);
         f(&FORMAT_VERSION.to_le_bytes());
-        f(&(header.len() as u32).to_le_bytes());
-        f(&header);
+        f(&(self.header_json.len() as u32).to_le_bytes());
+        f(&self.header_json);
         f(&self.payload);
         let mut small = Vec::with_capacity(self.sizes.len() * 8);
         for &s in &self.sizes {
@@ -434,11 +445,13 @@ impl Table {
                 return Err(bad("a bucket number is out of range"));
             }
         }
+        let header_json = bytes[16..16 + header_len].to_vec();
         // Keep only the buckets, without copying them.
         bytes.truncate(body + payload_len);
         bytes.drain(..body);
         Ok(Table {
             header,
+            header_json,
             payload: bytes,
             sizes,
             equity,
@@ -488,7 +501,7 @@ mod tests {
             opponent_clusters: vec![],
             iterations: 3,
             trained_on: hands as u64,
-            cost: 0.125,
+            cost: 0.212_179_018_417_517_43,
         };
         let buckets: Vec<u16> = (0..hands).map(|i| (i * 7 % k) as u16).collect();
         let mut d = vec![0f32; k * k];
@@ -516,8 +529,8 @@ mod tests {
             let table = sample(k, 5000);
             let bytes = table.to_bytes();
             let back = Table::from_bytes(bytes.clone(), true).unwrap();
-            assert_eq!(back.header, table.header);
-            assert_eq!(back.header.bytes_per_bucket, if k > 256 { 2 } else { 1 });
+            assert_eq!(back.header(), table.header());
+            assert_eq!(back.header().bytes_per_bucket, if k > 256 { 2 } else { 1 });
             assert_eq!(back.sizes, table.sizes);
             assert_eq!(back.equity, table.equity);
             assert_eq!(back.centroids, table.centroids);
@@ -573,7 +586,7 @@ mod tests {
         assert_eq!(size, std::fs::metadata(&path).unwrap().len());
         let back = Table::load(&path).unwrap();
         assert_eq!(back.checksum(), table.checksum());
-        assert_eq!(Table::read_header(&path).unwrap(), table.header);
+        assert_eq!(&Table::read_header(&path).unwrap(), table.header());
         assert_eq!(Table::load_unchecked(&path).unwrap().bucket(1999), table.bucket(1999));
         std::fs::remove_dir_all(&dir).unwrap();
     }

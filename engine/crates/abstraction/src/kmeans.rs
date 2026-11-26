@@ -280,6 +280,8 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
     assert!(k >= 1 && k <= u16::MAX as usize, "between 1 and 65,535 buckets");
     assert!(n <= u32::MAX as usize, "at most 4 billion hands");
     let mut seconds = [0f64; 3];
+    // Set ABSTRACTION_PROGRESS to see each iteration on standard error.
+    let progress = std::env::var_os("ABSTRACTION_PROGRESS").is_some();
 
     let mut best: Option<(f64, Vec<f32>, usize, usize)> = None;
     let mut trained_on = n;
@@ -307,6 +309,10 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
         let live = centroids.len() / dim;
         seconds[0] += started.elapsed().as_secs_f64();
 
+        if progress {
+            eprintln!("  k-means run {restart}: {live} centres seeded, {:.1} s", started.elapsed().as_secs_f64());
+        }
+        let train_weight: u64 = ids.iter().map(|&i| space.weight(i as usize)).sum();
         let started = std::time::Instant::now();
         let mut assignment = vec![u32::MAX; ids.len()];
         let mut costs = vec![0f32; ids.len()];
@@ -342,6 +348,15 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
                     costs[at as usize] = 0.0;
                     moved = true;
                 }
+            }
+            if progress {
+                eprintln!(
+                    "  k-means run {restart} iteration {iterations}: cost {:.6}, {:.3}% of hands moved, {} empty, {:.1} s",
+                    cost / train_weight as f64,
+                    changed as f64 * 100.0 / ids.len() as f64,
+                    empty.len(),
+                    started.elapsed().as_secs_f64()
+                );
             }
             if !moved && (changed as f64) < settings.tolerance * ids.len() as f64 {
                 break;
@@ -772,8 +787,8 @@ impl Space for HistogramSpace<'_> {
                 s.sketch.clear();
                 s.sketch.resize(len, 0.0);
                 matrix.sketch(s.buckets.iter().map(|&b| b as usize).zip(s.shares.iter().cloned()), &mut s.sketch);
-                // Lower bound for every centre: the straight-line distance between the
-                // average points, and the largest gap in average distance to an anchor.
+                // First lower bound, for every centre at once: the straight-line distance
+                // between the average points (kept squared).
                 s.straight.clear();
                 s.straight.resize(k, 0.0);
                 for t in 0..matrix.embed_dim {
@@ -782,23 +797,24 @@ impl Space for HistogramSpace<'_> {
                         *b += (x - c) * (x - c);
                     }
                 }
-                s.bound.clear();
-                s.bound.extend(s.straight.iter().map(|x| x.sqrt()));
-                for t in matrix.embed_dim..len {
-                    let x = s.sketch[t];
-                    for (b, &c) in s.bound.iter_mut().zip(&sketch[t * k..(t + 1) * k]) {
-                        *b = b.max((x - c).abs());
-                    }
-                }
-                let first = hint.map_or_else(|| argmin(&s.bound), |h| h as usize);
+                // Second lower bound, only for the centres the first lets through: the
+                // largest gap in average distance to an anchor.
+                let anchors_rule_out = |c: usize, best: f32, point: &[f32]| {
+                    (matrix.embed_dim..len).any(|t| (point[t] - sketch[t * k + c]).abs() * BOUND_MARGIN > best)
+                };
+                let first = hint.map_or_else(|| argmin(&s.straight), |h| h as usize);
                 let mean = |c: usize| &means[c * next_k..(c + 1) * next_k];
                 let mut best = (
                     first as u32,
                     matrix.greedy(&s.buckets, &s.shares, mean(first), f32::INFINITY, &mut s.greedy),
                 );
                 full += 1;
+                let margin_squared = BOUND_MARGIN * BOUND_MARGIN;
                 for c in 0..k {
-                    if c == first || s.bound[c] * BOUND_MARGIN > best.1 {
+                    if c == first
+                        || s.straight[c] * margin_squared > best.1 * best.1
+                        || anchors_rule_out(c, best.1, &s.sketch)
+                    {
                         continue;
                     }
                     // A cost above the best so far can't win, so the greedy plan may stop

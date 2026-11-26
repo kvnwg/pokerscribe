@@ -10,20 +10,20 @@
 //! ```
 //! use abstraction::{builder, parse_cards, Abstraction, Deck, Street};
 //!
-//! // A small deck (nines to aces) builds in well under a second; the real tables are
+//! // A small deck (tens to aces) builds in well under a second; the real tables are
 //! // built with the `abstraction-build` tool and read with `Abstraction::load`.
-//! let mut settings = builder::Settings::new(12);
-//! settings.ranks = 6;
+//! let mut settings = builder::Settings::new(8);
+//! settings.ranks = 5;
 //! let ([flop, turn, river], _reports) = builder::build_all(&settings);
 //! let abstraction = Abstraction::from_tables(flop, turn, river).unwrap();
 //!
 //! let hole = parse_cards("AhKh").unwrap();
-//! let board = parse_cards("QhJhTh9c9d").unwrap();
+//! let board = parse_cards("QhJhThTcTd").unwrap();
 //! let royal = abstraction.bucket(&hole, &board);
-//! let other_suit = abstraction.bucket(&parse_cards("AsKs").unwrap(), &parse_cards("QsJsTs9c9d").unwrap());
+//! let other_suit = abstraction.bucket(&parse_cards("AsKs").unwrap(), &parse_cards("QsJsTsThTc").unwrap());
 //! assert_eq!(royal, other_suit);
-//! assert_eq!(abstraction.buckets(Street::Preflop), 36);
-//! assert!(Deck::new(6).contains(hole[0]));
+//! assert_eq!(abstraction.buckets(Street::Preflop), 25);
+//! assert!(Deck::new(5).contains(hole[0]));
 //! ```
 
 pub mod builder;
@@ -57,14 +57,14 @@ impl Abstraction {
     /// Puts three tables together, checking that they are for the same deck and the right
     /// streets.
     pub fn from_tables(flop: Table, turn: Table, river: Table) -> Result<Abstraction, String> {
-        let deck = Deck::new(river.header.ranks);
+        let deck = Deck::new(river.header().ranks);
         let mut streets = Vec::with_capacity(3);
         for (street, table) in [(Street::Flop, flop), (Street::Turn, turn), (Street::River, river)] {
-            if table.header.street != street {
-                return Err(format!("expected a {} table, got a {} table", street.name(), table.header.street.name()));
+            if table.header().street != street {
+                return Err(format!("expected a {} table, got a {} table", street.name(), table.header().street.name()));
             }
-            if table.header.ranks != deck.ranks() {
-                return Err(format!("the {} table is for a deck of {} ranks", street.name(), table.header.ranks));
+            if table.header().ranks != deck.ranks() {
+                return Err(format!("the {} table is for a deck of {} ranks", street.name(), table.header().ranks));
             }
             let indexer = HandIndexer::with_deck(deck, &[2, street.board_cards() as u8]);
             if indexer.size() != table.len() {

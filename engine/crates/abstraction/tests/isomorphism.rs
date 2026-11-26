@@ -1,7 +1,8 @@
 //! Suit isomorphism: the counts, and that every hand maps to a canonical one and back.
 //!
-//! The fast tests run with `cargo test -p abstraction`. The exhaustive ones over every
-//! turn and river hand are slow in a debug build, so they are ignored by default:
+//! `cargo test -p abstraction` runs the quick tests. `cargo test --release -p abstraction`
+//! adds the ones that are slow in a debug build. The exhaustive ones over every turn and
+//! river hand take about two minutes on 4 cores and are ignored by default:
 //!
 //! ```bash
 //! cargo test --release -p abstraction --test isomorphism -- --ignored
@@ -73,6 +74,7 @@ fn counts_for_other_deals() {
 /// over the 24 suit relabellings, of the hands each one leaves unchanged. Counted here by
 /// brute force on a small deck.
 #[test]
+#[cfg_attr(debug_assertions, ignore = "slow in a debug build: run with --release")]
 fn small_deck_counts_match_brute_force() {
     for ranks in [3u8, 4, 5] {
         let deck = Deck::new(ranks);
@@ -217,6 +219,7 @@ fn preflop_and_flop_round_trip() {
 }
 
 #[test]
+#[cfg_attr(debug_assertions, ignore = "slow in a debug build: run with --release")]
 fn every_flop_deal_maps_to_a_canonical_hand() {
     check_every_deal(3);
 }
