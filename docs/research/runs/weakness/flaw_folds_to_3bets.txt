@@ -1,0 +1,6 @@
+folds_to_3bets: costs -6.2 ± 12.0 bb/100 (not a significant cost); its spot at 17 (Folds to every re-raise before the flop unless it holds the top 2% of hands.)
+     preflop, facing a 3-bet+: it chose fold; check or call gains +4.5 ± 22.6 bb/100 (+0.52 bb a decision, 116 decisions); most with top 5% (+22.1 bb/100)
+     top 1: flop, checked to: it chose bet; a big bet or raise gains +16.7 ± 5.5 bb/100 (+3.65 bb a decision, 55 decisions); most with pair + draw (+4.0 bb/100)
+     top 2: preflop, limpers: it chose fold; a small bet or raise gains +7.4 ± 3.0 bb/100 (+0.82 bb a decision, 108 decisions); most with top 35% (+3.0 bb/100)
+     top 3: preflop, limpers: it chose check; a big bet or raise gains +6.4 ± 2.8 bb/100 (+2.33 bb a decision, 33 decisions); most with rest (+4.3 bb/100)
+0 of 0 planted flaws that cost money are in the top 10 (860s)

@@ -7,7 +7,8 @@ For each decision the app makes, the hand is replayed with every other move at t
 decision (fold, check or call, a small and a big bet or raise, all in), on the same cards
 and the same bot random numbers, with the app's own advice after it. A move's gain is its
 luck-adjusted result (tools/luck.py) minus the luck-adjusted result of what the app did.
-Gains are grouped by spot (street, what the app faced, its hand, what it did) and ranked
+Gains are grouped by spot (street, what the app faced, what it did; the hand strength
+that carries most of it is shown too) and ranked
 by big blinds per 100 hands at stake, after taking off one and a half standard errors so
 that a few lucky replays don't top the list. This is a one-step improvement against these
 opponents, in the spirit of local best response (Lisy and Bowling, 2017): it says where a
@@ -22,7 +23,8 @@ app's moves street by street).
 
 --flaw plants a known mistake in the app (FLAWS below). --check-flaws plays the app and
 each flawed copy on the same deals and checks that each flaw's spot is in that copy's top
-ten (the Phase 1 success test: at least 90% of planted flaws found).
+ten (the Phase 1 success test: at least 90% of planted flaws found), counting only flaws
+that cost money against these bots (each flaw's cost is measured on the same deals).
 """
 from __future__ import annotations
 
@@ -71,6 +73,15 @@ def _flaw_calls_river_bets(h, me, adv, move):
     return move
 
 
+def _flaw_folds_river_bets(h, me, adv, move):
+    """Folds to every bet on the river without two pair or better."""
+    seat = h.seats[me]
+    if len(h.board) == 5 and h.current > seat.bet and move[0] != "fold":
+        if hands.category(seat.cards, h.board) > 7:
+            return "fold", 0.0
+    return move
+
+
 def _flaw_overbets(h, me, adv, move):
     """Bets one and a half times the pot whenever it bets after the flop."""
     seat = h.seats[me]
@@ -92,6 +103,8 @@ FLAWS: Dict[str, Tuple[str, Callable, Tuple[str, Tuple[str, ...], str]]] = {
     "never_bets_river": (_flaw_never_bets_river.__doc__, _flaw_never_bets_river, ("river", ("checked to",), "check")),
     "calls_river_bets": (_flaw_calls_river_bets.__doc__, _flaw_calls_river_bets,
                          ("river", ("facing a bet", "facing a raise"), "call")),
+    "folds_river_bets": (_flaw_folds_river_bets.__doc__, _flaw_folds_river_bets,
+                         ("river", ("facing a bet", "facing a raise"), "fold")),
     "overbets": (_flaw_overbets.__doc__, _flaw_overbets, ("postflop", ("checked to",), "bet")),
     "limps": (_flaw_limps.__doc__, _flaw_limps, ("preflop", ("first in",), "call")),
 }
@@ -188,14 +201,18 @@ def luck_before(record: dict, board_len: int) -> float:
 
 
 def analyse(n: int, table: str, seed: int, flaw: Optional[str] = None, depth_bb: float = 100.0,
-            stacks: str = "even", fold_sample: int = 10, quiet: bool = False) -> dict:
+            stacks: str = "even", fold_sample: int = 10, quiet: bool = False, jobs: int = 1,
+            start: int = 0) -> dict:
     """Play n hands (duplicate deals, six rotations a deck) and replay every decision with
-    every other move. Returns the decisions with their gains, and each hand's result."""
+    every other move. Returns the decisions with their gains, and each hand's result. With
+    jobs > 1 the decks are split over processes; the result is the same."""
+    if jobs > 1 and n >= 12:
+        return _split(analyse, n, jobs, dict(table=table, seed=seed, flaw=flaw, depth_bb=depth_bb, stacks=stacks,
+                                             fold_sample=fold_sample, quiet=True))
     flaw_hook = FLAWS[flaw][1] if flaw else None
     out = {"decisions": [], "hands": [], "table": table, "seed": seed, "flaw": flaw, "n": n}
-    pick = random.Random(seed * 7919 + 1)
     t0 = time.time()
-    for k in range(n):
+    for k in range(start, start + n):
         d, r = divmod(k, 6)
         styles, names = sim.seating(table, seed, d)
         args = (styles, d % 6, seed * 100003 + d, 0, depth_bb)
@@ -210,7 +227,7 @@ def analyse(n: int, table: str, seed: int, flaw: Optional[str] = None, depth_bb:
         for j, sp in enumerate(rec["spots"]):
             weight = 1.0
             if sp["street"] == "preflop" and sp["move"] == "fold" and sp["situation"] in ("first in", "facing a raise"):
-                if pick.random() * fold_sample >= 1:
+                if random.Random((seed * 1000003 + k) * 64 + j).random() * fold_sample >= 1:
                     continue
                 weight = float(fold_sample)
             gains = {}
@@ -261,48 +278,65 @@ def _replay_gain(args, kw, flaw_hook, rec, adj, j, sp, kind) -> Optional[float]:
 
 
 # ------------------------------------------------------------------ ranking
-def rank(result: dict) -> List[dict]:
-    """Spots ranked by the bb/100 a better move would have gained (minus 1.5 standard errors)."""
+def rank(result: dict, fine: bool = False) -> List[dict]:
+    """Spots ranked by the bb/100 a better move would have gained, minus 1.5 standard errors.
+    A spot is street, situation and the app's move (fine: also the hand's strength); each
+    coarse spot carries its best strength group as "detail"."""
     hands_n = len(result["hands"])
     groups: Dict[tuple, List[dict]] = defaultdict(list)
     for dec in result["decisions"]:
-        groups[dec["key"]].append(dec)
+        k = dec["key"]
+        groups[k if fine else (k[0], k[1], "any hand", k[3])].append(dec)
     items = []
     for key, decs in groups.items():
-        count = sum(d["weight"] for d in decs)
-        best = None
-        for kind in MOVES:
-            vals = [(d["gains"][kind], d["weight"], d["deck"]) for d in decs if d["gains"].get(kind) is not None]
-            if len(vals) < 3:
-                continue
-            # total gain per 100 hands, its standard error with decks as units
-            per_deck = defaultdict(float)
-            for g, w, deck in vals:
-                per_deck[deck] += g * w
-            decks_n = max(1, hands_n // 6)
-            total = sum(per_deck.values())
-            mean_deck = total / decks_n
-            ss = sum((v - mean_deck) ** 2 for v in per_deck.values()) + (decks_n - len(per_deck)) * mean_deck ** 2
-            se_total = math.sqrt(ss * decks_n / max(1, decks_n - 1)) if decks_n > 1 else 0.0
-            per100, se100 = 100 * total / hands_n, 100 * se_total / hands_n
-            score = per100 - 1.5 * se100
-            if best is None or score > best["score"]:
-                n_alt = sum(w for _, w, _ in vals)
-                best = {"key": key, "better": kind, "per100": per100, "se100": se100, "score": score,
-                        "decisions": count, "per_decision": total / n_alt if n_alt else 0.0}
+        best = _best_move(key, decs, hands_n)
         if best is not None and best["per100"] > 0:
             items.append(best)
+    if not fine:
+        subs = rank(result, fine=True)
+        for it in items:
+            it["detail"] = next((x for x in subs if (x["key"][0], x["key"][1], x["key"][3]) ==
+                                 (it["key"][0], it["key"][1], it["key"][3])), None)
     items.sort(key=lambda x: -x["score"])
     return items
+
+
+def _best_move(key: tuple, decs: List[dict], hands_n: int) -> Optional[dict]:
+    count = sum(d["weight"] for d in decs)
+    best = None
+    for kind in MOVES:
+        vals = [(d["gains"][kind], d["weight"], d["deck"]) for d in decs if d["gains"].get(kind) is not None]
+        if len(vals) < 3:
+            continue
+        # total gain per 100 hands, its standard error with decks as units
+        per_deck = defaultdict(float)
+        for g, w, deck in vals:
+            per_deck[deck] += g * w
+        decks_n = max(1, hands_n // 6)
+        total = sum(per_deck.values())
+        mean_deck = total / decks_n
+        ss = sum((v - mean_deck) ** 2 for v in per_deck.values()) + (decks_n - len(per_deck)) * mean_deck ** 2
+        se_total = math.sqrt(ss * decks_n / max(1, decks_n - 1)) if decks_n > 1 else 0.0
+        per100, se100 = 100 * total / hands_n, 100 * se_total / hands_n
+        score = per100 - 1.5 * se100
+        if best is None or score > best["score"]:
+            n_alt = sum(w for _, w, _ in vals)
+            best = {"key": key, "better": kind, "per100": per100, "se100": se100, "score": score,
+                    "decisions": count, "per_decision": total / n_alt if n_alt else 0.0}
+    return best
 
 
 def describe(item: dict) -> str:
     street, situation, strength, move = item["key"]
     better = {"passive": "check or call", "small": "a small bet or raise", "big": "a big bet or raise",
               "fold": "fold", "all-in": "all in"}[item["better"]]
-    return (f"{street}, {situation}, {strength}: it chose {move}; {better} gains "
-            f"{item['per100']:+.1f} ± {item['se100']:.1f} bb/100 ({item['per_decision']:+.2f} bb a decision, "
-            f"{item['decisions']:.0f} decisions)")
+    where = f"{street}, {situation}" + ("" if strength == "any hand" else f", {strength}")
+    text = (f"{where}: it chose {move}; {better} gains {item['per100']:+.1f} ± {item['se100']:.1f} bb/100 "
+            f"({item['per_decision']:+.2f} bb a decision, {item['decisions']:.0f} decisions)")
+    d = item.get("detail")
+    if d:
+        text += f"; most with {d['key'][2]} ({d['per100']:+.1f} bb/100)"
+    return text
 
 
 def summary(result: dict, top: int = 15) -> str:
@@ -332,20 +366,78 @@ def summary(result: dict, top: int = 15) -> str:
     return "\n".join(lines)
 
 
+def _split(fn, n: int, jobs: int, kw: dict):
+    """Run fn over whole-deck shards in processes and merge the lists, in hand order."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    chunk = -(-n // jobs)
+    chunk += (-chunk) % 6
+    with ProcessPoolExecutor(max_workers=jobs) as ex:
+        futs = [ex.submit(fn, min(chunk, n - st), start=st, **kw) for st in range(0, n, chunk)]
+        parts = [f.result() for f in futs]
+    if isinstance(parts[0], dict):
+        out = dict(parts[0], n=n)
+        for key in ("decisions", "hands"):
+            out[key] = [x for p in parts for x in p[key]]
+        return out
+    return tuple([x for p in parts for x in p[i]] for i in range(len(parts[0])))
+
+
+def _cost_rows(n: int, table: str, seed: int, flaw: str, depth_bb: float = 100.0, stacks: str = "even",
+               start: int = 0, **_) -> Tuple[list, list]:
+    diffs, decks = [], []
+    for k in range(start, start + n):
+        d, r = divmod(k, 6)
+        styles, names = sim.seating(table, seed, d)
+        args = (styles, d % 6, seed * 100003 + d, 0, depth_bb)
+        kw = dict(stacks=stacks, names=names, number=k + 1, rotate=r, keyed=True)
+        vals = []
+        for hook in (None, FLAWS[flaw][1]):
+            st = new_stats(hook)
+            sim.play_hand(*args, st, **kw)
+            vals.append(luck.adjusted(st["last"]))
+        diffs.append(vals[1] - vals[0])
+        decks.append(d)
+    return diffs, decks
+
+
+def flaw_cost(n: int, table: str, seed: int, flaw: str, depth_bb: float = 100.0, stacks: str = "even",
+              jobs: int = 1, **_) -> Tuple[float, float]:
+    """What a planted flaw costs against these bots: the flawed copy against the app on the
+    same deals, luck-adjusted, in bb/100 with its standard error (decks as units)."""
+    from compare import summary as mean_se
+
+    kw = dict(table=table, seed=seed, flaw=flaw, depth_bb=depth_bb, stacks=stacks)
+    if jobs > 1 and n >= 12:
+        diffs, decks = _split(_cost_rows, n, jobs, kw)
+    else:
+        diffs, decks = _cost_rows(n, **kw)
+    return mean_se(diffs, decks)
+
+
 def check_flaws(n: int, table: str, seed: int, top: int = 10, flaws=None, **kw) -> Tuple[str, int, int]:
-    found = 0
+    """For each planted flaw: what it costs, and where its spot is in the flawed copy's list.
+    Only flaws that cost significantly (more than two standard errors) count: one that wins
+    against these bots is not a flaw the tool can be asked to find."""
+    found = real = 0
     lines = []
-    names = flaws or list(FLAWS)
-    for name in names:
+    for name in flaws or list(FLAWS):
         doc, _hook, signature = FLAWS[name]
+        cost, se = flaw_cost(n, table, seed, name, **kw)
+        costly = cost < -2 * se
         res = analyse(n, table, seed, flaw=name, quiet=True, **kw)
-        items = rank(res)[:top]
+        items = rank(res)
         pos = next((i for i, it in enumerate(items, 1) if matches(it["key"], signature)), None)
-        found += pos is not None
-        lines.append(f"{name}: {'found at ' + str(pos) if pos else 'NOT in the top ' + str(top)} ({doc.strip()})")
+        real += costly
+        found += costly and pos is not None and pos <= top
+        verdict = (f"found at {pos}" if pos and pos <= top else f"at {pos}" if pos else "not listed")
+        lines.append(f"{name}: costs {cost:+.1f} ± {se:.1f} bb/100 ({'a real flaw' if costly else 'not a significant cost'}); "
+                     f"its spot {verdict} ({doc.strip()})")
         if pos:
             lines.append(f"     {describe(items[pos - 1])}")
-    return "\n".join(lines), found, len(names)
+        for i, it in enumerate(items[:3], 1):
+            lines.append(f"     top {i}: {describe(it)}")
+    return "\n".join(lines), found, real
 
 
 def main():
@@ -360,15 +452,16 @@ def main():
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--check-flaws", action="store_true")
     ap.add_argument("--save", help="write the ranked spots to this JSON file")
+    ap.add_argument("--jobs", type=int, default=1, help="processes to split the hands over (same results)")
     a = ap.parse_args()
     if a.hands % 6:
         a.hands += 6 - a.hands % 6
-    kw = dict(depth_bb=500.0 if a.deep else 100.0, stacks=a.stacks, fold_sample=a.fold_sample)
+    kw = dict(depth_bb=500.0 if a.deep else 100.0, stacks=a.stacks, fold_sample=a.fold_sample, jobs=a.jobs)
     t0 = time.time()
     if a.check_flaws:
         text, found, total = check_flaws(a.hands, a.table, a.seed, flaws=[a.flaw] if a.flaw else None, **kw)
         print(text)
-        print(f"{found} of {total} planted flaws in the top 10 ({time.time() - t0:.0f}s)")
+        print(f"{found} of {total} planted flaws that cost money are in the top 10 ({time.time() - t0:.0f}s)")
         return
     res = analyse(a.hands, a.table, a.seed, flaw=a.flaw, **kw)
     print(summary(res, a.top))
@@ -377,8 +470,9 @@ def main():
         import json
 
         with open(a.save, "w") as f:
-            json.dump({"args": vars(a), "ranked": [{**it, "key": list(it["key"])} for it in rank(res)],
-                       "adjusted": [h["adj"] for h in res["hands"]]}, f)
+            json.dump({"args": vars(a), "ranked": [{**it, "key": list(it["key"]), "detail": None} for it in rank(res)],
+                       "hands": res["hands"],
+                       "decisions": [{k: v for k, v in dec.items() if k != "spot"} for dec in res["decisions"]]}, f)
 
 
 if __name__ == "__main__":

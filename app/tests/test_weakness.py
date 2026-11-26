@@ -95,3 +95,13 @@ def test_weakness_report_runs(tools):
             assert dec["gains"]["fold"] is None
     text = wk.summary(res, 5)
     assert "Luck-adjusted by position" in text
+
+
+def test_weakness_split_over_processes(tools):
+    """--jobs: the same decisions, gains and hands as one process."""
+    _, wk = tools
+    one = wk.analyse(24, "maniacs", 4, quiet=True)
+    two = wk.analyse(24, "maniacs", 4, quiet=True, jobs=2)
+    assert one["hands"] == two["hands"]
+    assert [(d["key"], d["gains"]) for d in one["decisions"]] == [(d["key"], d["gains"]) for d in two["decisions"]]
+    assert wk.flaw_cost(12, "maniacs", 4, "limps") == wk.flaw_cost(12, "maniacs", 4, "limps", jobs=2)

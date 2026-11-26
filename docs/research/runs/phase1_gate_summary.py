@@ -91,3 +91,29 @@ if any(r["resampled"] for r in runs.values()):
     ws = next((r["weights"] for r in runs.values() if r["weights"]), None)
     if ws:
         print("\nWeights used (flop, turn, river; SPR up to 1.5, up to 4, above): " + " ".join(f"{w:+.2f}" for w in ws))
+
+
+def same_hands():
+    """Ratios on the same hands (duplicate runs): much less noisy than the ratios above,
+    which compare standard errors from different hands."""
+    print("\nOn the same hands (duplicate runs), standard error as a share of the raw one:\n")
+    print("| Comparison | Checked down | Fitted | Resampled |")
+    print("|---|---|---|---|")
+    cols = {"checked": [], "fitted": [], "resampled": []}
+    for n in names:
+        d = runs.get((n, "duplicate"))
+        if d is None or d["replayed"] == 0 or not d["raw"][1]:
+            continue
+        cells = []
+        for c in cols:
+            if d[c] and d[c][1]:
+                cols[c].append(d[c][1] / d["raw"][1])
+                cells.append(f"{cols[c][-1]:.2f}")
+            else:
+                cells.append("-")
+        print(f"| {n} | " + " | ".join(cells) + " |")
+    gms = [f"{math.exp(sum(map(math.log, v)) / len(v)):.2f}" if v else "-" for v in cols.values()]
+    print("| geometric mean | " + " | ".join(gms) + " |")
+
+
+same_hands()

@@ -1,0 +1,5 @@
+calls_river_bets: costs +12.7 ± 17.0 bb/100 (not a significant cost); its spot not listed (Calls every bet on the river.)
+     top 1: preflop, facing a 3-bet+: it chose call; a big bet or raise gains +40.0 ± 17.1 bb/100 (+36.92 bb a decision, 18 decisions); most with top 5% (+25.7 bb/100)
+     top 2: flop, checked to: it chose bet; a big bet or raise gains +18.8 ± 5.5 bb/100 (+4.10 bb a decision, 55 decisions); most with pair + draw (+4.0 bb/100)
+     top 3: preflop, limpers: it chose fold; a small bet or raise gains +7.0 ± 3.1 bb/100 (+0.78 bb a decision, 108 decisions); most with top 35% (+3.0 bb/100)
+0 of 0 planted flaws that cost money are in the top 10 (957s)

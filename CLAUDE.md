@@ -56,6 +56,11 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 
 ## Status, 26 Nov 2026
 
+- Phase 1 was started on 26 Nov at Kevin's request while Phase 0 waits for saved reads. Its tools
+  are built (duplicate deals, luck adjustment, replays, held-out tables, weakness report), but its
+  gate is not passed: three pre-registered runs gave 0.60, 0.77 and 0.66 against the 0.5 bar; on the
+  same hands the new estimator is about 0.6 of the raw standard error. Next for the gate: AIVAT
+  imaginary observations over the bots' hole cards (`experiments.md`, Phase 1). Phase 2 waits.
 - Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
   instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`). For each folder: run
   `tools/replay_reads.py`, find the cause, fix it, add a regression test.

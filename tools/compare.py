@@ -24,8 +24,12 @@ Two ways to deal (--method):
                        of duplicate separately)
 
 The luck-adjusted difference (tools/luck.py) also takes the luck of the board cards out of
-the hands where the variants differ. Standard errors count the six hands of a deck as one
-unit. Variants are overrides of app.poker.advice.TUNING, given as JSON.
+the hands where the variants differ, and (--resample, 6 by default) each such hand is played
+six times from the first decision where the variants part, with fresh bot random numbers and
+board cards, and averaged. On the same hands this gave about 0.6 of the raw standard error
+(docs/research/experiments.md, Phase 1). Standard errors count the six hands of a deck as
+one unit. Variants are overrides of app.poker.advice.TUNING, given as JSON. --jobs 4 splits
+the hands over four processes with identical results.
 """
 from __future__ import annotations
 
@@ -220,11 +224,14 @@ def main():
     ap.add_argument("--adjust-all", action="store_true",
                     help="also luck-adjust every hand, for luck-adjusted win rates of each variant")
     ap.add_argument("--save", help="write every hand's differences to this JSON file (for later analysis)")
-    ap.add_argument("--resample", type=int, default=1,
-                    help="play each hand where the variants differ this many times from where they part")
+    ap.add_argument("--resample", type=int, default=None,
+                    help="play each hand where the variants differ this many times from where they part "
+                         "(default 6; 1 with --method classic or --profiles)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="processes to split the hands over (same results; not with --profiles)")
     a = ap.parse_args()
+    if a.resample is None:
+        a.resample = 1 if (a.method == "classic" or a.profiles) else 6
     if a.method == "duplicate" and a.hands % 6:
         a.hands += 6 - a.hands % 6  # whole decks
         print(f"(rounded up to {a.hands} hands: six per deck)")

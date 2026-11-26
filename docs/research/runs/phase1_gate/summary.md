@@ -46,3 +46,16 @@ Standard error as a share of classic raw, luck adjustment = fitted:
 | texture | nan | - | - | 0.47 | **0.44** | 0.94 |
 
 Geometric mean of r: 0.57; largest r: 1.08; mean time ratio: 0.90. Gate FAILS (needs at most 0.5, 0.75 and 1.25).
+
+On the same hands (duplicate runs), standard error as a share of the raw one:
+
+| Comparison | Checked down | Fitted | Resampled |
+|---|---|---|---|
+| bet_half | 0.91 | 0.84 | - |
+| ev_fish | 0.84 | 0.83 | - |
+| ev_mixed | 0.86 | 0.76 | - |
+| no_stab | 0.76 | 0.72 | - |
+| push_chart | 0.28 | 0.28 | - |
+| semibluff_never | 0.91 | 0.91 | - |
+| texture | 1.01 | 0.92 | - |
+| geometric mean | 0.75 | 0.71 | - |
