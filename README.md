@@ -223,6 +223,9 @@ tools/               benchmarks, template builders, the simulator, paired compar
                      the luck adjustment (luck.py), the opponents' hidden cards (hidden.py)
                      and the weakness report (weakness.py)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
+  slumbot/           heads-up benchmark against Slumbot's bot API (see tools/slumbot/README.md)
+  gtowizard/         heads-up benchmark against GTO Wizard AI: benchmark only, its hands are never
+                     training data (see tools/gtowizard/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```
 
