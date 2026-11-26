@@ -1,0 +1,48 @@
+# Paired checks of the rust_solver switch, 26 Nov 2026. The runs down to the second line of #'s were made with
+# tools/compare.py as it was before the Phase 1 tools (today: --method classic).
+# First with no subgame-solve built: the Python solver answers.
+# The simulator runs the river solver with a fixed amount of work, so these repeat exactly.
+
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed --base '{"river_solver": true}'
+mixed     base   +44.3 (± 40.9)  other   +44.3 (± 40.9)  difference   +0.0 ±  0.0 bb/100  [0/1000 hands differ, problems none]
+ALL       difference   +0.0 ±  0.0 bb/100 over 1000 hands
+
+# tools/compare.py '{"rust_solver": true}' 150 --tables mixed
+mixed     base   -46.3 (± 79.5)  other   -46.3 (± 79.5)  difference   +0.0 ±  0.0 bb/100  [0/150 hands differ, problems none]
+ALL       difference   +0.0 ±  0.0 bb/100 over 150 hands
+
+# tools/compare.py '{"river_solver": true}' 150 --tables mixed
+mixed     base   -46.3 (± 79.5)  other   -34.7 (± 79.6)  difference  +11.7 ±  8.3 bb/100  [3/150 hands differ, problems none]
+ALL       difference  +11.7 ±  8.3 bb/100 over 150 hands
+
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 150 --tables mixed
+mixed     base   -46.3 (± 79.5)  other   -34.7 (± 79.6)  difference  +11.7 ±  8.3 bb/100  [3/150 hands differ, problems none]
+ALL       difference  +11.7 ±  8.3 bb/100 over 150 hands
+
+# Later the same day, with subgame-solve built (engine/target/release): the Rust program answers the spots
+# that can be written as a SPOT. Run twice, the same two lines both times.
+
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed --base '{"river_solver": true}'
+mixed     base   +44.3 (± 40.9)  other   +44.2 (± 40.9)  difference   -0.1 ±  0.1 bb/100  [1/1000 hands differ, problems none]
+ALL       difference   -0.1 ±  0.1 bb/100 over 1000 hands
+
+# ---------------------------------------------------------------------------------------------
+# Run again with tools/compare.py as it is now (duplicate decks, hands that differ replayed 6 times).
+
+# tools/compare.py '{"rust_solver": true}' 150 --tables mixed
+mixed     base   -16.6 (±  7.9)  other   -16.6 (±  7.9)  difference   +0.0 ±  0.0  luck-adjusted   +0.0 ±  0.0 (checked down only   +0.0 ±  0.0) bb/100  [0/150 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   +0.0 ±  0.0 (raw   +0.0 ±  0.0)
+ALL       difference   +0.0 ±  0.0  luck-adjusted   +0.0 ±  0.0  replayed 6 times   +0.0 ±  0.0 bb/100 over 150 hands, duplicate
+
+# with subgame-solve built:
+# tools/compare.py '{"river_solver": true, "rust_solver": true}' 1000 --tables mixed --base '{"river_solver": true}' --jobs 4
+(rounded up to 1002 hands: six per deck)
+mixed     base   +13.3 (± 20.8)  other   +12.4 (± 20.8)  difference   -0.9 ±  0.9  luck-adjusted   -0.9 ±  0.9 (checked down only   -0.9 ±  0.9) bb/100  [1/1002 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   -0.9 ±  0.9 (raw   -0.9 ±  0.9)
+ALL       difference   -0.9 ±  0.9  luck-adjusted   -0.9 ±  0.9  replayed 6 times   -0.9 ±  0.9 bb/100 over 1002 hands, duplicate
+
+# the same with no program to find (POKERSCRIBE_SUBGAME_SOLVE names a file that isn't there): the Python solver answers
+(rounded up to 1002 hands: six per deck)
+mixed     base   +13.3 (± 20.8)  other   +13.3 (± 20.8)  difference   +0.0 ±  0.0  luck-adjusted   +0.0 ±  0.0 (checked down only   +0.0 ±  0.0) bb/100  [0/1002 hands differ, problems none]
+          replayed 6 times from where they part: luck-adjusted   +0.0 ±  0.0 (raw   +0.0 ±  0.0)
+ALL       difference   +0.0 ±  0.0  luck-adjusted   +0.0 ±  0.0  replayed 6 times   +0.0 ±  0.0 bb/100 over 1002 hands, duplicate

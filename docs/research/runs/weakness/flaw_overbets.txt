@@ -1,0 +1,5 @@
+overbets: costs +20.5 ± 11.8 bb/100 (not a significant cost); its spot not listed (Bets one and a half times the pot whenever it bets after the flop.)
+     top 1: preflop, facing a 3-bet+: it chose call; a big bet or raise gains +32.8 ± 15.6 bb/100 (+30.25 bb a decision, 18 decisions); most with top 5% (+26.4 bb/100)
+     top 2: preflop, limpers: it chose fold; a small bet or raise gains +13.7 ± 6.4 bb/100 (+1.53 bb a decision, 108 decisions); most with rest (+11.1 bb/100)
+     top 3: preflop, limpers: it chose raise; a small bet or raise gains +4.7 ± 2.4 bb/100 (+2.47 bb a decision, 23 decisions); most with top 15% (+3.5 bb/100)
+0 of 0 planted flaws that cost money are in the top 10 (775s)

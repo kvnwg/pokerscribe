@@ -1,0 +1,8 @@
+{"stab": 0.0} on mixed (even), seed 404: 1500 hands, 8 differ; CPU s: resampled 5, redeal 2, classes 1
+  raw                +0.31 ±  1.83 bb/100
+  resampled raw      -0.93 ±  1.24 bb/100
+  resampled luck     -0.52 ±  1.26 bb/100
+  redeal raw         -0.33 ±  0.79 bb/100
+  redeal luck        -0.76 ±  0.65 bb/100
+  redeal exact luck   -0.33 ±  0.79 bb/100
+  resampled exact luck   -0.93 ±  1.24 bb/100

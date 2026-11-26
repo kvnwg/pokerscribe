@@ -14,6 +14,7 @@ depend on any one chat.
 | `RIVER_SOLVER.md` | The Python river solver as the reference for the Rust one: what it does, its limits, accuracy per spot, time |
 | `SCREEN_READING.md` | How the reader reads a poker table, step by step, with what's done and what isn't |
 | `BENCHMARKS.md` | GTO Wizard Benchmark and Slumbot API (access, terms, format, luck adjustment), checks of the Modicum, Pluribus and DeepStack claims, and cloud prices for blueprint runs |
+| `runs/` | Raw experiment scripts and logs; Phase 1's gate runs are `phase1_gate.sh` with `phase1_gate*/summary.md` |
 | `DEMO.md` | Notes for a conference demo at Web Summit Vancouver 2027 (proposal, not approved) |
 
 ## Rules
@@ -62,8 +63,8 @@ From the research report. Kept for the record.
 | Phase | Work | Gate before the next phase |
 | --- | --- | --- |
 | 0 | Correct inputs (blinds, pot, bets), capture log for replay tests, frozen B0 | No misread-driven all-ins in replay tests; B0 rebuilds exactly |
-| 1 | Duplicate deals, AIVAT-style luck adjustment, held-out opponents, weakness report | Standard error per comparison at least halved |
-| 2 | River CFR solver, push-or-fold equilibrium, adaptive time budget, solver-labelled data | Matches closed-form results; beats B0 by 2.5 SE; p95 under 400 ms |
+| 1 | Duplicate deals, AIVAT-style luck adjustment, held-out opponents, weakness report | Standard error per comparison at least halved (built 26 Nov 2026; gate run 5, on comparisons where at least 1% of hands differ: 0.46 on average, but `texture_sizing` at 0.7507 is over the 0.75 per-comparison bar, so not passed as written; closed by Kevin's decision after run 5, "good enough"; see `experiments.md`) |
+| 2 | River CFR solver, push-or-fold equilibrium, adaptive time budget, solver-labelled data | Matches closed-form results; beats B0 by 2.5 SE; p95 under 400 ms (26 Nov 2026: closed-form results and p95 met; B0 beaten by 2.94 SE on the first seeds but not on the repeat, so not passed; see `experiments.md`) |
 | 3 | Bayesian opponent model with HandHQ priors, robust exploitation | 5% lower log-loss on held-out days; no loss against B0 |
 | 4 | Pluribus-style blueprint (Monte Carlo CFR in a compiled engine) and depth-limited search | Beats the Phase 3 agent by 2.5 SE; exploiters win less |
 | 5 | Deep CFR or ReBeL-style value networks, only if Phase 4 shows abstraction is the limit | Beats the Phase 4 agent at equal or lower decision time |
