@@ -191,7 +191,7 @@ What is exact is the call-or-fold decision when calling ends the betting (heads-
 
 Strategy work follows a written plan with measured gates, kept in `docs/research/` so it never depends on one chat: the research report (where strength is lost, eight research directions, a roadmap toward a Pluribus-style agent), the frozen baseline agent, a log of every experiment with its result and standard error, the dataset report, and the book and paper principles with their status in the engine. A change replaces the baseline only after beating it by at least 2.5 standard errors in paired simulation, without losing to any opponent type. All testing stays offline or on tables you're allowed to use; PokerScribe never plays for you.
 
-The comparisons take out as much luck as they can (Phase 1 of the roadmap): every deck is played six times with the players moved round one seat each time, every bot decision has its own random seed so two versions of the app face the same choices, and each hand's result is corrected for the luck of the board cards (`tools/luck.py`, after the AIVAT method). Opponents the strategy was never tuned on (`heldout`, `regulars`, `switchers`, `wildcards`) judge whether a change generalises, and `tools/weakness.py` lists the spots where a different move would have won more.
+The comparisons take out as much luck as they can (Phase 1 of the roadmap): every deck is played six times with the players moved round one seat each time, every bot decision has its own random seed so two versions of the app face the same choices, and a hand where the two versions part is played six more times from that point, with fresh board cards and the opponents dealt fresh hands they could have held given what they did, and averaged. The luck of board cards after which nobody can bet is taken out too (`tools/luck.py`, after the AIVAT method; `tools/hidden.py` has AIVAT's correction for the opponents' hidden cards). Opponents the strategy was never tuned on (`heldout`, `regulars`, `switchers`, `wildcards`) judge whether a change generalises, and `tools/weakness.py` lists the spots where a different move would have won more.
 
 ## Project structure
 
@@ -210,7 +210,8 @@ app/
   ui/                PySide6 interface
   tests/             test suite and the synthetic table renderer
 tools/               benchmarks, template builders, the simulator, paired comparisons,
-                     the luck adjustment (luck.py) and the weakness report (weakness.py)
+                     the luck adjustment (luck.py), the opponents' hidden cards (hidden.py)
+                     and the weakness report (weakness.py)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```

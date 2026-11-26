@@ -39,7 +39,15 @@ Approximations change only the variance, never the expected value: V ignores bet
 to come, and it averages a fixed sample of the class (SAMPLE hands, chosen by the hand's
 seed before anything after the split is known), whose showdowns against the app are
 tabulated once for every runout (Split). The probabilities and the final average use every
-hand of the class with its exact weight, as they must.
+hand of the class with its exact weight, as they must. V may mix in the all-in value by
+group (WEIGHTS, fit_weights); no weights are frozen, because on these bots fitting them
+helped little (docs/research/experiments.md, Phase 1).
+
+The same classes serve the replays from the split in tools/compare.py --redeal: live_classes
+gives every live bot's class and redeal draws an assignment of one hand each with no card
+twice, uniformly. Given the split that is the law of the live bots' cards, so a replay that
+deals them such a draw (and fresh random numbers and board cards) is a fresh draw of the
+rest of the hand, and the average over replays is unbiased without any value function.
 """
 from __future__ import annotations
 

@@ -12,3 +12,7 @@ Phase 1 (26 Nov 2026), run from the repo root:
   (`phase1_variance/`).
 - `weakness/`: the weakness report on the baseline (seeds 11 and 12, the held-out table) and
   the planted-flaw checks, from `tools/weakness.py`.
+- After run 3: `phase1_hidden_explore.py` and `phase1_hidden_fit.py` (the hidden-cards estimate
+  and its value weights), `phase1_redeal_explore.py` with `phase1_redeal_summary.py` (redealt
+  replays, `phase1_redeal/`), and gate run 4: `phase1_gate4.sh` with `phase1_gate4_summary.py`
+  (`phase1_gate4/summary.md`).

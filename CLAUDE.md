@@ -43,10 +43,13 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
-- `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons. Comparisons
-  use duplicate deals and the luck adjustment by default (`--method classic` rebuilds results from
-  before Phase 1); `--jobs 4` splits a run over processes with identical results.
-- `tools/luck.py`: the AIVAT-style luck adjustment (frozen `WEIGHTS`, refit with `fit`).
+- `tools/simulate.py`, `tools/compare.py`: the 6-max simulator and paired comparisons. By default a
+  comparison deals duplicate decks and replays each hand that differs 6 times from where the
+  variants part, dealing the opponents fresh hands they could have held: use the "replayed 6 times"
+  figure. `--method classic` rebuilds results from before Phase 1; `--jobs 4` splits a run over
+  processes with identical results.
+- `tools/luck.py`: the AIVAT-style luck adjustment for board cards. `tools/hidden.py`: the opponents'
+  classes (what they could hold), the redeal, and AIVAT's imaginary observations (`--hidden`).
 - `tools/weakness.py`: ranks the spots where another move would have won more; `--check-flaws`
   tests it on planted flaws.
 - Held-out opponents: the `heldout`, `regulars`, `switchers` and `wildcards` tables in
@@ -57,10 +60,12 @@ This repo is the source of truth. It replaced the zip builds shared in chat on 2
 ## Status, 26 Nov 2026
 
 - Phase 1 was started on 26 Nov at Kevin's request while Phase 0 waits for saved reads. Its tools
-  are built (duplicate deals, luck adjustment, replays, held-out tables, weakness report), but its
-  gate is not passed: three pre-registered runs gave 0.60, 0.77 and 0.66 against the 0.5 bar; on the
-  same hands the new estimator is about 0.6 of the raw standard error. Next for the gate: AIVAT
-  imaginary observations over the bots' hole cards (`experiments.md`, Phase 1). Phase 2 waits.
+  are built (duplicate deals, luck adjustment, replays that redeal the opponents, AIVAT imaginary
+  observations, held-out tables, weakness report). Gate run 4 (pre-registered): geometric mean of
+  the SE ratios 0.42 (bar 0.5) at 1.17 times the CPU (bar 1.25), but two comparisons exceed the
+  0.75 per-comparison bar (`semibluff_turn: never` 0.80; `commit: 1.0` 2.02 on 2 to 4 informative
+  hands). So the gate as written is not passed and Phase 2 waits for Kevin's call on the rule
+  (`experiments.md`, Phase 1, gate run 4).
 - Phase 0 is in progress. Kevin plays on 247 with watching on and presses "Save last reads" when an
   instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`). For each folder: run
   `tools/replay_reads.py`, find the cause, fix it, add a regression test.

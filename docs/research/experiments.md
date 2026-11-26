@@ -223,20 +223,129 @@ so they share one time ratio. Full tables: `runs/phase1_gate/summary.md` and
 
 ### Decision
 
-- **The Phase 1 gate is not passed. Phase 2 does not start** until a run on a fresh seed
-  passes the same rule.
-- The next step for the gate is AIVAT's imaginary observations for the bots: their
-  strategies are known and, with a seed per decision, deterministic given their cards, so
-  a hand's result can be averaged over every holding consistent with each bot's actions.
-  That targets the "fixed before the split" share.
-- Comparisons now default to duplicate deals, the frozen luck adjustment and 6 replays: on
-  the same hands about 0.6 of the raw SE, unbiased. The replays cost time where many hands
-  differ (run 3 took 1.1 to 1.5 times as long as classic for the sizing options, 1.05 on
-  average; these timings shared the machine with other runs). Use the "replayed 6 times"
-  figure, and `--jobs 4`. `--method classic` rebuilds every earlier row.
+- **The Phase 1 gate is not passed. Phase 2 does not start.** Runs 1 to 3 failed; run 4
+  (below) fails on one of its three conditions.
+- After run 3, AIVAT's imaginary observations for the bots were built and the replays were
+  made to redeal the opponents' cards (next sections). Run 4 used the redeal.
+- Comparisons now default to the run 4 method: duplicate deals, 6 replays from the split
+  that redeal the opponents, and luck only where nobody can bet again. It is unbiased, has
+  about 0.4 of the classic SE, and costs about 1.2 times the CPU. Use the "replayed 6
+  times" figure, and `--jobs 4`. `--method classic` rebuilds every earlier row.
 - Bug fixed on the way: treys gives a royal flush class 0, so a royal flush on the board
   looked like the player's own improvement over it (`hands.category` now returns 1 for
   every straight flush; regression test in `test_poker_math.py`).
+
+### The opponents' cards (after run 3)
+
+What was left after run 3 was mostly the bots' hole cards (point 5 above). Two tools go
+after it. Both condition on everything up to the split, so they only touch the 1 to 6% of
+hands where the variants differ.
+
+**Imaginary observations** (`tools/hidden.py`, AIVAT's method for players whose strategy is
+known). Used when the variants part heads-up after the flop:
+
+- The opponent's class: the pairs it could hold, given everything before the split. They
+  are the hands with which `bot_decide`, run again with the recorded seeds, makes exactly
+  its moves. Given the split they are equally likely (a uniform deal, and a bot's move is a
+  function of its cards once its random numbers are fixed).
+- After the split the bot's random numbers are fresh. So each of its moves has a known
+  probability for each hand in its class: `move_probs`, worked out from `bot_decide`. It
+  matches 4,000 seeded runs of the bot (mean z squared 0.94).
+- Each variant's result is replaced by:
+  - the average result over the class hands still consistent at the end,
+  - minus a correction at each of the opponent's moves and at each board card: the value
+    of what happened minus the expected value.
+  
+  Each correction averages zero, so the estimate is unbiased whatever value is used.
+- Checked exactly (`app/tests/test_hidden.py` and exhaustive scripts): deal every class hand
+  to the opponent, and every runout still to come. The average estimate then equals the
+  average result to 10^-15, for splits on the river, the turn and the flop (7,992 deals),
+  and also with arbitrary value weights.
+- Where it helps and where it doesn't:
+  - Strong where the bots play by their cards: fish247, 0.44 of the raw SE against 0.84
+    for replays alone (seed 303).
+  - Weak where the money goes in later (the mixed table). Its values are checked-down
+    values, which can't foresee the stacks going in after a card or a bet, so a late swing
+    lands in one correction. Fitting value weights helped little, even in sample.
+
+**Redealt replays** (`compare.py --redeal`):
+
+- What changes: the replays from the split also deal each bot still in a fresh hand drawn
+  from its class (all live bots together, no card twice).
+- Why it's unbiased: given the split, every assignment is equally likely, and the hand up
+  to the split comes out exactly the same (a test checks it). So each replay is a fresh draw
+  of the rest of the hand, opponents' cards included, and the average keeps the expected
+  value.
+- It needs no value function, works for multiway and preflop splits, and costs no more than
+  the replays.
+- Why this isn't the same as playing more hands: it averages over the opponents' cards only
+  in the hands that differ, which are the only ones that carry the difference.
+
+Exploration on seeds 303 and 404 (1500 hands each), same hands, SE as a share of the raw
+SE (`runs/phase1_redeal/summary.md`):
+
+| Estimate | Geometric mean (14 cells) | Largest cell |
+|---|---|---|
+| Replays (run 3), raw | 0.65 | 1.04 |
+| Replays, luck-adjusted | 0.61 | 1.02 |
+| Redealt replays, raw | 0.46 | 0.97 |
+| Redealt replays, luck-adjusted | 0.39 | 1.00 |
+| Redealt replays, luck only where nobody can bet again | 0.39 | 1.22 |
+
+- The last one was chosen for run 4. Pooled over the two seeds per comparison it was the
+  best: about 0.39 overall, worst comparison about 0.77 (`semibluff_turn: "never"`).
+- The full luck adjustment blew up on one comparison (`stab: 0.0`, seed 303: 0.98 of raw).
+  Correcting one variant's board luck but not the other's breaks the cancellation that
+  common cards give. Even exact corrections can do that, as `texture_sizing` on seed 303
+  shows.
+- On top of the redeal, the hidden-cards estimate did not help consistently.
+
+### Gate run 4
+
+Rule (`runs/phase1_gate4.sh`, committed before any hand on its seeds was played):
+
+- The new way: redealt replays with luck only where nobody can bet again, on seeds 606 and
+  707.
+- The old way: classic raw, on seeds 303, 404, 606 and 707.
+- r is the ratio of their sd per hand, pooled over seeds. A single 3000-hand run's SE can
+  be off by half, which is why the sd is pooled.
+- The same three conditions as before: geometric mean at most 0.5, no r above 0.75, CPU per
+  hand at most 1.25 times classic.
+
+| Comparison | Hands, new / old | New way (bb/100) | Old way (bb/100) | r |
+|---|---|---|---|---|
+| `stab: 0.0` | 6000 / 12000 | -0.5 ± 0.4 | -5.2 ± 2.3 | 0.12 |
+| `push_chart`, tourney | 6000 / 12000 | -0.0 ± 0.2 | -0.3 ± 0.9 | 0.17 |
+| `ev_sizing`, fish247 | 6000 / 12000 | +2.5 ± 1.4 | +2.8 ± 2.9 | 0.35 |
+| `ev_sizing`, mixed | 6000 / 12000 | +2.0 ± 1.3 | +1.1 ± 2.4 | 0.39 |
+| `bet_size: 0.5` | 6000 / 12000 | -2.3 ± 1.3 | -3.5 ± 2.3 | 0.40 |
+| `texture_sizing` | 6000 / 12000 | -1.9 ± 1.1 | -0.8 ± 1.6 | 0.51 |
+| `semibluff_turn: "never"` | 6000 / 12000 | -2.5 ± 1.1 | -3.1 ± 0.9 | 0.80 |
+| `commit: 1.0` | 6000 / 12000 | +1.3 ± 1.1 | -0.1 ± 0.4 | 2.02 |
+
+Geometric mean of r: **0.42** (passes, at most 0.5). CPU per hand: **1.17** times classic
+(passes, at most 1.25). Largest r: **2.02** (fails, at most 0.75). **Run 4 fails**, on the
+third condition only.
+
+- `commit: 1.0` changes almost nothing:
+  - Of 12000 old-way hands, 7 differ and 2 differ in the result (-39 and +26 bb).
+  - Of 6000 new-way hands, 4 differ and 2 differ by more than 3 bb (+16 and +65).
+  - Both SEs come from those few hands, so their ratio carries almost no information.
+  - The rule left out only comparisons in which no hand differs, so it counts.
+- `semibluff_turn: "never"`: about 1 hand in 200 differs (47 new, 86 old). What's left is
+  how much the true effect varies from hand to hand given the split. No method that
+  conditions on the split can take that out.
+- On the six comparisons where many hands differ, the SE is 0.12 to 0.51 of classic: more
+  than halved everywhere except `texture_sizing` (0.51).
+- Even with `commit` left out, `semibluff_turn: "never"` (0.80) fails the third condition;
+  its exploration cells gave 0.76 and 0.77, so that is not chance.
+- So the gate as written is not passed, and Phase 2 does not start.
+- Read as "halved on average", it is passed (0.42, 5.7 times fewer hands for the same
+  precision).
+- Which reading counts, or whether to change the rule (for example, judge only comparisons
+  in which at least 1% of hands differ, or drop the per-comparison condition), is Kevin's
+  decision, to be written down before any further gate run.
+
 
 ### Held-out opponents
 

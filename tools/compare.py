@@ -23,13 +23,16 @@ Two ways to deal (--method):
   keyed                one hand per deck, a seed per bot decision (to measure the two parts
                        of duplicate separately)
 
-The luck-adjusted difference (tools/luck.py) also takes the luck of the board cards out of
-the hands where the variants differ, and (--resample, 6 by default) each such hand is played
-six times from the first decision where the variants part, with fresh bot random numbers and
-board cards, and averaged. On the same hands this gave about 0.6 of the raw standard error
-(docs/research/experiments.md, Phase 1). Standard errors count the six hands of a deck as
-one unit. Variants are overrides of app.poker.advice.TUNING, given as JSON. --jobs 4 splits
-the hands over four processes with identical results.
+Each hand where the variants differ is also played five more times from the first decision
+where they part (--resample, 6 plays in all by default), with fresh bot random numbers and
+board cards, and the bots still in dealt fresh hands they could have held given what they
+did before (tools/hidden.live_classes; --no-redeal keeps their cards). The luck of board
+cards after which nobody can bet again is taken out (tools/luck.py; --full-luck corrects
+every board card after the split). The "replayed 6 times" figure is the estimate to use: in
+Phase 1 gate run 4 its standard error was 0.42 of the classic one (geometric mean over 8
+comparisons) for 1.17 times the CPU (docs/research/experiments.md). Standard errors count
+the six hands of a deck as one unit. Variants are overrides of app.poker.advice.TUNING,
+given as JSON. --jobs 4 splits the hands over four processes with identical results.
 """
 from __future__ import annotations
 
@@ -279,18 +282,25 @@ def main():
                          "(default 6; 1 with --method classic or --profiles)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="processes to split the hands over (same results; not with --profiles)")
-    ap.add_argument("--redeal", action="store_true",
-                    help="replays also deal the opponents still in fresh hands from their classes")
-    ap.add_argument("--exact-luck", action="store_true",
-                    help="correct only board cards after which nobody can bet again (exact values)")
+    ap.add_argument("--redeal", action="store_true", help=argparse.SUPPRESS)  # the default now
+    ap.add_argument("--exact-luck", action="store_true", help=argparse.SUPPRESS)  # the default now
     ap.add_argument("--lean", action="store_true",
                     help="compute only the headline estimate (raw and hidden cards), to time it")
-    ap.add_argument("--no-hidden", action="store_true",
-                    help="skip the hidden-cards estimate (tools/hidden.py; keyed methods without profiles only)")
+    ap.add_argument("--hidden", action="store_true",
+                    help="also report the hidden-cards estimate (tools/hidden.py; keyed methods without profiles)")
+    ap.add_argument("--no-hidden", action="store_true", help=argparse.SUPPRESS)  # the default now
+    ap.add_argument("--no-redeal", action="store_true",
+                    help="replays keep the opponents' cards (run 3); by default they deal them fresh hands")
+    ap.add_argument("--full-luck", action="store_true",
+                    help="luck-adjust every board card after the split; by default only those after which nobody "
+                         "can bet again")
     a = ap.parse_args()
     if a.resample is None:
         a.resample = 1 if (a.method == "classic" or a.profiles) else 6
-    use_hidden = not a.no_hidden and a.method != "classic" and not a.profiles and adjust_ok(a)
+    keyed = a.method != "classic" and not a.profiles
+    use_hidden = a.hidden and keyed and adjust_ok(a)
+    a.redeal = keyed and a.resample > 1 and not a.no_redeal
+    a.exact_luck = not a.full_luck
     if a.method == "duplicate" and a.hands % 6:
         a.hands += 6 - a.hands % 6  # whole decks
         print(f"(rounded up to {a.hands} hands: six per deck)")
