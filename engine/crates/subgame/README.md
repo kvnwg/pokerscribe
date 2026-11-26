@@ -256,15 +256,15 @@ threads.
    regret. Both still converge. It means strategies can't be compared bit for bit between the
    two, only exploitability and values.
 
-4. **The `checks` block is this crate's measure, on both streets.** `data/SPOT_FORMAT.md`
-   describes `checks` as `app/solver`'s numbers and says `null` for turn spots, because
-   Python has no turn checker. `subgame-solve` fills the block itself, for river and turn
-   spots, with its own exact best response on the answer as written. On river answers the
-   two measures give the same numbers (the tests, and the check by hand above), and
-   `python -m tools.answer_keys recheck` puts `app/solver`'s in their place if wanted. On
-   turn answers this crate is the only exact measure there is. `SPOT_FORMAT.md` could now
-   say so; it is not edited here. The check costs under 0.3 ms on a river spot and 7 to 11
-   ms on a turn spot.
+4. **The `checks` block is this crate's measure, on both streets.** In TexasSolver's keys
+   `checks` holds `app/solver`'s numbers, and `null` on turn spots because Python has no
+   turn checker. `subgame-solve` fills the block itself, for river and turn spots, with its
+   own exact best response on the answer as written (`data/SPOT_FORMAT.md` says so since
+   this crate was added). On river answers the two measures give the same numbers (the
+   tests, and the check by hand above), and `python -m tools.answer_keys recheck` puts
+   `app/solver`'s in their place if wanted. On turn answers this crate is the only exact
+   measure there is. The check costs under 0.3 ms on a river spot and 7 to 11 ms on a turn
+   spot.
 
 5. **Spot checks differ from `validate_spot` in three places.** `range_text` is not expanded
    and compared with `ranges` (`ranges` is the range). Raise sizes under 0.5 are accepted: the
