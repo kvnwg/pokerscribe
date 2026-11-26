@@ -26,12 +26,13 @@ def rec():
 
 def table(folded=(), bets: Optional[Dict[int, float]] = None, all_in=(), hero_cards=("As", "Kh"), board=(),
           collected=0.0, button=0, acting: Optional[int] = None, buttons: List[str] = (),
-          stacks: Optional[Dict[int, float]] = None, timer_left: float = 0.6) -> TableView:
-    bets, stacks = bets or {}, stacks or {}
+          stacks: Optional[Dict[int, float]] = None, timer_left: float = 0.6, shown=None) -> TableView:
+    bets, stacks, shown = bets or {}, stacks or {}, shown or {}
     seats = []
     for i, name in enumerate(NAMES):
         stack = 0.0 if i in all_in else stacks.get(i, 200.0 - bets.get(i, 0.0))
-        seats.append(SeatView(name, stack, bets.get(i, 0.0), has_cards=i not in folded, all_in=i in all_in))
+        seats.append(SeatView(name, stack, bets.get(i, 0.0), has_cards=i not in folded, all_in=i in all_in,
+                              shown=shown.get(i)))
     return TableView(seats, list(hero_cards), list(board), collected, button, acting, list(buttons), hand_no=7,
                      timer_left=timer_left)
 
@@ -259,3 +260,151 @@ def test_your_all_in_status_is_not_a_button(rec):
     res, seats = read(rec, view, "avatars")
     assert res.state.hero_to_act.value is not True
     assert 0 in seats and seats[0].is_hero
+
+
+# -------------------------------------------------- round 4 (seed 23) misreads
+@needs_ocr
+def test_plain_grey_card_backs_beside_pictures(rec):
+    """Dark grey card backs, no colour: only backs with colour counted, so on the phone table
+    every opponent looked folded (or, when one was found, the rest did). One pair sits where
+    the felt turns from green to the dark surround, one is touched by the timer ring."""
+    for acting in (0, 3):
+        view = table(folded=(2, 5), bets={1: 6, 4: 47}, all_in=(4,), board=("Ks", "7d", "2h"), collected=24,
+                     button=3, acting=acting, buttons=["Fold", "Call $41", "Raise"] if acting == 0 else [])
+        res, seats = read(rec, view, "portrait")
+        assert [seats[i].has_cards for i in (1, 2, 3, 4, 5)] == [True, False, True, True, False], acting
+
+
+@needs_ocr
+def test_the_table_rim_is_not_card_backs(rec):
+    """The brown rim of the table runs under the top player's name. Cut by the name and the
+    stack into short straight pieces, it looked like card backs: a folded player stayed in."""
+    view = table(folded=(3,), bets={0: 1, 1: 2, 2: 2}, button=5, acting=4, hero_cards=("2s", "8h"))
+    res, seats = read(rec, view, "stock")
+    assert seats[3].has_cards is False
+    assert [seats[i].has_cards for i in (1, 2, 4, 5)] == [True, True, True, True]
+
+
+@needs_ocr
+def test_an_opponents_cards_at_showdown_are_not_yours(rec):
+    """You folded; at showdown a player near the bottom turns his cards face up. They were
+    taken for yours, so his seat became yours (your stack read as his, positions shifted)."""
+    board = ("6h", "3c", "6c", "8h", "Ts")
+    for layout, opp in (("avatars", 1), ("stock", 5)):
+        view = table(folded=(0, 3, 4), hero_cards=(), board=board, collected=17, button=5,
+                     shown={opp: ("Jd", "Ks"), 2: ("As", "9h")})
+        res, seats = read(rec, view, layout)
+        assert seats[0].is_hero and not seats[opp].is_hero, layout
+        assert res.layout.hero_cards == [], layout
+        assert seats[0].stack.value == 200 * LAY[layout].unit, layout
+
+
+@needs_ocr
+def test_the_dealer_button_beside_a_level_badge(rec):
+    """The dealer button and the level badge on the picture's rim were read as one word,
+    "D19". The button was dropped from the wrong end, the D repaired as a 0: a bet of 1."""
+    view = table(bets={0: 1, 1: 2, 2: 2, 5: 7}, folded=(3, 4), button=5, acting=0, hero_cards=("2s", "8h"),
+                 buttons=["Fold", "Call 30$", "Raise"])
+    res, seats = read(rec, view, "avatars")
+    assert bet(seats[5]) == 35
+    assert res.state.to_call.value == 30
+
+
+@needs_ocr
+def test_your_hand_strength_is_not_your_name(rec):
+    """"High Card" beside your picture, over your stack, was taken for your name."""
+    res, seats = read(rec, table(bets={0: 1, 1: 2}, button=5, acting=0, hero_cards=("2s", "8h"),
+                                 buttons=["Fold", "Call 5$", "Raise"]), "avatars")
+    assert seats[0].name == "You"
+
+
+@needs_ocr
+def test_a_short_timer_ring_is_still_their_turn(rec):
+    """Little time left: the ring round the acting player's picture is a short arc. The rim
+    of the table beside your stack and the red suits on your cards counted as a highlight on
+    your seat too, so neither stood out, and you were shown a move on their turn."""
+    for layout, acting, left in (("stock", 4, 0.25), ("stock", 4, 0.12), ("portrait", 2, 0.2)):
+        view = table(bets={0: 1, 1: 2, 2: 2}, stacks={0: 224}, button=5, acting=acting, hero_cards=("Ah", "Ac"),
+                     timer_left=left)
+        res, seats = read(rec, view, layout)
+        assert res.layout.acting_seat is not None, layout
+        assert res.layout.seats[res.layout.acting_seat] is seats[acting], layout
+        assert res.state.hero_to_act.value is not True, layout
+
+
+# -------------------------------------------------- round 5 (seed 24) misreads
+def test_a_comma_read_as_a_point():
+    """"2,035$": the small comma was read as a point, a stack of 2.035. Money never has
+    three digits after the point, so that point separates thousands (as in Europe)."""
+    assert parse_amount("2.035$").value == 2035
+    assert parse_amount("$1.250").value == 1250
+    assert parse_amount("12.50").value == 12.5
+    assert parse_amount("0.035").value == 0.035
+
+
+def test_a_chip_icon_read_as_a_zero():
+    """A bet drawn beside a stack of chips: OCR read the chips as a "0", "0 210", and two
+    numbers in one box are no amount. Marlow's bet of 210 came back as nothing."""
+    assert parse_amount("0 210").value == 210
+    assert parse_amount("o 630").value == 630
+    assert parse_amount("@ $ 40").value == 40
+    assert parse_amount("10 20") is None
+    assert parse_amount("0").value == 0
+
+
+@needs_ocr
+def test_face_up_cards_at_showdown_are_still_in_the_hand(rec):
+    """Showdown: the players left turn their cards face up. With no card backs anywhere,
+    a player showing his cards was read as folded, and the dealer button beside a folded
+    player's picture passed for grey card backs."""
+    board = ("7h", "Ts", "5c", "Qs", "Kh")
+    view = table(folded=(0, 1, 2, 3), hero_cards=(), board=board, collected=211, button=3, all_in=(4,),
+                 shown={4: ("Jd", "Js"), 5: ("Ad", "9d")})
+    res, seats = read(rec, view, "avatars")
+    assert [seats[i].has_cards for i in (1, 2, 3, 4, 5)] == [False, False, False, True, True]
+
+
+@needs_ocr
+def test_the_dealer_button_between_hands_is_not_card_backs(rec):
+    """Between hands nobody has cards. The dealer button beside a picture, a solid disc
+    differing from the felt, passed for plain grey card backs: that player looked in."""
+    for button in (1, 3):
+        view = table(folded=(0, 1, 2, 3, 4, 5), hero_cards=(), button=button)
+        res, seats = read(rec, view, "avatars")
+        assert not any(seats[i].has_cards for i in (1, 2, 3, 4, 5)), button
+
+
+def test_your_seat_when_your_name_is_not_read():
+    """"You" is drawn across the edge of the table and OCR missed it: your seat was lost and
+    the player beside you (lower right) taken for you. A CALL instead of a RAISE followed."""
+    from app.vision.card_recognizer import CardReading
+
+    def card(code, x):
+        return CardReading(code=code, guess=code, confidence=0.95, rank_confidence=0.95, suit_confidence=0.95,
+                           box=(x, 546, 61, 87))
+
+    W, H = 1440, 860
+    boxes = [TextBox("$ 1,600", 0.8, 682, 693, 76, 24),  # your stack; your name above it was not read
+             TextBox("10", 0.9, 738, 517, 24, 20)]  # your bet
+    for name, x, y, stack in (("Marlow", 245, 583, "$ 1,740"), ("Quinn", 245, 291, "$ 1,970"),
+                              ("Jasper", 720, 153, "$ 1,750"), ("Rhea", 1195, 291, "$ 4,100"),
+                              ("Toby", 979, 704, "$ 2,020")):
+        boxes.append(TextBox(name, 0.85, x - 35, y - 12, 70, 26))
+        boxes.append(TextBox(stack, 0.85, x - 40, y + 15, 80, 24))
+    res = analyse(np.zeros((H, W, 3), np.uint8), [card("Qh", 656), card("Kd", 724)], boxes)
+    hero = next(s for s in res.seats if s.is_hero)
+    assert hero.stack.value == 1600
+    assert hero.bet is not None and hero.bet.value == 10
+    assert len(res.seats) == 6
+
+
+@needs_ocr
+def test_a_dim_picture_between_hands_is_still_a_seat(rec):
+    """Between hands every picture is dimmed. The circle finder settled on a wrong, larger
+    circle round one of them (radius 57, not 34), so that picture, and with it the seat
+    (name above, stack below), was lost: every position after it shifted."""
+    view = table(folded=(0, 1, 2, 3, 4, 5), hero_cards=(), button=0,
+                 stacks={0: 138, 1: 254, 2: 197, 3: 156, 4: 407, 5: 171})
+    res, seats = read(rec, view, "portrait")
+    assert sorted(seats) == [0, 1, 2, 3, 4, 5]
+    assert seats[1].stack.value == 25400

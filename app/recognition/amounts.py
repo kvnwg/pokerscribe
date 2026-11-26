@@ -47,6 +47,10 @@ def _repair(token: str) -> Tuple[str, bool]:
 
 def _to_number(num: str) -> Optional[float]:
     num = num.replace("\u00a0", "").replace("\u202f", "").replace(" ", "")
+    if re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
+        # "2.035": money never has three digits after the point. A thousands point
+        # ("2.035" in Europe), or "2,035" with the comma read as a point by OCR.
+        return float(num.replace(".", ""))
     if "," in num and "." in num:
         if num.rfind(",") > num.rfind("."):  # 1.234,56
             num = num.replace(".", "").replace(",", ".")
@@ -96,6 +100,9 @@ def find_amounts(text: str) -> List[Tuple[Amount, int, int]]:
 def parse_amount(text: str) -> Optional[Amount]:
     """The amount when `text` is essentially just an amount (e.g. a stack label)."""
     stripped = text.strip()
+    # a chip or coin icon before the number, read as a lone "0", "o" or "@" ("0 210"): no
+    # amount starts with a lone 0
+    stripped = re.sub(r"^[0oO@©®•°*]\s+(?=[$€£¥₹]?\s*\d)", "", stripped)
     found = find_amounts(stripped)
     if len(found) != 1:
         return None

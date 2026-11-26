@@ -195,6 +195,7 @@ def analyse(image: np.ndarray, readings: List[CardReading], boxes: List[TextBox]
     _find_pot(res, boxes, used, W, H)
     _find_blinds(res, boxes, used)
     _find_seats(res, boxes, used, med_text_h)
+    _your_seat_without_name(res, boxes, used)
     _assign_hero_and_order(res, W, H)
     _assign_bets(res, boxes, used, W, H)
     _find_button(res, image, boxes, card_rects, med_text_h)
@@ -510,6 +511,31 @@ def _find_seats(res: LayoutResult, boxes, used, text_h) -> None:
             used.add(id(b))
 
 
+def _your_seat_without_name(res: LayoutResult, boxes, used) -> None:
+    """Your name can be missed (drawn across the edge of the table, say), and then your seat is
+    lost and the seat beside you taken for yours. With your cards showing and no seat under
+    them, a stack just under your cards that nothing claimed is your seat."""
+    if not res.hero_cards:
+        return
+    hx = float(np.mean([r.center[0] for r in res.hero_cards]))
+    bottom = max(r.box[1] + r.box[3] for r in res.hero_cards)
+    card_w = float(np.mean([r.box[2] for r in res.hero_cards]))
+    card_h = float(np.mean([r.box[3] for r in res.hero_cards]))
+    if any(abs(s.center[0] - hx) < 1.5 * card_w and -card_h <= s.center[1] - bottom <= 2 * card_h for s in res.seats):
+        return
+    under = [b for b in boxes if id(b) not in used and parse_amount(b.text) is not None
+             and bottom - 0.3 * card_h <= b.y <= bottom + 1.6 * card_h and abs(b.cx - hx) < 1.2 * card_w]
+    if not under:
+        return
+    b = min(under, key=lambda o: o.y)
+    amt = parse_amount(b.text)
+    label = TextBox("", 0.0, b.x, int(b.y - 1.1 * b.h), b.w, b.h)  # where the name was
+    res.seats.append(Seat(label=label, stack_box=b, stack=amt,
+                          stack_conf=round(min(0.97, 0.2 + 0.8 * b.confidence) * amt.confidence_factor, 3)))
+    used.add(id(b))
+    res.warnings.append("Your name was not read: your seat is the stack under your cards.")
+
+
 def _number_like(text: str) -> bool:
     """A misread amount ("$25¡", "1,2O0"), not a percentage, a count or a ratio ("+100%",
     "300512 / 512000")."""
@@ -779,6 +805,14 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         if best:
             s.has_cards, s.cards_conf = True, best
             found_any = True
+    # at showdown the players still in turn their cards face up
+    for r in res.other_cards:
+        rx, ry = r.center
+        near = [s for s in res.seats if not s.is_hero and math.hypot(s.center[0] - rx, s.center[1] - ry) < 3 * r.box[3]]
+        if near:
+            s = min(near, key=lambda s: math.hypot(s.center[0] - rx, s.center[1] - ry))
+            s.has_cards, s.cards_conf = True, 0.85
+            found_any = True
     if not found_any:
         found_any = _plain_backs(res, image, boxes)
     if found_any:
@@ -818,7 +852,7 @@ def _plain_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox]) -> 
             diff &= np.hypot(xx - x, yy - y) > r + 3
         for bx, by, bw, bh in [(b.x, b.y, b.w, b.h) for b in boxes] + cards:
             diff[max(0, by - y0 - 3): max(0, by + bh - y0 + 3), max(0, bx - x0 - 3): max(0, bx + bw - x0 + 3)] = False
-        k = max(3, int(0.12 * pr)) | 1  # open: drops thin things (a timer ring) touching the backs
+        k = max(3, int(0.2 * pr)) | 1  # open: drops thin things (a timer ring) touching the backs
         diff = cv2.morphologyEx(diff.astype(np.uint8), cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
         n, labels, stats, _ = cv2.connectedComponentsWithStats(diff, connectivity=8)
         rh, rw = diff.shape
@@ -833,8 +867,8 @@ def _plain_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox]) -> 
             c = cv2.findContours((labels[cy:cy + ch, cx:cx + cw] == i).astype(np.uint8), cv2.RETR_EXTERNAL,
                                  cv2.CHAIN_APPROX_SIMPLE)[0][0]
             circ = 4 * math.pi * cv2.contourArea(c) / (cv2.arcLength(c, True) ** 2 + 1e-6)
-            if circ > 0.84 and 0.8 < cw / ch < 1.25:
-                continue  # round: the dealer button or chips
+            if 0.8 < cw / ch < 1.25 and (circ > 0.84 or area < 0.85 * cw * ch):
+                continue  # round (a disc fills 0.79 of its box): the dealer button or chips
             s.has_cards, s.cards_conf = True, 0.75
             found_any = True
             break
@@ -854,8 +888,8 @@ def _outlined_back(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], c
     edges = cv2.Canny(cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY), 25, 70)
     for c in cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[0]:
         bx, by, bw, bh = cv2.boundingRect(c)
-        if not (1.15 * text_h <= bh <= 5 * text_h and 0.5 <= bw / bh <= 0.9):
-            continue
+        if not (1.15 * text_h <= bh <= 5 * text_h and (0.5 <= bw / bh <= 0.9 or 1.2 <= bw / bh <= 1.9)):
+            continue  # one card, or two side by side
         if cv2.contourArea(c) < 0.6 * bw * bh:
             continue
         if len(cv2.approxPolyDP(c, 0.04 * cv2.arcLength(c, True), True)) != 4:
@@ -910,14 +944,25 @@ def _find_pictures(image: np.ndarray, text_h: float) -> List[Tuple[float, float,
     whose whole outline is an edge. Folded players' greyed pictures count too. The round
     ends of buttons and the corners of plates are only partly circles, so they don't."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.medianBlur(gray, 3)
     lo, hi = int(max(8, 1.1 * text_h)), int(max(16, 4.5 * text_h))
-    found = cv2.HoughCircles(cv2.medianBlur(gray, 3), cv2.HOUGH_GRADIENT, dp=1, minDist=2 * lo, param1=100,
-                             param2=24, minRadius=lo, maxRadius=hi)
-    if found is None:
+    candidates = []
+    found = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, dp=1, minDist=2 * lo, param1=100, param2=24,
+                             minRadius=lo, maxRadius=hi)
+    if found is not None:
+        candidates.extend(found[0][:40])
+    # The classic finder can settle on a wrong, larger circle round a dim (folded) picture, too
+    # far off for the small adjustment below to fix; the newer one is steadier there. Both
+    # only propose: the outline check below decides.
+    found = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT_ALT, dp=1.5, minDist=lo, param1=100, param2=0.6,
+                             minRadius=lo, maxRadius=hi)
+    if found is not None:
+        candidates.extend(found[0][:40])
+    if not candidates:
         return []
     edges = cv2.Canny(gray, 25, 70)
     out: List[Tuple[float, float, float, float]] = []
-    for x, y, r in found[0][:40]:
+    for x, y, r in candidates:
         best = (_circle_support(edges, x, y, r), float(x), float(y), float(r))
         for step in (2.0, 1.0):  # Hough's circle is a pixel or two off: settle it on the outline
             s0, x0, y0, r0 = best
@@ -988,23 +1033,26 @@ def _thin_parts(vivid: np.ndarray) -> np.ndarray:
     return vivid & ~np.isin(labels, solid) if solid else vivid
 
 
-def _ring_cover(vivid: np.ndarray, pic: Tuple[float, float, float], text_h: float) -> float:
+def _ring_cover(vivid: np.ndarray, pic: Tuple[float, float, float], text_h: float,
+                full: Optional[np.ndarray] = None) -> float:
     """The share of the way round a picture that a thin coloured ring covers. Card backs or
-    chips beside the picture are not thin: they still show further out."""
+    chips beside the picture are not thin: they still show further out (in `full`, the mask
+    before its solid shapes were taken out; striped backs leave thin stripes behind)."""
     H, W = vivid.shape
     x, y, r = pic
     cos, sin = np.cos(_ANGLES), np.sin(_ANGLES)
-    near = np.zeros(len(_ANGLES), bool)
-    for dr in np.arange(1.0, max(2.0, 0.6 * text_h), 1.0):
-        px = np.round(x + (r + dr) * cos).astype(int)
-        py = np.round(y + (r + dr) * sin).astype(int)
-        ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
-        near[ok] |= vivid[py[ok], px[ok]]
-    px = np.round(x + (r + 1.2 * text_h) * cos).astype(int)
-    py = np.round(y + (r + 1.2 * text_h) * sin).astype(int)
-    ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
-    far = np.zeros(len(_ANGLES), bool)
-    far[ok] = vivid[py[ok], px[ok]]
+
+    def hits(mask, radii):
+        out = np.zeros(len(_ANGLES), bool)
+        for dr in radii:
+            px = np.round(x + (r + dr) * cos).astype(int)
+            py = np.round(y + (r + dr) * sin).astype(int)
+            ok = (px >= 0) & (px < W) & (py >= 0) & (py < H)
+            out[ok] |= mask[py[ok], px[ok]]
+        return out
+
+    near = hits(vivid, np.arange(1.0, max(2.0, 0.6 * text_h), 1.0))
+    far = hits(vivid if full is None else full, np.linspace(1.0, 1.6, 4) * text_h)
     return float((near & ~far).mean())
 
 
@@ -1026,7 +1074,10 @@ def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], tex
         vivid &= ~(on_felt & (np.abs(hsv[..., 2].astype(np.int16) - felt_v) < 40))
     for b in boxes:  # coloured text (stacks drawn in yellow, say) is not a highlight
         vivid[max(0, b.y - 2): b.bottom + 2, max(0, b.x - 2): b.right + 2] = False
-    for x, y, r in res.pictures:  # nor is a player's picture, whatever its colours
+    # rings round pictures are measured on the whole pictures: one cut out would leave a thin
+    # sliver of its edge behind, like a ring
+    thin = _thin_parts(vivid) if res.pictures else None
+    for x, y, r in res.pictures:  # a player's picture is no highlight, whatever its colours
         x0, y0 = max(0, int(x - r - 1)), max(0, int(y - r - 1))
         yy, xx = np.mgrid[y0:min(H, int(y + r + 2)), x0:min(W, int(x + r + 2))]
         vivid[yy, xx] &= np.hypot(xx - x, yy - y) > r + 0.5
@@ -1064,11 +1115,11 @@ def _find_acting(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], tex
     # round pictures: a thin coloured ring around the acting player's picture (its length is
     # the time left)
     if res.pictures:
-        thin = _thin_parts(vivid)
         for k, s in enumerate(res.seats):
             pic = _seat_picture(res, s, text_h)
             if pic is not None:
-                scores[k] = max(scores[k], min(1.0, 2.0 * _ring_cover(thin, pic, text_h)))
+                # with little time left the ring is a short arc, partly under the name
+                scores[k] = max(scores[k], min(1.0, 4.0 * _ring_cover(thin, pic, text_h, vivid)))
     order = sorted(range(len(scores)), key=lambda i: -scores[i])
     best, second = scores[order[0]], scores[order[1]]
     if best >= 0.25 and second <= 0.35 * best:
