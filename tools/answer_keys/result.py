@@ -21,6 +21,7 @@ import datetime as _dt
 import gzip
 import io
 import json
+import math
 import os
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
@@ -126,5 +127,7 @@ def validate_result(header: Mapping, nodes: Mapping[str, Mapping], spot: Mapping
         for combo, row in rec["strategy"].items():
             if set(row) != set(rec["actions"]):
                 raise ResultError(f"{spot['id']} {key!r} {combo}: not one probability per action.")
+            if not all(isinstance(p, (int, float)) and math.isfinite(p) for p in row.values()):
+                raise ResultError(f"{spot['id']} {key!r} {combo}: probabilities must be numbers.")
             if any(p < -tol for p in row.values()) or abs(sum(row.values()) - 1.0) > tol:
                 raise ResultError(f"{spot['id']} {key!r} {combo}: probabilities don't add up to 1.")
