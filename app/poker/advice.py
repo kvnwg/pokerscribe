@@ -12,6 +12,7 @@ costs 12 or less").
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -26,6 +27,8 @@ from .equity import equity
 from . import ranges
 from .ranges import RangeSpec, make_range, preflop_percentile
 
+log = logging.getLogger(__name__)
+
 BLINDS = {"SB", "BB", "BTN/SB"}
 
 TONES = {"fold": "stop", "check": "neutral", "call": "go", "bet": "strong", "raise": "strong",
@@ -39,7 +42,7 @@ class Advice:
     reason: str  # one plain sentence
     amount: Optional[float] = None
     close: bool = False  # the two best choices are worth about the same
-    basis: str = "rule"  # "math" (odds), "rule" (standard strategy) or "none"
+    basis: str = "rule"  # "math" (odds), "rule" (standard strategy), "solver" (river solver) or "none"
     detail: str = ""  # small print: backup plan, assumptions
     hand: str = ""  # "7♠ 4♠: Seven Four suited"
     missing: List[str] = field(default_factory=list)
@@ -188,6 +191,9 @@ TUNING = {
     # them all in when it pays (Mathematics of Poker, jam or fold; Harrington, effective
     # stacks). 0 = off: the usual chart for calling a raise.
     "committed_raise": 0.0,
+    # river, heads-up: play the river solver's strategy (app/solver) when it answers within
+    # its time budget; otherwise, and on every other street, the rules above decide
+    "river_solver": False,
 }
 SIZES = (1 / 3, 1 / 2, 2 / 3, 1.0)  # bet sizes tried, as shares of the pot
 
@@ -881,6 +887,11 @@ def _postflop(s: _Spot) -> Advice:
     still_in = [p for p in s.state.opponents if not (p.in_hand.known and p.in_hand.value is False)]
     value_bet += exploits.value_bet_shift(still_in)
 
+    if river and t["river_solver"] and s.n_opp == 1:
+        solved = _river_solver(s, made)
+        if solved is not None:
+            return solved
+
     if s.facing:
         if s.to_call is not None and s.pot is not None:
             call = min(s.to_call, s.stack) if s.stack is not None else s.to_call
@@ -998,6 +1009,52 @@ def _postflop(s: _Spot) -> Advice:
                       + ("several players" if s.n_opp >= 2 else "them from here") + ": check and keep the pot small.",
                       detail=backup)
     return Advice("check", "CHECK", f"{win} with {made}. Not strong enough to bet, so check.", detail=backup)
+
+
+def _river_solver(s: _Spot, made: str) -> Optional[Advice]:
+    """TUNING["river_solver"]: the river solver's action for your hand, heads-up. None
+    (the rules decide) when the spot isn't one it handles, the numbers it needs aren't
+    known or reliable, it isn't written yet, it fails, or it doesn't answer in time."""
+    import time
+
+    from app import solver
+    from app.solver import bridge
+    from app.solver.tree import action_amount, describe_action
+
+    opp = _only_opponent(s)
+    if (opp is None or not s.trusted or s.pot is None or s.stack is None or not opp.stack.known
+            or s.facing is None or (s.facing and not s.to_call)):
+        return None
+    villain_bet = (s.hero_bet or 0.0) + s.to_call if s.facing else 0.0
+    decision = bridge.river_decision(s.hero, s.board, pot_now=s.pot, hero_bet=s.hero_bet or 0.0,
+                                     villain_bet=villain_bet, hero_stack=s.stack,
+                                     villain_stack=float(opp.stack.value), hero_in_position=_acts_last(s))
+    if decision is None:
+        return None
+    budget = solver.DECISION_BUDGET_MS
+    start = time.perf_counter()
+    try:
+        strategy = solver.solve_river(decision.spot, budget)
+        elapsed_ms = 1000.0 * (time.perf_counter() - start)
+        if strategy is None or elapsed_ms > budget:
+            return None
+        token, _ = bridge.recommend(strategy, decision)
+        mix = strategy.describe(decision.node, decision.combo)
+    except NotImplementedError:
+        return None
+    except Exception:  # a solver failure must never cost the instruction: the rules decide
+        log.exception("River solver failed; using the rules")
+        return None
+    reason = f"With {made}, the river solver's play here is to {describe_action(token)}."
+    detail = f"Its mix for your hand: {mix}."
+    kind, amount = token[:1], action_amount(token)
+    if kind == "x":
+        return Advice("check", "CHECK", reason, basis="solver", detail=detail)
+    if kind == "f":
+        return Advice("fold", "FOLD", reason, basis="solver", detail=detail)
+    if kind == "c":
+        return _call(s, reason, detail=detail, basis="solver")
+    return _aggressive(s, "bet" if kind == "b" else "raise", amount, reason, detail=detail, basis="solver")
 
 
 def _raisers_board(board: Tuple[str, ...]) -> bool:
