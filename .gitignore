@@ -13,6 +13,8 @@ uoftcprg/
 console_solver
 TexasSolver*/
 
-# Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md)
+# Slumbot API tokens kept next to hand logs (see tools/slumbot/README.md), and the GTO Wizard
+# runner's note of which hand is open (tools/gtowizard/README.md; no secret in that one)
 *.jsonl.state.json
 *.jsonl.state.json.tmp
+*.jsonl.results.json.tmp
