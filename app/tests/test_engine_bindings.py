@@ -460,6 +460,18 @@ def test_a_blueprint_is_named_by_its_strategy_file(tmp_path):
         pe.run_match(["tag", f"blueprint:{damaged}"], 10)
 
 
+def test_the_search_agent_is_named_by_its_strategy_file(tmp_path):
+    # "search:<file>" plays depth-limited search (engine/crates/search) on the blueprint in that
+    # file. As with "blueprint:", a file that can't be loaded is an error that names it.
+    missing = tmp_path / "missing.bps"
+    with pytest.raises(ValueError, match=re.escape(f"search:{missing}")):
+        pe.run_match(["tag", f"search:{missing}"], 10)
+    damaged = tmp_path / "damaged.bps"
+    damaged.write_bytes(b"PSBLUEP\n" + bytes(100))
+    with pytest.raises(ValueError, match="search:"):
+        pe.run_match(["tag", f"search:{damaged}"], 10)
+
+
 def test_a_match_from_python_adds_up_and_repeats():
     report = pe.run_match(["call", "tag"], 3000, seed=7)
     d = report.to_dict()

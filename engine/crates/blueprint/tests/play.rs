@@ -388,3 +388,60 @@ fn small_bets_can_be_read_as_a_check_or_call() {
     }
     assert!(seen, "some seed reads the bet as a check");
 }
+
+#[test]
+fn a_range_update_reads_an_off_menu_raise_as_the_blueprint_does() {
+    // 20 big blinds, default menu: the small blind may open to 200, 250, 300 or all in.
+    let solver = trained(20, Menus::standard(), 500);
+    let mut bp = play(&solver);
+    let tree = bp.game().tree().clone();
+    let open = |to| tree.find(&[Action::RaiseTo(to)]).unwrap();
+    let (at_250, at_300) = (open(250), open(300));
+    let mut rng = Rng::new(5);
+    let cards = deal(&mut rng, 9);
+    let board: [Card; 5] = cards[4..9].try_into().unwrap();
+    let start = real_hand(2_000, 0, hand_of(&cards, 0), hand_of(&cards, 1), board);
+    let public = PublicState::new(&start);
+    let hands: Vec<[Card; 2]> = (0..40)
+        .map(|_| {
+            let c = deal(&mut rng, 2);
+            [c[0], c[1]]
+        })
+        .collect();
+    let exact = |bp: &Blueprint<Category>, to| {
+        let mut out = vec![0.0; hands.len()];
+        bp.action_prob_for_range(&public, Action::RaiseTo(to), &hands, &mut out);
+        out
+    };
+    let read = |bp: &Blueprint<Category>, to| {
+        let mut out = vec![0.0; hands.len()];
+        bp.read_action_prob_for_range(&public, Action::RaiseTo(to), &hands, &mut out);
+        out
+    };
+    // On the menu the two readings agree.
+    for to in [200, 250, 300, 2_000] {
+        assert_eq!(exact(&bp, to), read(&bp, to));
+    }
+    // Off the menu the blueprint never makes the raise itself, and the update reads it as
+    // the menu raise the blueprint maps it to once it is in the history.
+    let mut lower = 0;
+    for seed in 0..60 {
+        bp.set_translation_seed(seed);
+        assert!(exact(&bp, 275).iter().all(|&p| p == 0.0));
+        let mut after = start.clone();
+        after.apply(Action::RaiseTo(275)).unwrap();
+        let menu = match bp.decision_point(&PublicState::new(&after)) {
+            Some(x) if x == at_250 => {
+                lower += 1;
+                250
+            }
+            Some(x) if x == at_300 => 300,
+            other => panic!("read as {other:?}"),
+        };
+        assert_eq!(read(&bp, 275), exact(&bp, menu), "seed {seed}");
+    }
+    assert!(
+        lower > 0 && lower < 60,
+        "both readings happen: {lower} of 60"
+    );
+}

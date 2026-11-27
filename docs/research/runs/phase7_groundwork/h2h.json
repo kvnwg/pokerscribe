@@ -1,0 +1,93 @@
+{
+  "format": "pokerscribe-arena/1",
+  "config": {
+    "lineup": [
+      0,
+      1
+    ],
+    "stack": 2000,
+    "small_blind": 50,
+    "big_blind": 100,
+    "ante": 0,
+    "deals": 3000,
+    "seed": 7101,
+    "duplicate": true,
+    "all_in_equity": true,
+    "max_runouts": 10000,
+    "shared_randomness": false,
+    "threads": 4
+  },
+  "scoring": "all-in equity (at most 10000 boards)",
+  "agents": [
+    "search",
+    "blueprint"
+  ],
+  "players": 2,
+  "deals": 3000,
+  "replays_per_deal": 2,
+  "hands": 6000,
+  "adjusted_hands": 410,
+  "results": [
+    {
+      "index": 0,
+      "agent": "search",
+      "seats": 1,
+      "hands": 6000,
+      "bb_per_100": -2.5075686868686864,
+      "se": 4.5636435201566,
+      "actual_bb_per_100": -6.013166666666667,
+      "actual_se": 5.159621738066512,
+      "plain_se": 8.559843179786597,
+      "illegal_actions": 0,
+      "by_seat": [
+        {
+          "seat": 0,
+          "position": "BTN/SB",
+          "hands": 3000,
+          "bb_per_100": 9.711663973063974,
+          "se": 8.931661475826687
+        },
+        {
+          "seat": 1,
+          "position": "BB",
+          "hands": 3000,
+          "bb_per_100": -14.726801346801345,
+          "se": 8.837004302498793
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "agent": "blueprint",
+      "seats": 1,
+      "hands": 6000,
+      "bb_per_100": 2.5075686868686886,
+      "se": 4.5636435201566,
+      "actual_bb_per_100": 6.013166666666667,
+      "actual_se": 5.159621738066512,
+      "plain_se": 8.559843179786597,
+      "illegal_actions": 0,
+      "by_seat": [
+        {
+          "seat": 0,
+          "position": "BTN/SB",
+          "hands": 3000,
+          "bb_per_100": 14.72680134680135,
+          "se": 8.837004302498793
+        },
+        {
+          "seat": 1,
+          "position": "BB",
+          "hands": 3000,
+          "bb_per_100": -9.711663973063972,
+          "se": 8.931661475826687
+        }
+      ]
+    }
+  ],
+  "timing": {
+    "seconds": 7064.030705973,
+    "hands_per_second": 0.8493734313649985,
+    "threads": 4
+  }
+}

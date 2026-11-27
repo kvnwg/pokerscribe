@@ -150,7 +150,11 @@ impl Update<'_> {
                     values,
                 } = level;
                 let sigma = &mut sigma[..game.n(*player) * k];
-                regret_match(&me.regret, k, sigma);
+                let frozen = game.frozen_at(id);
+                match frozen {
+                    Some(fixed) => sigma.copy_from_slice(fixed),
+                    None => regret_match(&me.regret, k, sigma),
+                }
                 // where a child's subtree sits in `below`
                 let slice = |child: NodeId| {
                     let start = child - id - 1;
@@ -176,6 +180,15 @@ impl Update<'_> {
                     }
                     if matches!(rivers, Rivers::Note(_)) {
                         return; // the values aren't known yet
+                    }
+                    if frozen.is_some() {
+                        // Part of the game: valued, never updated.
+                        for h in 0..n {
+                            out[h] = (0..k)
+                                .map(|a| sigma[h * k + a] * action_values[a * n + h])
+                                .sum();
+                        }
+                        return;
                     }
                     let regret = &mut me.regret;
                     let strategy_sum = &mut me.strategy_sum;
@@ -494,6 +507,10 @@ impl<'a> Solver<'a> {
 /// The running average strategy, read straight from the solver's sums.
 impl Policy for Solver<'_> {
     fn probs(&self, node: NodeId, out: &mut [f64]) {
+        if let Some(fixed) = self.game.frozen_at(node) {
+            out.copy_from_slice(fixed);
+            return;
+        }
         let data = &self.data[node];
         let k = self.game.tree.nodes[node].actions().len();
         regret_match(&data.regret, k, out);

@@ -1,0 +1,83 @@
+{
+  "abstract_nodes": 63956,
+  "abstract_nodes_by_street": [
+    88,
+    1140,
+    9204,
+    53524
+  ],
+  "leaf_table_bytes_at_200_buckets": 590240000,
+  "lines": [
+    {
+      "flop_decisions": 28,
+      "flop_leaves": 13,
+      "flop_nodes": 81,
+      "flop_pot": 200,
+      "line": "limped",
+      "turns": [
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 200,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 13857
+        },
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 500,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 13857
+        }
+      ]
+    },
+    {
+      "flop_decisions": 28,
+      "flop_leaves": 13,
+      "flop_nodes": 81,
+      "flop_pot": 500,
+      "line": "raised 2.5",
+      "turns": [
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 500,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 13857
+        },
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 1250,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 13857
+        }
+      ]
+    },
+    {
+      "flop_decisions": 28,
+      "flop_leaves": 13,
+      "flop_nodes": 81,
+      "flop_pot": 1500,
+      "line": "3-bet to 7.5",
+      "turns": [
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 1500,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 13857
+        },
+        {
+          "river_subgame_nodes": 81,
+          "turn_ends": 13,
+          "turn_pot": 3750,
+          "turn_street_nodes": 81,
+          "turn_subgame_nodes": 11553
+        }
+      ]
+    }
+  ],
+  "stack_bb": 200,
+  "turn_starts": 527
+}

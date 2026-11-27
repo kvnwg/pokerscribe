@@ -9,7 +9,8 @@
 //!
 //! [`rust_agent`] is the list Python chooses from. To let Python play a new agent, add one
 //! line to it. The blueprint is named by its strategy file: `blueprint:<file>`
-//! ([`blueprint_agent`]).
+//! ([`blueprint_agent`]), and so is the search agent on top of it: `search:<file>`
+//! ([`search_agent`]).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -52,6 +53,9 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
     if let Some(made) = blueprint_agent(name) {
         return made.ok();
     }
+    if let Some(made) = search_agent(name) {
+        return made.ok();
+    }
     Some(match name {
         "lbr-fold" => strategy_agent(name, AlwaysFold),
         "lbr-call" => strategy_agent(name, AlwaysCall),
@@ -83,6 +87,21 @@ pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
     Some(
         blueprint::Blueprint::load(Path::new(path), tables)
             .map(|b| strategy_agent(name, b))
+            .map_err(|e| format!("{name}: {e}")),
+    )
+}
+
+/// The agent a name `search:<file>` asks for: depth-limited search (engine/crates/search)
+/// on the blueprint in that strategy file, with the leaf tables `<file>.leaf` when they are
+/// there (`search leaf --strategy <file>` builds them; without them the flop's leaves are
+/// checked down), and the search crate's default settings. `None` for any other name; an
+/// error when the file, its bucket tables or its leaf tables can't be loaded. Like the
+/// blueprint, play it at the stacks and blinds it was trained for.
+pub fn search_agent(name: &str) -> Option<Result<Agent, String>> {
+    let path = name.strip_prefix("search:")?;
+    Some(
+        search::SearchAgent::load(Path::new(path), search::Settings::default())
+            .map(|s| strategy_agent(name, s))
             .map_err(|e| format!("{name}: {e}")),
     )
 }

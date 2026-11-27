@@ -1,0 +1,11 @@
+2026-11-27T14:15:38Z lbr fcpa14 blueprint
+{"agent":"blueprint","hands":6000,"lbr_bb_per_100":0.40616666666666656,"paper":"fcpa, rounds 1-4","se":7.942242217481015,"seconds":620.414564322,"seed":7201,"setting":"fcpa14","solves":{}}
+2026-11-27T14:25:59Z lbr fcpa14 search
+{"agent":"search","hands":6000,"lbr_bb_per_100":-6.0056666666666665,"paper":"fcpa, rounds 1-4","se":8.018443636868577,"seconds":1711.503607275,"seed":7201,"setting":"fcpa14","solves":{"flop":{"resolves":780,"solve_ms_p50":474.627113,"solve_ms_p95":762.559274,"solves":4384},"river":{"resolves":18,"solve_ms_p50":12.934386000000002,"solve_ms_p95":69.947071,"solves":902},"turn":{"resolves":95,"solve_ms_p50":1370.874854,"solve_ms_p95":5801.185319,"solves":1612}}}
+{"a":"/root/bp/repeat/search-fcpa14.deals","a_bb_per_100":-6.0056666666666665,"a_minus_b":-6.411833333333333,"a_se":8.018443636868577,"b":"/root/bp/repeat/blueprint-fcpa14.deals","b_bb_per_100":0.40616666666666656,"b_se":7.942242217481015,"se":5.972516148318619,"z":-1.073556466672491}
+2026-11-27T14:54:31Z lbr b56_14 blueprint
+{"agent":"blueprint","hands":6000,"lbr_bb_per_100":111.56450000000001,"paper":"56 bets, rounds 1-4","se":7.486037871028549,"seconds":187.150023843,"seed":7202,"setting":"b56_14","solves":{}}
+2026-11-27T14:57:38Z lbr b56_14 search
+{"agent":"search","hands":6000,"lbr_bb_per_100":77.43799999999999,"paper":"56 bets, rounds 1-4","se":7.564150051878592,"seconds":3105.305573163,"seed":7202,"setting":"b56_14","solves":{"flop":{"resolves":3453,"solve_ms_p50":117.631018,"solve_ms_p95":292.62030599999997,"solves":18857},"river":{"resolves":110,"solve_ms_p50":16.022297000000002,"solve_ms_p95":51.581019999999995,"solves":1808},"turn":{"resolves":524,"solve_ms_p50":1420.799031,"solve_ms_p95":4347.85961,"solves":5496}}}
+{"a":"/root/bp/repeat/search-b56_14.deals","a_bb_per_100":77.43799999999999,"a_minus_b":-34.1265,"a_se":7.564150051878592,"b":"/root/bp/repeat/blueprint-b56_14.deals","b_bb_per_100":111.56450000000001,"b_se":7.486037871028549,"se":6.4044967534036354,"z":-5.32852171122792}
+2026-11-27T15:49:24Z done
