@@ -13,10 +13,11 @@ import time
 import pytest
 
 from tools.cloud import control, fake_trainer, gce, local_test
-from tools.cloud.supervisor import (BUNDLE, LAUNCH, RESTARTS, STATE, STATUS, STOP_MARKER,
-                                    LocalStore, read_json, remote_checkpoints, write_json)
+from tools.cloud.supervisor import (BUNDLE, LAUNCH, RESTARTS, SESSIONS, STATE, STATUS,
+                                    STOP_MARKER, LocalStore, StoreError, read_json,
+                                    remote_checkpoints, write_json)
 
-from .helpers import FakeCompute, add_crate, cargo_workspace, iso, make_settings
+from .helpers import FakeCompute, FlakyStore, add_crate, cargo_workspace, iso, make_settings
 
 STOCKOUT = ("ERROR: (gcloud.compute.instances.start) The zone 'us-central1-a' does not have "
             "enough resources available to fulfill the request. ZONE_RESOURCE_POOL_EXHAUSTED")
@@ -63,6 +64,71 @@ def test_launch_dry_run_runs_nothing(tmp_path):
     for f in ("supervisor.py", "run.json", "config/train.json", "trainer", "manifest.json"):
         assert f"to gs://test-bucket/runs/hu-test/bundle/{f}" in text, f
     assert "python -m tools.cloud watch" in text
+
+
+def dry_ctx(s, reader):
+    out = []
+
+    def no_gcloud(args):
+        raise AssertionError(f"a dry run ran gcloud {args}")
+
+    ctx = control.Ctx(s, gce.Gcloud(s.PROJECT, runner=no_gcloud, dry_run=True, echo=out.append),
+                      control.DryStore(s.store_url, out.append, reader=reader), out=out.append)
+    return ctx, out
+
+
+def files_in(root):
+    found = {}
+    for dirpath, _dirs, names in os.walk(root):
+        for n in names:
+            with open(os.path.join(dirpath, n), "rb") as f:
+                found[os.path.join(dirpath, n)] = f.read()
+    return found
+
+
+def test_launch_dry_run_counts_what_the_run_has_cost(tmp_path):
+    # 27 Nov 2026: the dry run read nothing, so it showed the whole cap as left after the first
+    # launch had spent $1.29 of it. It now reads the bucket, and still changes nothing.
+    s = make_settings(tmp_path)
+    bucket = LocalStore(str(tmp_path / "bucket" / "runs" / s.RUN_NAME))
+    now = time.time()
+    write_json(bucket, STATUS, {"updated_at": now - 3600, "cost": {"total_usd": 30.0}})
+    write_json(bucket, f"{SESSIONS}unreported-1-5000.json", {
+        "session": "unreported-1-5000", "unreported": True, "started_at": now - 9000,
+        "ended_at": now - 5400, "recorded_at": now - 60, "machine_per_hour": 1.0,
+        "ip_per_hour": 0.0, "disk_per_hour": 0.0})
+    before = files_in(tmp_path / "bucket")
+    ctx, out = dry_ctx(s, bucket)
+    assert control.launch(ctx) == 0, out
+    text = "\n".join(out)
+    spent = control.run_seconds_left(31.0, s) / 3600
+    full = control.run_seconds_left(0.0, s) / 3600
+    assert f"buys about {spent:.1f} h" in text and f"{spent:.1f}" != f"{full:.1f}"
+    assert "would upload" in text and "would run: gcloud beta compute instances create" in text
+    assert files_in(tmp_path / "bucket") == before                # nothing written or deleted
+    # and it refuses what the real launch would refuse
+    write_json(bucket, STATUS, {"updated_at": now, "cost": {"total_usd": 39.95}})
+    ctx, out = dry_ctx(s, bucket)
+    assert control.launch(ctx) == 2 and "Raise BUDGET_USD" in out[-1]
+
+
+def test_launch_dry_run_shows_an_empty_bucket_if_it_cant_read_it(tmp_path):
+    class Unreadable:
+        def get_bytes(self, name):
+            raise StoreError(f"read {name}: 403 permission denied")
+
+        def list(self, prefix):
+            raise StoreError(f"list {prefix}: 403 permission denied")
+
+        def stat(self, name):
+            raise StoreError(f"list {name}: 403 permission denied")
+
+    s = make_settings(tmp_path)
+    ctx, out = dry_ctx(s, Unreadable())
+    assert control.launch(ctx) == 0, out
+    text = "\n".join(out)
+    assert text.count("showing it as an empty bucket") == 1 and "403" in text
+    assert f"buys about {control.run_seconds_left(0.0, s) / 3600:.1f} h" in text
 
 
 def test_launch_creates_bucket_bundle_and_machine(tmp_path):
@@ -266,6 +332,25 @@ def test_stop_without_a_live_supervisor_falls_back_to_gce(tmp_path):
     assert any("Still in project" in x or "Nothing in project" in x for x in out)
 
 
+@pytest.mark.parametrize("stat_error", [None, "list status.json: 503 backend"])
+def test_stop_waits_for_the_save_when_the_report_cant_be_read(tmp_path, stat_error):
+    ctx, fake, out = flaky_ctx(tmp_path)
+    fake.add("ps-hu-test", started=time.time() - 3600)
+    write_json(ctx.store, STATUS, {"updated_at": time.time() - 10, "cost": {"total_usd": 2.0}})
+    ctx.store.bad[STATUS] = [None] * 10
+    ctx.store.stat_error = stat_error
+    t = [time.time()]
+
+    def clock():
+        t[0] += 60
+        return t[0]
+
+    ctx.clock = clock
+    assert control.stop(ctx) == 0
+    assert any("waiting up to" in x for x in out), out     # not straight to a GCE stop
+    assert fake.verbs() == ["stop"]                        # the fallback, once the wait ran out
+
+
 def test_resume_clears_the_stop_and_starts(tmp_path):
     ctx, fake, out = make_ctx(tmp_path)
     fake.add("ps-hu-test", status="TERMINATED")
@@ -335,10 +420,14 @@ def test_a_boot_that_reported_is_not_recorded(tmp_path):
 
 
 def test_recover_stops_a_machine_that_never_reports(tmp_path):
-    ctx, fake, out = make_ctx(tmp_path)
+    sleeps = []
+    ctx, fake, out = make_ctx(tmp_path, sleeps=sleeps)
     fake.add("ps-hu-test", started=time.time() - 31 * 60)
     assert control.recover(ctx, once=True) == 1
     assert fake.verbs() == ["stop"] and "stop-silent" in "\n".join(out)
+    # it looked three times, a poll apart, before stopping it
+    assert sum("looking again before stopping it" in x for x in out) == 2
+    assert sleeps == [60.0, 60.0]
     state = read_json(ctx.store, STATE)
     assert state["state"] == "failed" and "stopped by recover" in state["detail"]
     assert len(control.unreported_boots(ctx.store)) == 1
@@ -360,6 +449,66 @@ def test_recover_leaves_a_machine_alone(tmp_path, minutes, reported, setting):
     assert fake.verbs() == [] and "wait" in out[-1]
 
 
+def test_recover_doesnt_stop_a_machine_whose_report_comes_while_it_looks_again(tmp_path):
+    ctx, fake, out = make_ctx(tmp_path)
+    fake.add("ps-hu-test", started=time.time() - 31 * 60)
+    ctx.sleep = lambda _seconds: write_json(ctx.store, STATUS, {"updated_at": time.time(),
+                                                                "cost": {"total_usd": 0.8}})
+    assert control.recover(ctx, once=True) == 0
+    assert fake.verbs() == [] and read_json(ctx.store, STATE) is None
+    assert any("not stopping it: wait" in x for x in out), out
+
+
+# --- a report that couldn't be read (Phase 6 calibration, 27 Nov 2026, at 78 minutes) -----------
+
+def flaky_ctx(tmp_path, **over):
+    ctx, fake, out = make_ctx(tmp_path, **over)
+    ctx.store = FlakyStore(ctx.store)
+    return ctx, fake, out
+
+
+@pytest.mark.parametrize("bad", [None, b'{"updated_at": 17', StoreError("read: 503 backend")])
+def test_a_failed_read_of_a_fresh_report_stops_nothing(tmp_path, bad):
+    # every read of status.json fails (found nothing, half a file, an error) while the bucket
+    # lists it written seconds ago: watch stays calm and recover leaves the machine alone
+    ctx, fake, out = flaky_ctx(tmp_path)
+    fake.add("ps-hu-test", started=time.time() - 78 * 60)
+    write_json(ctx.store, STATUS, {"updated_at": time.time() - 20, "cost": {"total_usd": 3.1}})
+    ctx.store.bad[STATUS] = [bad] * 50
+    snap = control.snapshot(ctx)
+    assert snap["status"] is None and snap["status_read"]["state"] == "unreadable"
+    text = "\n".join(control.format_watch(snap, ctx.s))
+    assert "WARNING" not in text and "couldn't be read just now" in text, text
+    for _ in range(4):
+        assert control.recover(ctx, once=True) == 0
+    assert fake.verbs() == [] and read_json(ctx.store.inner, STATE) is None
+    assert control.unreported_boots(ctx.store) == []
+
+
+def test_a_report_that_cant_be_read_or_listed_stops_nothing(tmp_path):
+    ctx, fake, out = flaky_ctx(tmp_path)
+    fake.add("ps-hu-test", started=time.time() - 78 * 60)
+    ctx.store.bad[STATUS] = [None] * 50
+    ctx.store.stat_error = "list status.json: 503 backend"
+    assert control.recover(ctx, once=True) == 0
+    assert fake.verbs() == [] and "wait" in out[-1]
+    text = "\n".join(control.format_watch(control.snapshot(ctx), ctx.s))
+    assert "WARNING" not in text and "couldn't read status.json or list it" in text
+
+
+@pytest.mark.parametrize("stat_error", [None, "list status.json: 503 backend"])
+def test_stop_and_cleanup_dont_record_a_boot_whose_report_couldnt_be_read(tmp_path, stat_error):
+    ctx, fake, out = flaky_ctx(tmp_path)
+    started = time.time() - 600
+    fake.add("ps-hu-test", status="TERMINATED", started=started, stopped=started + 300)
+    write_json(ctx.store, STATUS, {"updated_at": started + 290, "cost": {"total_usd": 1.0}})
+    ctx.store.bad[STATUS] = [None] * 10
+    ctx.store.stat_error = stat_error
+    assert control.stop(ctx) == 0
+    assert control.cleanup(ctx, yes=True) == 0 and "ps-hu-test" not in fake.instances
+    assert control.unreported_boots(ctx.store) == []
+
+
 def test_leftovers_lists_what_costs_money(tmp_path):
     s = make_settings(tmp_path)
     rows = {
@@ -370,7 +519,13 @@ def test_leftovers_lists_what_costs_money(tmp_path):
                                         "sizeGb": "200", "type": "t/hyperdisk-balanced",
                                         "users": ["u/instances/ps-hu-test"]},
                                        {"name": "old", "zone": "z/us-central1-b", "sizeGb": "10",
-                                        "type": "t/pd-standard"}],
+                                        "type": "t/pd-standard"},
+                                       # Kevin's stopped Phase 6 disk: $16.80 a month, not $6.40
+                                       {"name": "ps-hu-blueprint-1", "zone": "z/us-central1-a",
+                                        "sizeGb": "80", "type": "t/hyperdisk-balanced",
+                                        "provisionedIops": "3000",
+                                        "provisionedThroughput": "400",
+                                        "users": ["u/instances/ps-hu-blueprint-1"]}],
         ("compute", "addresses", "list"): [{"name": "ip1", "region": "r/us-central1",
                                             "status": "RESERVED"}],
         ("storage", "buckets", "list"): [{"name": "test-bucket", "location": "US-CENTRAL1"}],
@@ -387,6 +542,8 @@ def test_leftovers_lists_what_costs_money(tmp_path):
     text = "\n".join(out)
     assert "stopped: its disks still bill" in text and "attached to nothing" in text
     assert "about $16.00/month" in text                         # 200 GB at $0.08
+    assert "80 GB hyperdisk-balanced (3000 IOPS, 400 MiB/s)" in text
+    assert "about $16.80/month" in text                         # + 260 MiB/s at $0.04
     assert "static IP" in text and "5.00 GB stored" in text
     assert text.count("(this run)") == 3                        # machine, disk, bucket
 

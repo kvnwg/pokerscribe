@@ -205,7 +205,7 @@ Run them from the repo root: `python -m tools.cloud <command>`.
 | Command | What it does |
 |---|---|
 | `check` | everything that can be checked without spending money |
-| `launch [--dry-run] [--force]` | makes the bucket if needed, uploads the bundle, creates the machine, prints how to watch. `--force` launches on a run that is already done |
+| `launch [--dry-run] [--force]` | makes the bucket if needed, uploads the bundle, creates the machine, prints how to watch. `--dry-run` prints all that and does none of it, reading the bucket for the cost so far. `--force` launches on a run that is already done |
 | `watch [--every 60]` | progress, speed, memory, checkpoints, cost, restarts |
 | `recover [--once]` | keeps the run going through Spot preemptions: leave it running |
 | `logs [--supervisor] [-n 60]` | the end of the trainer's (or the supervisor's) output, from the bucket |
@@ -213,7 +213,7 @@ Run them from the repo root: `python -m tools.cloud <command>`.
 | `resume` | after a stop (or after raising `BUDGET_USD`): starts the machine again, or makes a new one |
 | `artifacts [--download DIR] [--only GLOB]` | lists the run's artifacts in the bucket (strategy files, `stages.jsonl`); with `--download`, copies the ones `DIR` doesn't have yet (`stages.jsonl` every time) |
 | `cleanup [--yes]` | stops the run, deletes the machine and its disk, keeps the bucket, lists what is left |
-| `leftovers` | everything in the project that still costs money: machines, disks, IPs, snapshots, images, buckets |
+| `leftovers` | everything in the project that still costs money: machines, disks, IPs, snapshots, images, buckets. Each disk is priced from its own size and, on Hyperdisk Balanced, its provisioned IOPS and throughput above the free baseline (they bill while the disk exists, stopped or not) |
 | `local-test [--keep DIR]` | the whole cycle on this computer: fake trainer, folder as bucket, SIGTERM, resume |
 | `local-test --trainer T --config C [--files F] [--trainer-args A]` | a dress rehearsal of a real run on this computer (see "Testing without money") |
 
@@ -339,7 +339,7 @@ the bucket's older one.
 |---|---|
 | the run is done, failed, budget or stopped | exits |
 | a stop was requested | exits |
-| the machine has run `SILENT_STOP_MINUTES` (default 30) since it started without a single report | stops it, marks the run failed and exits: its setup is stuck or failed without powering off (0 turns this off; a machine that reported and then went quiet is left alone, and `watch` warns about it) |
+| the machine has run `SILENT_STOP_MINUTES` (default 30) since it started without a single report | looks twice more, a poll apart, and if every look agrees, stops it, marks the run failed and exits: its setup is stuck or failed without powering off (0 turns this off; a machine that reported and then went quiet is left alone, and `watch` warns about it). A `status.json` that can't be read is not "no report": see below |
 | the machine is running (or starting) | waits |
 | the cost is within `BUDGET_MARGIN_MINUTES` of the cap, or less than 10 minutes of budget is left | gives up |
 | `MAX_RESTARTS` restarts already used | gives up |
@@ -347,6 +347,22 @@ the bucket's older one.
 | the machine was stopped by a preemption | starts it again, which resumes from its disk (or from the bucket if that is newer) |
 | the machine was stopped some other way | gives up, unless `RESTART_ANY_STOP=true`: a stop from the console is left alone |
 | `RECREATE_AFTER_FAILED_STARTS` starts in a row failed for lack of capacity | deletes the machine and makes a new one in the next zone of `ZONES` |
+
+**A report that can't be read.** On 27 Nov 2026 (the Phase 6 calibration run, at 78 minutes) one
+read of `status.json` found nothing while the bucket listed it written seconds before, and
+`watch` warned of a machine that had never reported. The recovery loop reads it the same way, so
+a read like that could have stopped a healthy machine. Now a read that finds nothing, or finds
+something that isn't JSON, is checked against the bucket's listing, which gives the object's last
+write time:
+
+- listed, written in this boot: the machine has reported. `watch` says the file couldn't be
+  read and when the listing says it was written, and nothing warns or stops;
+- listed, written before this boot: no report in this boot, as before;
+- not listed: no report, as before;
+- the listing fails too: it can't be told. `watch` says so, `recover` waits, `stop` waits for
+  the trainer's save as for a live machine, and no boot is recorded as unreported.
+
+`recover` also looks three times, a poll apart, before it stops a silent machine.
 
 A preemption is recognised from the supervisor's last report (its stop reason is "preempted") or
 from GCE's `compute.instances.preempted` operation. Each start and each new machine counts as one
@@ -375,7 +391,10 @@ one status interval, at the prices in the settings, and the disk for every hour 
 boot, running or stopped. A boot that never reported (its setup failed before the supervisor
 started) counts from the boot to the time Google stopped the machine. `stop`, `cleanup` and
 `recover` write such a boot to the bucket's `sessions/` (`unreported-*.json`) before the machine
-goes, so `launch` and every later supervisor still count it. It doesn't count:
+goes, so `launch` and every later supervisor still count it. The disk's price is its size
+and, on Hyperdisk Balanced, the IOPS and throughput provisioned above the free 3,000 and 140
+MiB/s: 80 GB at 400 MiB/s is $6.40 + $10.40 = $16.80 a month, about $0.55 a day, stopped or not.
+It doesn't count:
 
 - the bucket's storage (3 checkpoints of 5 GB cost well under a dollar a month; Standard storage
   is about $0.02 per GB per month);
@@ -435,7 +454,10 @@ the cheap real test.
   the trainer's memory; `--report FILE` saves them. The Phase 6 rehearsal:
   `docs/research/runs/phase6/README.md`, "The dress rehearsal".
 - **`python -m tools.cloud launch --dry-run`:** prints every gcloud command and upload launch
-  would make, as for a new run, and runs none of them (it doesn't even need a login).
+  would make, and runs none of them. It reads the bucket (and nothing else) for the run's state,
+  checkpoints and cost so far, so the budget it shows is the one launch would use; it writes,
+  uploads and deletes nothing. If the bucket can't be read (no login, say), it says so and shows
+  it as an empty bucket, with the whole cap left.
 
 ### The cheap real test (a few cents)
 

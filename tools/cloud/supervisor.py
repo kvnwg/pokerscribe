@@ -188,6 +188,14 @@ class LocalStore:
             raise StoreError(f"not in the bucket: {name}")
         shutil.copyfile(src, dest)
 
+    def stat(self, name: str) -> tuple[int, float] | None:
+        """(size, time of the last write) of one object, or None if it isn't there."""
+        try:
+            st = os.stat(self.url(name))
+        except FileNotFoundError:
+            return None
+        return st.st_size, st.st_mtime
+
     def list(self, prefix: str) -> list[tuple[str, int]]:
         """Objects whose name starts with ``prefix`` (a folder ending in /), with sizes."""
         base = self.url(prefix.rstrip("/"))
@@ -283,6 +291,22 @@ class GcsStore:
             raise StoreError(f"list {prefix}: {self._err(p)}")
         return parse_ls_long(p.stdout.decode("utf-8", "replace"), self.base + "/")
 
+    def stat(self, name: str) -> tuple[int, float] | None:
+        """(size, time of the last write) of one object from the listing, or None if it isn't
+        there. A listing that fails for another reason raises StoreError."""
+        p = self._run(["ls", "-l", self.url(name)], timeout=300)
+        if p.returncode:
+            if _NOT_FOUND.search(self._err(p)):
+                return None
+            raise StoreError(f"list {name}: {self._err(p)}")
+        for obj, size, updated in parse_ls_long_times(p.stdout.decode("utf-8", "replace"),
+                                                      self.base + "/"):
+            if obj == name:
+                if updated is None:
+                    raise StoreError(f"list {name}: no time in the listing")
+                return size, updated
+        return None
+
     def delete(self, name: str) -> None:
         p = self._run(["rm", self.url(name)], timeout=300)
         if p.returncode and not _NOT_FOUND.search(self._err(p)):
@@ -292,14 +316,31 @@ class GcsStore:
 def parse_ls_long(text: str, base: str) -> list[tuple[str, int]]:
     """Parse ``gcloud storage ls -l`` output: "  <size>  <time>  gs://...". Folders and the
     TOTAL line are skipped. Names are returned relative to ``base``."""
+    return [(name, size) for name, size, _t in parse_ls_long_times(text, base)]
+
+
+def parse_listed_time(text: str) -> float | None:
+    """A time as ``gcloud storage ls -l`` prints it (2026-11-27T21:30:01Z), as a Unix time."""
+    import datetime
+    try:
+        t = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=datetime.timezone.utc)
+    return t.timestamp()
+
+
+def parse_ls_long_times(text: str, base: str) -> list[tuple[str, int, float | None]]:
+    """As parse_ls_long, with each object's last write time (None if it can't be read)."""
     out = []
     for line in text.splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[0].isdigit() and parts[-1].startswith("gs://"):
             url = parts[-1]
             if url.startswith(base) and not url.endswith("/"):
-                out.append((url[len(base):], int(parts[0])))
-    return sorted(out)
+                out.append((url[len(base):], int(parts[0]), parse_listed_time(parts[1])))
+    return sorted(out, key=lambda r: r[:2])
 
 
 def make_store(url: str, gcloud=("gcloud",)):

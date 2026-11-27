@@ -35,6 +35,7 @@ VM_CHECKPOINTS = "/var/lib/pscloud/checkpoints"
 
 MIN_RUN_SECONDS = 600          # don't start a machine for less than 10 minutes of budget
 STALE_FACTOR = 5               # no report for 5 status intervals: something is wrong
+SILENT_CONFIRM_LOOKS = 3       # recover stops a silent machine only if this many looks agree
 
 
 class Ctx:
@@ -49,11 +50,26 @@ class Ctx:
 
 
 class DryStore:
-    """For --dry-run: prints the uploads and reads nothing (a fresh bucket)."""
+    """For --dry-run: prints the uploads and deletes instead of making them, and reads the real
+    bucket through ``reader`` (read-only), so the run's cost so far, its state and its
+    checkpoints are the real ones. Without a reader, or once a read fails, it reads as an empty
+    bucket and says so once."""
 
-    def __init__(self, url: str, out=print):
+    def __init__(self, url: str, out=print, reader=None):
         self.base = url
         self.out = out
+        self.reader = reader
+
+    def _read(self, what, empty):
+        if self.reader is None:
+            return empty
+        try:
+            return what(self.reader)
+        except StoreError as e:
+            self.out(f"(dry run) couldn't read {self.base} ({e}); showing it as an empty bucket, "
+                     f"so the cost so far is not counted")
+            self.reader = None
+            return empty
 
     def put_bytes(self, name, data):
         self.out(f"would upload {len(data)} bytes to {self.base}/{name}")
@@ -62,13 +78,16 @@ class DryStore:
         self.out(f"would upload {path} ({os.path.getsize(path)} bytes) to {self.base}/{name}")
 
     def get_bytes(self, name):
-        return None
+        return self._read(lambda r: r.get_bytes(name), None)
 
     def get_file(self, name, dest):
         raise StoreError("dry run")
 
     def list(self, prefix):
-        return []
+        return self._read(lambda r: r.list(prefix), [])
+
+    def stat(self, name):
+        return self._read(lambda r: r.stat(name), None)
 
     def delete(self, name):
         self.out(f"would delete {self.base}/{name}")
@@ -76,7 +95,8 @@ class DryStore:
 
 def make_ctx(s: Settings, dry_run: bool = False, out=print) -> Ctx:
     g = gce.Gcloud(s.PROJECT, dry_run=dry_run, echo=out)
-    store = DryStore(s.store_url, out) if dry_run else GcsStore(s.store_url)
+    store = DryStore(s.store_url, out, reader=GcsStore(s.store_url)) if dry_run \
+        else GcsStore(s.store_url)
     return Ctx(s, g, store, out=out)
 
 
@@ -115,20 +135,67 @@ def utc(t: float | None) -> str:
     return "?" if t is None else time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t))
 
 
+# --- the machine's report -------------------------------------------------------------------------
+
+def load_status(store) -> tuple[dict | None, dict]:
+    """status.json, and how it was read: ``{"state": ..., "listed_at": ..., "error": ...}``.
+
+    state "ok": read and parsed. "missing": the bucket's listing confirms there is none.
+    "unreadable": it is listed (``listed_at``: when it was last written) but reading or parsing
+    it failed. "unknown": the read failed and so did the listing.
+
+    A failed read is not a missing report. On 27 Nov 2026 (the Phase 6 calibration run, at 78
+    minutes) one `gcloud storage cat` of status.json failed in a way that looked like "not
+    found", while the listing a minute later showed it written seconds before: watch warned of a
+    silent machine, and the recovery loop, reading it the same way, could have stopped a healthy
+    one. So a read that finds nothing is checked against the listing."""
+    error = None
+    try:
+        status = read_json(store, STATUS)
+    except StoreError as e:
+        status, error = None, str(e)
+    if isinstance(status, dict):
+        return status, {"state": "ok", "listed_at": None, "error": None}
+    try:
+        listed = store.stat(STATUS)
+    except StoreError as e:
+        return None, {"state": "unknown", "listed_at": None, "error": error or str(e)}
+    if listed is None:
+        return None, {"state": "missing", "listed_at": None, "error": error}
+    return None, {"state": "unreadable", "listed_at": float(listed[1]),
+                  "error": error or "the read found nothing or not JSON"}
+
+
+def last_report(status: dict | None, read: dict | None = None) -> tuple[bool, float | None]:
+    """(known, when): the time of the machine's last report as far as the bucket shows it.
+    (True, None): there is no report. (False, None): it couldn't be told. Without ``read`` the
+    status is taken as read (None: no report)."""
+    st = (read or {}).get("state", "missing")
+    if status is not None or st == "ok":
+        return True, float((status or {}).get("updated_at") or 0) or None
+    if st == "missing":
+        return True, None
+    if st == "unreadable" and read.get("listed_at"):
+        return True, float(read["listed_at"])
+    return False, None
+
+
 # --- cost ----------------------------------------------------------------------------------------
 
 UNREPORTED = SESSIONS + "unreported-"
 
 
-def boot_unreported(inst: dict | None, status: dict | None) -> bool:
+def boot_unreported(inst: dict | None, status: dict | None, read: dict | None = None) -> bool:
     """The stopped machine's last boot ran and no report covers it: its setup failed before the
-    supervisor started (Phase 6 calibration, 27 Nov 2026: 51 minutes billed, no report)."""
+    supervisor started (Phase 6 calibration, 27 Nov 2026: 51 minutes billed, no report). False
+    when the report couldn't be read (``read``, from load_status): that is not "no report"."""
     if inst is None or inst["status"] not in gce.STOPPED_STATES:
         return False
     start, stop = inst.get("last_start_at"), inst.get("last_stop_at")
     if not start or not stop or stop < start:
         return False
-    return not status or float(status.get("updated_at") or 0) < start
+    known, last = last_report(status, read)
+    return known and (last is None or last < start)
 
 
 def unreported_boots(store) -> list[dict]:
@@ -150,7 +217,7 @@ def boot_cost(rec: dict) -> float:
 
 
 def estimate_cost(status: dict | None, inst: dict | None, now: float, s: Settings,
-                  unreported: list[dict] = ()) -> float:
+                  unreported: list[dict] = (), read: dict | None = None) -> float:
     """Cost so far: the machine's last report, plus the time since then at the current price
     if the machine is running (or the disk alone if it is stopped). Boots no report covers count
     too: those recorded in the bucket after the last report (a later supervisor counts them in
@@ -169,7 +236,7 @@ def estimate_cost(status: dict | None, inst: dict | None, now: float, s: Setting
         begin = max(float(since), start) if since else start
         total += max(0.0, now - begin) / 3600.0 * s.price_per_hour
         return total
-    if boot_unreported(inst, status):
+    if boot_unreported(inst, status, read):
         start, stop = float(inst["last_start_at"]), float(inst["last_stop_at"])
         if start not in recorded:
             total += (stop - start) / 3600.0 * s.price_per_hour
@@ -179,11 +246,13 @@ def estimate_cost(status: dict | None, inst: dict | None, now: float, s: Setting
     return total
 
 
-def record_unreported_boot(ctx: Ctx, inst: dict | None, status: dict | None) -> dict | None:
+def record_unreported_boot(ctx: Ctx, inst: dict | None, status: dict | None,
+                          read: dict | None = None) -> dict | None:
     """If the stopped machine's last boot ran without a report, write it to the bucket's
     sessions ledger (with the time Google stopped it), so its cost still counts after the
-    machine is deleted: in launch here, and in every later supervisor's budget. Once per boot."""
-    if not boot_unreported(inst, status):
+    machine is deleted: in launch here, and in every later supervisor's budget. Once per boot.
+    Nothing is written when the report couldn't be read (``read``, from load_status)."""
+    if not boot_unreported(inst, status, read):
         return None
     start, stop = float(inst["last_start_at"]), float(inst["last_stop_at"])
     sid = f"unreported-{inst.get('id') or inst['name']}-{int(start)}"
@@ -222,7 +291,7 @@ def snapshot(ctx: Ctx) -> dict:
     s = ctx.s
     now = ctx.clock()
     inst = gce.find_instance(ctx.gcloud, s.instance_name)
-    status = read_json(ctx.store, STATUS)
+    status, status_read = load_status(ctx.store)
     state = read_json(ctx.store, STATE)
     stop = ctx.store.get_bytes(STOP_MARKER) is not None
     restarts = read_json(ctx.store, RESTARTS) or {"events": []}
@@ -236,21 +305,22 @@ def snapshot(ctx: Ctx) -> dict:
         else:
             preempted_at = gce.preempted_since(ctx.gcloud, inst["name"], inst["zone"],
                                                inst.get("last_start_at"))
-    return {"now": now, "instance": inst, "status": status, "state": state,
-            "stop_requested": stop, "restarts": restarts, "checkpoints": ckpts,
+    return {"now": now, "instance": inst, "status": status, "status_read": status_read,
+            "state": state, "stop_requested": stop, "restarts": restarts, "checkpoints": ckpts,
             "preempted_at": preempted_at, "unreported": unreported,
-            "cost": estimate_cost(status, inst, now, s, unreported)}
+            "cost": estimate_cost(status, inst, now, s, unreported, status_read)}
 
 
 def silent_seconds(snap: dict) -> float | None:
     """How long the running machine has gone without a single report since it started, or None
     if it has reported in this boot (a machine that reported and then went quiet may be training
-    fine with its uploads failing: watch warns about it, nothing stops it)."""
+    fine with its uploads failing: watch warns about it, nothing stops it), or if the report
+    couldn't be read at all (that says nothing about the machine)."""
     inst = snap.get("instance")
     if inst is None or inst["status"] != "RUNNING" or not inst.get("last_start_at"):
         return None
-    last = (snap.get("status") or {}).get("updated_at")
-    if last and float(last) >= inst["last_start_at"]:
+    known, last = last_report(snap.get("status"), snap.get("status_read"))
+    if not known or (last and last >= inst["last_start_at"]):
         return None
     return snap["now"] - inst["last_start_at"]
 
@@ -761,6 +831,14 @@ def format_watch(snap: dict, s: Settings) -> list[str]:
     if st.get("updated_at"):
         lines.append(f"report      {age(now - st['updated_at'])} ago"
                      + (f", stop reason: {st['stop_reason']}" if st.get("stop_reason") else ""))
+    read = snap.get("status_read") or {}
+    if read.get("state") == "unreadable":
+        lines.append(f"report      status.json couldn't be read just now; the bucket lists it "
+                     f"written {age(now - read['listed_at'])} ago (the lines above that come "
+                     f"from it are missing: watch again)")
+    elif read.get("state") == "unknown":
+        lines.append(f"report      couldn't read status.json or list it just now (watch "
+                     f"again): {(read.get('error') or '')[:200]}")
     state = snap.get("state")
     if state:
         lines.append(f"state       {state.get('state')}: {state.get('detail')} "
@@ -772,9 +850,9 @@ def format_watch(snap: dict, s: Settings) -> list[str]:
         lines.append(f"WARNING     memory reached {100 * tight:.0f}% of the machine: the trainer "
                      f"may be killed for lack of memory. Set TRAINER_MEMORY_GB to the trainer's "
                      f"peak and pick a machine with more (c4a-highmem-64).")
-    if inst is not None and inst["status"] == "RUNNING":
+    known, last = last_report(snap["status"], snap.get("status_read"))
+    if inst is not None and inst["status"] == "RUNNING" and known:
         start = inst.get("last_start_at") or now
-        last = st.get("updated_at")
         quiet = now - max(float(last or 0), start)
         if quiet > STALE_FACTOR * float(s.STATUS_SECONDS) + (900 if not last or last < start else 0):
             lines.append(f"WARNING     no report from the machine for {age(quiet)} while it runs "
@@ -799,6 +877,27 @@ def watch(ctx: Ctx, every: float | None = None) -> int:
 
 
 # --- recover -------------------------------------------------------------------------------------
+
+def confirm_silent(ctx: Ctx, failed_starts: int = 0) -> tuple[dict, str] | None:
+    """The machine looked silent: look again (SILENT_CONFIRM_LOOKS looks in all, a poll apart)
+    before stopping it. Returns the last look and its reason if every look agreed, else None.
+    One look is not enough: a read of status.json can fail while the machine reports fine."""
+    s = ctx.s
+    for n in range(2, SILENT_CONFIRM_LOOKS + 1):
+        ctx.out(f"  the machine looks silent: looking again before stopping it "
+                f"({n} of {SILENT_CONFIRM_LOOKS})")
+        ctx.sleep(float(s.RECOVER_POLL_SECONDS))
+        try:
+            snap = snapshot(ctx)
+            action, why = decide(snap, s, failed_starts)
+        except (GcloudError, StoreError) as e:
+            ctx.out(f"  not stopping it: could not read the run: {e}")
+            return None
+        if action != "stop-silent":
+            ctx.out(f"  not stopping it: {action}: {why}")
+            return None
+    return snap, why
+
 
 def recover(ctx: Ctx, once: bool = False) -> int:
     """Keep the run going: restart the machine (or make a new one) after Google stops it,
@@ -825,6 +924,14 @@ def recover(ctx: Ctx, once: bool = False) -> int:
         if line != last_line or action != "wait":
             ctx.out(line)
             last_line = line
+        if action == "stop-silent":
+            confirmed = confirm_silent(ctx, failed_starts)
+            if confirmed is None:
+                if once:
+                    return 0
+                ctx.sleep(float(s.RECOVER_POLL_SECONDS))
+                continue
+            snap, why = confirmed
         try:
             if action == "finished":
                 return 0
@@ -840,10 +947,11 @@ def recover(ctx: Ctx, once: bool = False) -> int:
                         f"compute instances get-serial-port-output {inst['name']} --zone "
                         f"{inst['zone']} --project {s.PROJECT}")
                 record_unreported_boot(ctx, gce.find_instance(ctx.gcloud, s.instance_name),
-                                       snap["status"])
+                                       *load_status(ctx.store))
                 return 1
             if action == "start":
-                record_unreported_boot(ctx, snap["instance"], snap["status"])
+                record_unreported_boot(ctx, snap["instance"], snap["status"],
+                                       snap.get("status_read"))
                 try:
                     start_machine(ctx, snap["instance"], snap["cost"])
                     record_restart(ctx, "start", snap["instance"]["zone"], why)
@@ -859,7 +967,7 @@ def recover(ctx: Ctx, once: bool = False) -> int:
                 if snap["instance"] is not None:
                     old = snap["instance"]
                     zone_index = (s.zones.index(old["zone"]) + 1) if old["zone"] in s.zones else 0
-                    record_unreported_boot(ctx, old, snap["status"])
+                    record_unreported_boot(ctx, old, snap["status"], snap.get("status_read"))
                     ctx.gcloud(gce.delete_command(old["name"], old["zone"]))
                     ctx.out(f"  deleted {old['name']} in {old['zone']} (its disk too)")
                 zones = s.zones[zone_index:] + s.zones[:zone_index]
@@ -887,12 +995,14 @@ def stop(ctx: Ctx, timeout: float | None = None, poll: float = 10.0) -> int:
     inst = gce.find_instance(ctx.gcloud, s.instance_name)
     if inst is None or inst["status"] in gce.STOPPED_STATES:
         ctx.out(f"{s.instance_name}: " + ("none" if inst is None else inst["status"]))
-        record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
+        record_unreported_boot(ctx, inst, *load_status(ctx.store))
         return print_leftovers(ctx)
-    status = read_json(ctx.store, STATUS) or {}
+    # Alive: it reported lately in this boot. A report that couldn't be read at all counts as
+    # alive, so the trainer gets its time to save rather than losing it to a failed read.
+    known, last = last_report(*load_status(ctx.store))
     now = ctx.clock()
-    alive = status.get("updated_at") and now - float(status["updated_at"]) < \
-        3 * float(s.STATUS_SECONDS) and float(status["updated_at"]) >= (inst.get("last_start_at") or 0)
+    alive = not known or (last is not None and now - last < 3 * float(s.STATUS_SECONDS)
+                          and last >= (inst.get("last_start_at") or 0))
     limit = timeout if timeout is not None else (
         float(s.STOP_GRACE_SECONDS) + float(s.FINAL_UPLOAD_SECONDS) + 300 if alive else 0)
     end = ctx.clock() + limit
@@ -909,7 +1019,7 @@ def stop(ctx: Ctx, timeout: float | None = None, poll: float = 10.0) -> int:
                 "SIGTERM from the shutdown)")
         ctx.gcloud(gce.stop_command(inst["name"], inst["zone"]))
         inst = gce.find_instance(ctx.gcloud, s.instance_name)
-    record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
+    record_unreported_boot(ctx, inst, *load_status(ctx.store))
     state = read_json(ctx.store, STATE)
     ckpts = remote_checkpoints(ctx.store)
     ctx.out(f"stopped. Run state: {(state or {}).get('state', 'open')}; "
@@ -945,7 +1055,7 @@ def resume(ctx: Ctx) -> int:
             zone = create_machine(ctx, snap["cost"], bundle_version(ctx))
             record_restart(ctx, "create", zone, "resume", counted=False)
         else:
-            record_unreported_boot(ctx, inst, snap["status"])
+            record_unreported_boot(ctx, inst, snap["status"], snap.get("status_read"))
             start_machine(ctx, inst, snap["cost"])
             zone = inst["zone"]
             record_restart(ctx, "start", zone, "resume", counted=False)
@@ -972,7 +1082,7 @@ def cleanup(ctx: Ctx, yes: bool = False, ask=input) -> int:
             stop(ctx)
         else:
             write_json(ctx.store, STOP_MARKER, {"requested_at": ctx.clock()})
-            record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
+            record_unreported_boot(ctx, inst, *load_status(ctx.store))
         ctx.gcloud(gce.delete_command(inst["name"], inst["zone"]))
         ctx.out(f"deleted {inst['name']} and its disk; kept {s.store_url}")
     else:
@@ -982,7 +1092,7 @@ def cleanup(ctx: Ctx, yes: bool = False, ask=input) -> int:
 
 def print_leftovers(ctx: Ctx) -> int:
     s = ctx.s
-    rows = gce.leftovers(ctx.gcloud, s.BUCKET, float(s.DISK_PRICE_PER_GB_MONTH or 0),
+    rows = gce.leftovers(ctx.gcloud, s.BUCKET, s.disk_month_price,
                          instance_name=s.instance_name)
     if not rows:
         ctx.out(f"Nothing in project {s.PROJECT} is costing money (machines, disks, IPs, "
