@@ -1,0 +1,4 @@
+main: standard-k200 against standard-k50: +3.74 +- 0.48 bb/100 (2,000,000 deals, 11 s, illegal actions [0, 0])
+replication: standard-k200 against standard-k50: +3.74 +- 0.49 bb/100 (2,000,000 deals, 11 s, illegal actions [0, 0])
+sanity: standard-k50 against standard-k10: +13.28 +- 0.52 bb/100 (2,000,000 deals, 10 s, illegal actions [0, 0])
+k10-k200: standard-k200 against standard-k10: +15.03 +- 0.52 bb/100 (2,000,000 deals, 11 s, illegal actions [0, 0])
