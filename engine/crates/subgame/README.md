@@ -4,8 +4,8 @@ A Rust solver for one river or turn spot. It is the successor of the Python rive
 `app/solver`, with the same conventions (`docs/research/SOLVER.md`). Its input is a SPOT and
 its output is a RESULT, both as `data/SPOT_FORMAT.md` defines them.
 
-Status, 26 Nov 2026: every gate below passes on the 40 answer-key spots. Nothing in the app
-uses it yet.
+Status, 27 Nov 2026: every gate below passes on the 40 answer-key spots, at the default target
+of 0.2% of the pot. Nothing in the app uses it yet.
 
 | Gate | Result |
 | --- | --- |
@@ -14,12 +14,12 @@ uses it yet.
 | Matches Phase 2 (`app/solver`) | Pass: at a 0.1% target the river EVs are at most 0.132% of the pot from `app/solver`'s. |
 | Our exploitability of TexasSolver's river answers is TexasSolver's number, to the third decimal | Pass on all 30. It also equals `app/solver`'s number for the same answers within 0.00001% of the pot, and our values and bounds for them equal the ones stored in the keys (`checks.values`, `checks.oop_value_bounds`) to the sixth decimal. |
 | River: exploitability under 0.5% of the pot on all 30 | Pass. |
-| River: each player's EV within 0.5% of the pot of TexasSolver's (`checks.values` of the key) | Pass at the default target of 0.3% (largest gap 0.281%, r02), and our bounds on the true value meet the key's on all 30. Stopping at exactly 0.5% is not enough: see "Things to know", 1. |
+| River: each player's EV within 0.5% of the pot of TexasSolver's (`checks.values` of the key) | Pass at the default target of 0.2% (largest gap 0.148%, r01), and our bounds on the true value meet the key's on all 30. Stopping at exactly 0.5% is not enough: see "Things to know", 1. |
 | The 3 trivial spots pass their expected checks | Pass. |
-| River speed: p95 under 400 ms at a 0.5% target | Pass: p50 2.1 ms, p95 5.5 ms. |
-| Turn: all 10 under 0.5%, EVs within 0.5% of the pot of TexasSolver's | Pass (largest EV gap 0.227%, t10), and the bounds meet on all 10. |
+| River speed: p95 under 400 ms at a 0.5% target | Pass: p50 2.1 ms, p95 6.0 ms. At the default of 0.2%: p50 3.4 ms, p95 9.7 ms. |
+| Turn: all 10 under 0.5%, EVs within 0.5% of the pot of TexasSolver's | Pass (largest EV gap 0.275%, t10, where TexasSolver's own answer is 0.33% of the pot from the exact value: "Things to know", 2), and the bounds meet on all 10. |
 | Our exploitability of TexasSolver's turn answers, against its own number | Recorded: ours is 0.18 to 0.49 higher (0.42% to 0.71% against 0.17% to 0.28%). The cause is found: "Things to know", 2. |
-| Turn solve times | 88 to 315 ms a spot at a 0.5% target, 104 to 432 ms at 0.3% (whole decision, 4 threads). No target yet. |
+| Turn solve times | 103 to 349 ms a spot at a 0.5% target, 142 to 533 ms at 0.2% (whole decision, 4 threads). No target yet. |
 
 ## Use
 
@@ -36,7 +36,7 @@ cargo build --release -p subgame
 ```
 
 ```
-subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
+subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.2]
               [--max-iterations N] [--time-ms N] [--threads N]
 ```
 
@@ -44,7 +44,7 @@ subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
 | --- | --- | --- |
 | `<spot.json>` | A SPOT, river or turn. | |
 | `--out FILE` | Where the RESULT goes. Without it: standard output. | |
-| `--target-exploitability PCT` | Stop at or under this percent of the pot. 0 turns it off. | 0.3 |
+| `--target-exploitability PCT` | Stop at or under this percent of the pot. 0 turns it off. | 0.2 |
 | `--max-iterations N` | Stop after N iterations. | 10000 |
 | `--time-ms N` | Stop when the next iteration and the last check would not fit in N ms. | no limit |
 | `--threads N` | Threads for the river cards of a turn spot. River spots always use 1. | every core |
@@ -108,7 +108,7 @@ python engine/crates/subgame/tests/fixtures/make_phase2_values.py
 | `river_trees_match_the_answer_keys`, `turn_trees_match_the_answer_keys` | All 40 spots: the same decision nodes, actors and actions as the keys, in the same order, with exactly the combos that can be dealt at each node. |
 | `every_spot_is_read_and_hashes_as_its_answer_key_says` | `spot_sha256` of all 40 spots. |
 | `our_exploitability_of_texassolvers_river_answers_is_texassolvers` | 30 river keys: our number against TexasSolver's (within 0.0005 of a percent) and against `app/solver`'s (within 0.00001 of a percent). Our values and bounds for the key's answer against the stored `checks.values` and `checks.oop_value_bounds` (within 0.000002 chips). |
-| `river_spots_solve_under_half_a_percent_with_texassolvers_values` | 30 river spots at the 0.3% target: exploitability under 0.5%, both EVs within 0.5% of the pot of the key's `checks.values`, our bounds meet the key's, the solver's own number equal to the checker's. Then again at a 0.5% target for exploitability. |
+| `river_spots_solve_under_half_a_percent_with_texassolvers_values` | 30 river spots at the default target of 0.2%: exploitability under 0.5%, both EVs within 0.5% of the pot of the key's `checks.values`, our bounds meet the key's, the solver's own number equal to the checker's. Then again at a 0.5% target for exploitability. |
 | `river_values_match_the_phase_2_solver` | 30 river spots at a 0.1% target: both EVs against `app/solver`'s. |
 | `tests/closed_form.rs` | The half-street game of The Mathematics of Poker at four bet sizes, as the Phase 2 tests: the closed-form strategy is unexploitable by our measure, and the solver's bluff share, call share and value match it. |
 | `trivial_spots_pass_their_expected_checks` | r01, r02, r03 at both targets. TexasSolver's answers pass too and random play fails. |
@@ -129,6 +129,7 @@ ones: the same exploitability to 8 decimals, the same values and bounds to 6.
 ## Results
 
 Machine: the cloud session, Linux, 4 cores (Intel Xeon, 2.1 GHz), rustc 1.97.0, release build.
+Measured 27 Nov 2026, when the default target went from 0.3% to 0.2%.
 
 - Times are whole decisions: read the spot file, build the tree and tables, solve, write the
   RESULT text. Each is the median of 5 runs.
@@ -140,63 +141,64 @@ Machine: the cloud session, Linux, 4 cores (Intel Xeon, 2.1 GHz), rustc 1.97.0, 
 
 ### River
 
-Whole decision at a 0.5% target: **p50 2.1 ms, p95 5.5 ms**, worst 9.1 ms. At 0.3%: p50 2.5 ms,
-p95 7.4 ms, worst 12.0 ms. `subgame-solve` as a process, start-up included: p50 3.8 ms, p95
-8.3 ms at 0.5%. For scale, `app/solver` takes p50 20 ms, p95 47 ms on the same spots at 0.5%.
+Whole decision at a 0.5% target: **p50 2.1 ms, p95 6.0 ms**, worst 9.2 ms. At 0.2%, the default:
+p50 3.4 ms, p95 9.7 ms, worst 13.4 ms. `subgame-solve` as a process, start-up included: p50
+4.1 ms, p95 10.1 ms at 0.5%, and p50 5.3 ms, p95 13.3 ms at 0.2%. For scale, `app/solver` takes
+p50 20 ms, p95 47 ms on the same spots at 0.5%.
 
-| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | Expl. | EV gap | Iter. at 0.3% | ms | Expl. | EV oop | TexasSolver's EV oop | EV gap | TexasSolver's answer: its number | our number |
+| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | Expl. | EV gap | Iter. at 0.2% | ms | Expl. | EV oop | TexasSolver's EV oop | EV gap | TexasSolver's answer: its number | our number |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| r01 | 3, 16 | 8 | 12 | 0.2 | 0.224% | 0.057% | 12 | 0.2 | 0.224% | 100.364 | 100.307 | 0.057% | 0.166% | 0.166% |
-| r02 | 16, 6 | 8 | 24 | 0.3 | 0.397% | 0.570% | 28 | 0.3 | 0.252% | -0.504 | -0.222 | 0.281% | 0.124% | 0.124% |
-| r03 | 105, 42 | 8 | 8 | 0.6 | 0.266% | 0.260% | 8 | 0.6 | 0.266% | 50.260 | 50.000 | 0.260% | 0.000% | 0.000% |
-| r04 | 65, 54 | 8 | 40 | 1.5 | 0.487% | 0.279% | 56 | 1.9 | 0.257% | 40.812 | 40.904 | 0.092% | 0.205% | 0.205% |
-| r05 | 65, 54 | 18 | 50 | 4.0 | 0.422% | 0.051% | 63 | 4.7 | 0.263% | 38.452 | 38.499 | 0.047% | 0.257% | 0.257% |
-| r06 | 61, 47 | 8 | 28 | 1.0 | 0.321% | 0.181% | 32 | 1.1 | 0.276% | 47.043 | 47.162 | 0.119% | 0.289% | 0.289% |
-| r07 | 61, 47 | 26 | 97 | 9.1 | 0.499% | 0.060% | 137 | 12.0 | 0.244% | 45.611 | 45.598 | 0.014% | 0.236% | 0.236% |
-| r08 | 234, 112 | 8 | 40 | 3.9 | 0.459% | 0.153% | 56 | 5.1 | 0.285% | 37.246 | 37.296 | 0.050% | 0.296% | 0.296% |
-| r09 | 78, 61 | 8 | 63 | 2.4 | 0.470% | 0.033% | 78 | 2.7 | 0.289% | 30.753 | 30.773 | 0.020% | 0.266% | 0.266% |
-| r10 | 100, 53 | 10 | 45 | 2.4 | 0.483% | 0.063% | 56 | 2.9 | 0.286% | 10.932 | 10.956 | 0.024% | 0.209% | 0.209% |
-| r11 | 66, 63 | 12 | 78 | 3.9 | 0.455% | 0.191% | 109 | 5.4 | 0.244% | 26.810 | 26.801 | 0.009% | 0.298% | 0.298% |
-| r12 | 51, 81 | 8 | 36 | 1.4 | 0.484% | 0.262% | 50 | 1.8 | 0.280% | 43.805 | 43.794 | 0.011% | 0.297% | 0.297% |
-| r13 | 61, 58 | 10 | 50 | 2.1 | 0.404% | 0.104% | 63 | 2.6 | 0.296% | 6.118 | 6.166 | 0.048% | 0.266% | 0.266% |
-| r14 | 61, 58 | 8 | 36 | 1.3 | 0.415% | 0.159% | 45 | 1.5 | 0.224% | 9.580 | 9.669 | 0.089% | 0.147% | 0.147% |
-| r15 | 62, 66 | 12 | 45 | 2.5 | 0.471% | 0.304% | 56 | 3.0 | 0.256% | 15.139 | 15.343 | 0.203% | 0.227% | 0.227% |
-| r16 | 84, 79 | 10 | 36 | 2.1 | 0.447% | 0.125% | 45 | 2.5 | 0.283% | 54.032 | 53.974 | 0.058% | 0.232% | 0.232% |
-| r17 | 66, 44 | 24 | 56 | 5.2 | 0.360% | 0.300% | 63 | 4.6 | 0.255% | -0.295 | -0.107 | 0.187% | 0.154% | 0.154% |
-| r18 | 222, 185 | 8 | 36 | 3.3 | 0.471% | 0.033% | 50 | 4.3 | 0.266% | 42.967 | 42.966 | 0.001% | 0.273% | 0.273% |
-| r19 | 54, 63 | 8 | 50 | 1.3 | 0.462% | 0.301% | 63 | 1.6 | 0.291% | 81.701 | 81.864 | 0.163% | 0.165% | 0.165% |
-| r20 | 83, 43 | 10 | 45 | 1.6 | 0.468% | 0.504% | 56 | 1.9 | 0.244% | -0.371 | -0.195 | 0.176% | 0.188% | 0.188% |
-| r21 | 299, 230 | 8 | 32 | 3.9 | 0.450% | 0.132% | 40 | 4.6 | 0.298% | 39.643 | 39.741 | 0.098% | 0.185% | 0.185% |
-| r22 | 52, 51 | 10 | 50 | 1.7 | 0.494% | 0.361% | 78 | 2.2 | 0.269% | 68.465 | 68.585 | 0.120% | 0.300% | 0.300% |
-| r23 | 62, 66 | 8 | 28 | 1.0 | 0.469% | 0.135% | 36 | 1.1 | 0.230% | 26.548 | 26.661 | 0.113% | 0.283% | 0.283% |
-| r24 | 84, 79 | 16 | 70 | 4.7 | 0.446% | 0.023% | 87 | 7.4 | 0.293% | 55.580 | 55.596 | 0.016% | 0.238% | 0.238% |
-| r25 | 231, 198 | 10 | 36 | 5.5 | 0.418% | 0.005% | 45 | 6.6 | 0.252% | 42.864 | 42.866 | 0.002% | 0.258% | 0.258% |
-| r26 | 66, 53 | 12 | 36 | 2.1 | 0.452% | 0.393% | 45 | 2.3 | 0.234% | -0.329 | -0.240 | 0.089% | 0.245% | 0.245% |
-| r27 | 100, 53 | 8 | 36 | 1.7 | 0.421% | 0.347% | 45 | 2.0 | 0.224% | 21.992 | 22.168 | 0.175% | 0.131% | 0.131% |
-| r28 | 78, 61 | 10 | 78 | 3.5 | 0.455% | 0.079% | 97 | 4.2 | 0.263% | 17.223 | 17.245 | 0.022% | 0.192% | 0.192% |
-| r29 | 58, 61 | 14 | 56 | 3.3 | 0.383% | 0.177% | 63 | 3.6 | 0.267% | 94.427 | 94.540 | 0.113% | 0.203% | 0.203% |
-| r30 | 66, 54 | 8 | 56 | 1.9 | 0.361% | 0.138% | 63 | 2.2 | 0.278% | 47.730 | 47.828 | 0.098% | 0.180% | 0.180% |
+| r01 | 3, 16 | 8 | 12 | 0.3 | 0.224% | 0.057% | 16 | 0.2 | 0.097% | 100.159 | 100.307 | 0.148% | 0.166% | 0.166% |
+| r02 | 16, 6 | 8 | 24 | 0.3 | 0.397% | 0.570% | 32 | 0.4 | 0.170% | -0.340 | -0.222 | 0.117% | 0.124% | 0.124% |
+| r03 | 105, 42 | 8 | 8 | 0.6 | 0.266% | 0.260% | 12 | 0.7 | 0.083% | 50.082 | 50.000 | 0.082% | 0.000% | 0.000% |
+| r04 | 65, 54 | 8 | 40 | 1.5 | 0.487% | 0.279% | 70 | 2.2 | 0.179% | 40.823 | 40.904 | 0.080% | 0.205% | 0.205% |
+| r05 | 65, 54 | 18 | 50 | 3.8 | 0.422% | 0.051% | 87 | 6.1 | 0.167% | 38.430 | 38.499 | 0.069% | 0.257% | 0.257% |
+| r06 | 61, 47 | 8 | 28 | 1.0 | 0.321% | 0.181% | 36 | 1.2 | 0.184% | 47.077 | 47.162 | 0.085% | 0.289% | 0.289% |
+| r07 | 61, 47 | 26 | 97 | 9.2 | 0.499% | 0.060% | 154 | 13.4 | 0.187% | 45.600 | 45.598 | 0.003% | 0.236% | 0.236% |
+| r08 | 234, 112 | 8 | 40 | 3.9 | 0.459% | 0.153% | 78 | 6.7 | 0.191% | 37.268 | 37.296 | 0.028% | 0.296% | 0.296% |
+| r09 | 78, 61 | 8 | 63 | 2.4 | 0.470% | 0.033% | 109 | 3.7 | 0.191% | 30.773 | 30.773 | 0.000% | 0.266% | 0.266% |
+| r10 | 100, 53 | 10 | 45 | 2.5 | 0.483% | 0.063% | 70 | 3.6 | 0.156% | 10.902 | 10.956 | 0.054% | 0.209% | 0.209% |
+| r11 | 66, 63 | 12 | 78 | 4.0 | 0.455% | 0.191% | 122 | 5.8 | 0.190% | 26.761 | 26.801 | 0.040% | 0.298% | 0.298% |
+| r12 | 51, 81 | 8 | 36 | 1.5 | 0.484% | 0.262% | 63 | 2.2 | 0.200% | 43.824 | 43.794 | 0.031% | 0.297% | 0.297% |
+| r13 | 61, 58 | 10 | 50 | 2.1 | 0.404% | 0.104% | 87 | 3.4 | 0.179% | 6.122 | 6.166 | 0.044% | 0.266% | 0.266% |
+| r14 | 61, 58 | 8 | 36 | 1.3 | 0.415% | 0.159% | 50 | 1.7 | 0.165% | 9.602 | 9.669 | 0.067% | 0.147% | 0.147% |
+| r15 | 62, 66 | 12 | 45 | 2.5 | 0.471% | 0.304% | 70 | 3.6 | 0.165% | 15.202 | 15.343 | 0.140% | 0.227% | 0.227% |
+| r16 | 84, 79 | 10 | 36 | 2.2 | 0.447% | 0.125% | 63 | 3.4 | 0.172% | 53.992 | 53.974 | 0.018% | 0.232% | 0.232% |
+| r17 | 66, 44 | 24 | 56 | 5.4 | 0.360% | 0.300% | 70 | 6.3 | 0.185% | -0.218 | -0.107 | 0.111% | 0.154% | 0.154% |
+| r18 | 222, 185 | 8 | 36 | 4.1 | 0.471% | 0.033% | 63 | 6.5 | 0.181% | 42.960 | 42.966 | 0.006% | 0.273% | 0.273% |
+| r19 | 54, 63 | 8 | 50 | 1.7 | 0.462% | 0.301% | 78 | 2.4 | 0.180% | 81.834 | 81.864 | 0.029% | 0.165% | 0.165% |
+| r20 | 83, 43 | 10 | 45 | 2.1 | 0.468% | 0.504% | 63 | 2.6 | 0.172% | -0.262 | -0.195 | 0.067% | 0.188% | 0.188% |
+| r21 | 299, 230 | 8 | 32 | 4.8 | 0.450% | 0.132% | 50 | 6.9 | 0.199% | 39.696 | 39.741 | 0.045% | 0.185% | 0.185% |
+| r22 | 52, 51 | 10 | 50 | 1.9 | 0.494% | 0.361% | 97 | 3.2 | 0.182% | 68.536 | 68.585 | 0.049% | 0.300% | 0.300% |
+| r23 | 62, 66 | 8 | 28 | 1.2 | 0.469% | 0.135% | 40 | 1.5 | 0.193% | 26.548 | 26.661 | 0.112% | 0.283% | 0.283% |
+| r24 | 84, 79 | 16 | 70 | 6.0 | 0.446% | 0.023% | 122 | 9.7 | 0.161% | 55.575 | 55.596 | 0.021% | 0.238% | 0.238% |
+| r25 | 231, 198 | 10 | 36 | 5.5 | 0.418% | 0.005% | 56 | 7.9 | 0.166% | 42.875 | 42.866 | 0.009% | 0.258% | 0.258% |
+| r26 | 66, 53 | 12 | 36 | 2.0 | 0.452% | 0.393% | 50 | 2.6 | 0.171% | -0.241 | -0.240 | 0.001% | 0.245% | 0.245% |
+| r27 | 100, 53 | 8 | 36 | 1.7 | 0.421% | 0.347% | 50 | 2.1 | 0.174% | 22.047 | 22.168 | 0.121% | 0.131% | 0.131% |
+| r28 | 78, 61 | 10 | 78 | 3.5 | 0.455% | 0.079% | 109 | 4.6 | 0.193% | 17.195 | 17.245 | 0.050% | 0.192% | 0.192% |
+| r29 | 58, 61 | 14 | 56 | 3.3 | 0.383% | 0.177% | 78 | 4.3 | 0.195% | 94.483 | 94.540 | 0.057% | 0.203% | 0.203% |
+| r30 | 66, 54 | 8 | 56 | 1.9 | 0.361% | 0.138% | 78 | 2.4 | 0.165% | 47.770 | 47.828 | 0.058% | 0.180% | 0.180% |
 
 The last two columns are TexasSolver's own exploitability and ours for the same strategy.
 
 ### Turn
 
-4 threads. Whole decision at a 0.5% target: p50 156 ms, p95 315 ms. At 0.3%: p50 187 ms, p95
-432 ms. On 1 thread: p50 333 ms, p95 746 ms at 0.5%, and p50 397 ms, p95 1,063 ms at 0.3%.
+4 threads. Whole decision at a 0.5% target: p50 167 ms, p95 349 ms. At 0.2%: p50 244 ms, p95
+533 ms. On 1 thread: p50 353 ms, p95 794 ms at 0.5%, and p50 503 ms, p95 1,333 ms at 0.2%.
 The times move by about 10% from run to run on this machine.
 
-| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | ms, 1 thread | Expl. | EV gap | Iter. at 0.3% | ms | ms, 1 thread | Expl. | EV oop | TexasSolver's EV oop | EV gap |
+| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | ms, 1 thread | Expl. | EV gap | Iter. at 0.2% | ms | ms, 1 thread | Expl. | EV oop | TexasSolver's EV oop | EV gap |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| t01 | 71, 49 | 1160 | 70 | 156 | 333 | 0.435% | 0.044% | 87 | 187 | 359 | 0.269% | 32.705 | 32.714 | 0.009% |
-| t02 | 64, 53 | 1160 | 63 | 149 | 294 | 0.465% | 0.062% | 78 | 175 | 286 | 0.288% | 45.840 | 45.874 | 0.034% |
-| t03 | 72, 73 | 1736 | 97 | 315 | 746 | 0.454% | 0.102% | 137 | 432 | 1063 | 0.277% | 45.725 | 45.788 | 0.063% |
-| t04 | 102, 51 | 1160 | 56 | 157 | 322 | 0.483% | 0.174% | 70 | 194 | 397 | 0.285% | 8.835 | 8.885 | 0.050% |
-| t05 | 58, 43 | 1160 | 40 | 88 | 134 | 0.448% | 0.019% | 50 | 104 | 208 | 0.290% | 40.657 | 40.667 | 0.010% |
-| t06 | 57, 62 | 1736 | 50 | 154 | 361 | 0.467% | 0.183% | 63 | 185 | 458 | 0.261% | 54.720 | 54.825 | 0.105% |
-| t07 | 75, 48 | 1932 | 87 | 272 | 681 | 0.441% | 0.281% | 122 | 367 | 882 | 0.234% | 40.251 | 40.430 | 0.179% |
-| t08 | 63, 39 | 1160 | 63 | 120 | 255 | 0.461% | 0.020% | 78 | 150 | 302 | 0.266% | 15.531 | 15.533 | 0.002% |
-| t09 | 66, 65 | 1736 | 78 | 237 | 575 | 0.437% | 0.005% | 97 | 277 | 651 | 0.269% | 7.318 | 7.329 | 0.011% |
-| t10 | 63, 50 | 2320 | 63 | 224 | 545 | 0.434% | 0.164% | 78 | 309 | 651 | 0.265% | 0.059 | -0.167 | 0.227% |
+| t01 | 71, 49 | 1160 | 70 | 167 | 326 | 0.435% | 0.044% | 109 | 244 | 503 | 0.166% | 32.721 | 32.714 | 0.007% |
+| t02 | 64, 53 | 1160 | 63 | 152 | 297 | 0.465% | 0.062% | 97 | 204 | 426 | 0.188% | 45.865 | 45.874 | 0.009% |
+| t03 | 72, 73 | 1736 | 97 | 349 | 794 | 0.454% | 0.102% | 173 | 533 | 1333 | 0.191% | 45.740 | 45.788 | 0.048% |
+| t04 | 102, 51 | 1160 | 56 | 161 | 353 | 0.483% | 0.174% | 87 | 240 | 488 | 0.164% | 8.901 | 8.885 | 0.016% |
+| t05 | 58, 43 | 1160 | 40 | 103 | 184 | 0.448% | 0.019% | 63 | 142 | 270 | 0.184% | 40.652 | 40.667 | 0.015% |
+| t06 | 57, 62 | 1736 | 50 | 179 | 369 | 0.467% | 0.183% | 78 | 263 | 557 | 0.161% | 54.760 | 54.825 | 0.065% |
+| t07 | 75, 48 | 1932 | 87 | 304 | 659 | 0.441% | 0.281% | 137 | 432 | 1054 | 0.183% | 40.282 | 40.430 | 0.149% |
+| t08 | 63, 39 | 1160 | 63 | 129 | 262 | 0.461% | 0.020% | 97 | 194 | 377 | 0.156% | 15.544 | 15.533 | 0.010% |
+| t09 | 66, 65 | 1736 | 78 | 259 | 624 | 0.437% | 0.005% | 122 | 430 | 941 | 0.167% | 7.302 | 7.329 | 0.027% |
+| t10 | 63, 50 | 2320 | 63 | 262 | 580 | 0.434% | 0.164% | 97 | 362 | 832 | 0.167% | 0.107 | -0.167 | 0.275% |
 
 The 1-thread times are the median of 3 runs and vary more from run to run than the others.
 
@@ -217,10 +219,11 @@ The 1-thread times are the median of 3 runs and vary more from run to run than t
 
 ### Wider than the keys
 
-Not a gate, one run each: every combo for both players (1,081 each) on K7249 with two bet
-sizes, a raise size and 3 raises solves to 0.5% in 88 ms, and to 0.3% in 131 ms. Every combo
-for both players on the turn K724 (1,128 each, 1,160 nodes) solves to 0.5% in 2.0 s on 4
-threads.
+Not a gate. r05's tree (K7249, two bet sizes and a raise size for IP, 3 raises) with every combo
+for both players (1,081 each), whole decision, median of 3 runs: 75 ms to 0.5%, 101 ms to 0.3%
+and 123 ms to 0.2%. (A first run on 26 Nov 2026, on a spot like it that wasn't kept, took 88 ms
+to 0.5% and 131 ms to 0.3%.) Every combo for both players on the turn K724 (1,128 each, 1,160
+nodes) solves to 0.5% in 2.0 s on 4 threads (one run, 26 Nov 2026).
 
 ## Things to know
 
@@ -228,10 +231,12 @@ threads.
    still be up to 1% of the pot from the game's value, because the measure is the average of
    two players' gains and one of them can hold nearly all of it. Stopping at exactly 0.5%,
    two river spots miss the EV gate: r02 (0.570%) and r20 (0.504%). In both, OOP's range is
-   weak and its early bluffs are still in the average strategy. At the default target of 0.3%
-   every spot passes, with the largest gap 0.281%. So the tests check exploitability at both
-   targets, EVs at 0.3%, and speed at 0.5% as asked. If one setting must pass everything, use
-   the default.
+   weak and its early bluffs are still in the average strategy. At the default target of 0.2%
+   every spot passes, with the largest gap 0.148% (r01). The default was 0.3% until 27 Nov
+   2026. That passes too (largest gap 0.281%, r02), but against the Python reference
+   (`docs/research/PHASE4.md`) r02 was 0.498% of the pot off, 0.002% inside the gate, and
+   0.2% costs little time. So the tests check exploitability at both targets, EVs at 0.2%,
+   and speed at 0.5% as asked. If one setting must pass everything, use the default.
 
 2. **TexasSolver's turn answers are solved for a slightly different game.** By our exact
    measure they are 0.42% to 0.71% exploitable, not the 0.17% to 0.28% TexasSolver reports.
@@ -257,13 +262,15 @@ threads.
    two, only exploitability and values.
 
 4. **The `checks` block is this crate's measure, on both streets.** In TexasSolver's keys
-   `checks` holds `app/solver`'s numbers, and `null` on turn spots because Python has no
-   turn checker. `subgame-solve` fills the block itself, for river and turn spots, with its
+   `checks` holds `app/solver`'s numbers, and `null` on turn spots because `app/solver` has
+   no turn checker. `subgame-solve` fills the block itself, for river and turn spots, with its
    own exact best response on the answer as written (`data/SPOT_FORMAT.md` says so since
    this crate was added). On river answers the two measures give the same numbers (the
    tests, and the check by hand above), and `python -m tools.answer_keys recheck` puts
-   `app/solver`'s in their place if wanted. On turn answers this crate is the only exact
-   measure there is. The check costs under 0.3 ms on a river spot and 7 to 11 ms on a turn
+   `app/solver`'s in their place if wanted. On turn answers the other exact measure is
+   `tools/answer_keys/values.py`, written separately, in Python: the two give the same
+   exploitability to the third decimal on all ten turn spots (`docs/research/PHASE4.md`).
+   The check costs under 0.3 ms on a river spot and 7 to 11 ms on a turn
    spot.
 
 5. **Spot checks differ from `validate_spot` in three places.** `range_text` is not expanded

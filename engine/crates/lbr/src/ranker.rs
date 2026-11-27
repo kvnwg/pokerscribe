@@ -1,11 +1,11 @@
-//! The eval crate's evaluator as an nlhe [`HandRanker`], so showdowns are fast.
+//! Showdowns: the eval crate's evaluator as an nlhe [`HandRanker`](nlhe::HandRanker).
+//!
+//! [`EvalRanker`] is nlhe's own (`nlhe::EvalRanker`, feature `eval`), re-exported so that
+//! `lbr::EvalRanker` names it. This crate used to have a copy of its own.
 
-use eval::Hand;
-use nlhe::{Card, HandRanker};
+use nlhe::Card;
 
-/// Ranks seven cards with the eval crate (1 to 7,462, higher is better).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct EvalRanker;
+pub use nlhe::EvalRanker;
 
 /// An nlhe card (`rank * 4 + suit`) as an eval card. The two crates use the same numbering.
 #[inline(always)]
@@ -16,21 +16,10 @@ pub(crate) fn ecard(c: Card) -> eval::Card {
     }
 }
 
-impl HandRanker for EvalRanker {
-    #[inline]
-    fn rank7(&self, cards: &[Card; 7]) -> u32 {
-        let mut hand = Hand::new();
-        for &c in cards {
-            hand = hand.add(ecard(c));
-        }
-        hand.eval7().value() as u32
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nlhe::{BruteForceRanker, Rng};
+    use nlhe::{BruteForceRanker, HandRanker, Rng};
 
     #[test]
     fn agrees_with_the_brute_force_ranker_on_who_wins() {

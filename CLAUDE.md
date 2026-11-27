@@ -73,6 +73,19 @@ the Rust engine as it does. README.md, "Checks", has the rest.
 - `engine/`: the Rust core (Phase 3 on), a Cargo workspace with crates in `engine/crates/*`. Speed
   critical code (rules engine, hand evaluator, CFR, subgame solver, blueprint) goes here. Python
   stays for the app, analysis and experiment scripts, not for speed-critical loops.
+- `engine/crates/subgame`: the Rust river and turn solver (Phase 4), Discounted CFR over every combo
+  with an exact best response, a SPOT in and a RESULT out (`subgame-solve`). Default target 0.2% of
+  the pot; passes every Phase 4 gate on the 40 answer-key spots (`docs/research/PHASE4.md`).
+  `app/solver/rust_backend.py` runs it, behind the `rust_solver` switch (off).
+- `engine/crates/abstract_game`: the shrunk heads-up game the `cfr` crate trains on (Phase 5): bet-size
+  menus, the pseudo-harmonic mapping for bets off the menu, a `Bucketer` trait and `AbstractGame`.
+- `engine/crates/lbr`: local best response (Lisy and Bowling 2017) for heads-up play (Phase 5). What it
+  wins against a `Strategy` is a lower bound on how exploitable that strategy is.
+- `engine/crates/arena`: matches between agents, heads-up to six-max, duplicate deals and the all-in
+  equity adjustment, bb/100 with its standard error (the tool behind the 2.5 SE rule). The `arena`
+  binary plays the built-in bots.
+- `engine/crates/py`: Python bindings (PyO3, module `pokerscribe_engine`) for `eval` and `nlhe`.
+  `./setup_mac.sh` builds it when Rust is installed; `app/tests/test_engine_bindings.py` tests it.
 - `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
   keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
   built and run from `~/answer-keys`, never in the repo (`data/answer_keys/README.md`).
@@ -132,7 +145,8 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
 - Phase 3 is under way: the Rust core on toy games in `engine/`. Crates so far: `cfr` (CFR
   library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
   Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
-  7-card hands. Suggested model: Claude Fable.
+  7-card hands. Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov
+  2026). Don't use Fable.
 - Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
   last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
   For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.

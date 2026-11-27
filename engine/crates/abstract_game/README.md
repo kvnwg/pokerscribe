@@ -166,8 +166,8 @@ table can serve several games.
   showdown result (small blind better, tie, big blind better), so the uncalled bet and split
   pots follow the real rules too.
 - At training time a state is a place in that tree plus the cards: 88 bytes, copied, never
-  boxed. At a showdown `EvalRanker` (the `eval` crate behind `nlhe`'s `HandRanker` trait)
-  ranks both hands and the result picks the payoff. Payoffs are in big blinds.
+  boxed. At a showdown `EvalRanker` (`nlhe`'s, the `eval` crate behind its `HandRanker`
+  trait) ranks both hands and the result picks the payoff. Payoffs are in big blinds.
 - `game.replay(&state)` gives the same position as a real `nlhe::State`, for looking at the
   pot, the bets or the history. The tests use it to check every position against a hand
   played in `nlhe` on the side.
@@ -423,10 +423,10 @@ python engine/crates/abstract_game/tests/fixtures/make_push_fold.py
 6. A menu whose last list keeps offering small raises (a minimum raise and one other size,
    say) makes long raising wars and a tree that grows fast with the stack. End such menus
    with an all-in-only or empty list, as the ready-made ones do.
-7. `EvalRanker` here is this crate's own adapter. While this was being built,
-   `nlhe` gained an `EvalRanker` of its own (feature `eval`, on by default) that does the
-   same thing. The two can be merged once the parallel work has landed: use `nlhe::EvalRanker`
-   and delete `src/ranker.rs`.
+7. `abstract_game::EvalRanker` is `nlhe::EvalRanker` (feature `eval`), re-exported. Until
+   27 Nov 2026 this crate had an adapter of its own that did the same thing. Switching
+   changed no result: the same regrets and strategy sums, bit for bit, after 20,000
+   iterations of two games.
 
 ## Layout
 
@@ -438,7 +438,7 @@ python engine/crates/abstract_game/tests/fixtures/make_push_fold.py
 | `src/tree.rs` | `BettingTree`: every betting sequence, built with `nlhe` |
 | `src/size.rs` | `TreeSize` and the count that does not build the tree |
 | `src/game.rs` | `GameConfig`, `AbstractGame`, the `cfr::Game` implementation, `translate` |
-| `src/ranker.rs` | `EvalRanker`: `eval` behind `nlhe`'s `HandRanker` (see "Things to know", 7) |
+| `src/ranker.rs` | `EvalRanker`, re-exported from `nlhe` (see "Things to know", 7), and the card conversion to `eval` |
 | `examples/sizes.rs` | The size tables above |
 | `examples/train.rs` | A training run with speed and memory |
 | `tests/` | See the table above; `tests/fixtures/` holds the Python solution and its script |

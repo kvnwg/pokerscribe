@@ -1,7 +1,7 @@
 //! subgame-solve: solve one SPOT and write its RESULT (`data/SPOT_FORMAT.md`).
 //!
 //! ```text
-//! subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
+//! subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.2]
 //!               [--max-iterations N] [--time-ms N] [--threads N]
 //! ```
 //!
@@ -19,12 +19,12 @@ use subgame::expected::check_expected;
 use subgame::result::{checks, encode, records, SolveInfo};
 use subgame::{solve, Game, SolveConfig, Spot};
 
-const USAGE: &str = "usage: subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3] \
+const USAGE: &str = "usage: subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.2] \
 [--max-iterations N] [--time-ms N] [--threads N]
 
   <spot.json>                   a SPOT (data/SPOT_FORMAT.md), river or turn
   --out FILE                    where to write the RESULT (default: standard output)
-  --target-exploitability PCT   stop at or under this percent of the pot (default 0.3; 0 turns it off)
+  --target-exploitability PCT   stop at or under this percent of the pot (default 0.2; 0 turns it off)
   --max-iterations N            stop after N iterations (default 10000)
   --time-ms N                   stop when the next iteration wouldn't fit in N milliseconds (default: no limit)
   --threads N                   threads for the river cards of a turn spot (default: every core; river spots use 1)

@@ -517,7 +517,7 @@ impl Policy for Solver<'_> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SolveConfig {
     /// Stop when the average strategy's exploitability is at or under this share of the
-    /// pot (0.003 is 0.3%). 0 turns the target off.
+    /// pot (0.002 is 0.2%). 0 turns the target off.
     pub target_exploitability: f64,
     pub max_iterations: Option<u32>,
     pub time_ms: Option<f64>,
@@ -528,7 +528,7 @@ pub struct SolveConfig {
 impl Default for SolveConfig {
     fn default() -> SolveConfig {
         SolveConfig {
-            target_exploitability: 0.003,
+            target_exploitability: 0.002,
             max_iterations: Some(10_000),
             time_ms: None,
             threads: 1,
