@@ -181,6 +181,21 @@ def main():
     else:
         say(f"\nGate: {len(verdict)} of 7 conditions measured so far.")
 
+    say("\n## Paired differences by setting (bb/100, the second run minus the first)\n")
+    pairs = [(f"small-{k}", f"standard-{k}") for k in ["k10", "k50", "k50eq", "k200"]]
+    pairs += [(f"{m}-{a}", f"{m}-{b}") for m in ["small", "standard"]
+              for a, b in [("k10", "k50"), ("k50", "k200"), ("k10", "k200"), ("k50", "k50eq")]]
+    say("| From | To | " + " | ".join(NAMES[s] for s in SETTINGS) + " |")
+    say("| --- | --- | " + " | ".join("---:" for _ in SETTINGS) + " |")
+    for x, y in pairs:
+        if not have(x, y):
+            continue
+        cells = []
+        for s in SETTINGS:
+            d, e = minus(runs[y]["deals"][("smallest", s)], runs[x]["deals"][("smallest", s)])
+            cells.append(f"{fmt(d, e)} ({d / e:+.1f} SE)")
+        say(f"| {x} | {y} | " + " | ".join(cells) + " |")
+
     say("\n## OCHS against equity on the river (50 buckets)\n")
     for m in ["small", "standard"]:
         if have(f"{m}-k50", f"{m}-k50eq"):
