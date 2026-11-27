@@ -96,10 +96,10 @@ seconds, speed, memory, saves). It trains with `cfr`'s `Mccfr` as configured by 
 | --- | --- | --- |
 | `seed` | cfr's seed | 1 |
 | `threads` | Lock-free threads sharing the tables, as Pluribus ran it. May change on resume | 4 |
-| `compact_scale` | Regrets as 32-bit integers, `round(regret * scale)` (regrets are in chips) | 100 |
-| `regret_floor` | Regrets never go below this, in chips (Pluribus: -310 million at a scale of 1) | -3.1 million |
+| `compact_scale` | Regrets as 32-bit integers, `round(regret * scale)`. Regrets are in big blinds, so 100 is one unit a chip at blinds 50/100 | 100 |
+| `regret_floor` | Regrets never go below this many big blinds (Pluribus: -310 million chips, which is -3.1 million big blinds at 100 chips a big blind) | -3.1 million |
 | `linear` | `[interval, until]`: linear weighting every `interval` iterations up to `until` | none |
-| `pruning` | `{warmup, threshold, probability}`: Pluribus's negative-regret pruning | none |
+| `pruning` | `{warmup, threshold, probability}`: Pluribus's negative-regret pruning, the threshold in big blinds (Pluribus: -300 million chips, -3 million big blinds). The river is never pruned (`abstract_game`) | none |
 
 A stop asked for with SIGTERM saves and returns (`Session::stopped`). The strategy file is
 written from the run at any point (`Run::export`), so a stage of a long run can be measured
