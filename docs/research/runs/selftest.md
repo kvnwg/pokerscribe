@@ -292,3 +292,56 @@ Six players after the fixes, same seeds as the earlier rounds, to check nothing 
 
 The stacks unknown on stock (17) and avatars (4) were there in round 13 too; the instructions
 were all right.
+
+## Another font (27 Nov)
+
+The CI runner had no Inter, so the picture tables there were drawn in DejaVu, and one misread
+showed up that never happens in their own fonts (fixed in bfd4c8f: a bet whose "$" the OCR lost
+beside the chip). To look for more, the four picture layouts were run with Inter, FreeSans and
+Carlito hidden, so everything is drawn in DejaVu, as on a machine without those fonts. Same
+seeds as before: six players seed 25, 30 hands; eight players seed 30, 20 hands; 15% of
+pictures skipped. "Before" is the code at bfd4c8f, "after" the code with every fix below
+(portrait at c91bcd4, the others at 652c98a; c91bcd4 changes nothing they read).
+
+| Layout, players | Same instruction, before / after | Mistakes before | Mistakes after |
+| --- | --- | --- | --- |
+| avatars, 6 | 40/40 / 40/40 | stacks unknown 184, seat lost 3, positions 3, bets 3 | bets 3 |
+| stock, 6 | 40/40 / 40/40 | stacks unknown 1, bets 1 | bets 3 |
+| portrait, 6 | 39/40 / 40/40 | bets 34, pot 2, acting seat not read 4, move shown on their turn 1 | bets 3 |
+| levels, 6 | 40/40 / 40/40 | bets 3 | bets 3 |
+| avatars, 8 | 26/26 / 26/26 | stacks unknown 85, bets 8, pot 4, seat lost 1 | bets 2, stacks unknown 1 |
+| stock, 8 | 26/26 / 26/26 | stacks unknown 65, bets 2 | bets 2, stacks unknown 1 |
+| portrait, 8 | 23/24 / 26/26 | bets 53, positions 6, seat lost 2, move shown on their turn 1 | bets 2, stacks unknown 1 |
+
+The bets left after the fixes are exactly the ones the own fonts give: bets worked out from the
+stacks at all-in showdowns (the open item from round 7).
+On stock at six players the after run has exactly the own font's three (230, 230 and 590 at
+showdowns), where the before run had only the 590. Acting seat not read is the same as
+in the own fonts (stock 40/238 and 26/216, your own turns), except avatars at eight players,
+23/216 against 19/216; not checked whether the four extra are your own turns too.
+
+The seven misreads that only happened in DejaVu, each fixed with a test that fails before and
+passes after (`app/tests/test_avatar_tables.py`):
+
+- The rounded end of a stack plate read as a bracket on one side ("[1,136$", "(1,185$"): the
+  stack was no amount, the seat was lost and every position after it moved.
+- Full-width signs from the OCR ("：1300" for "$ 1300"): the bet was dropped.
+- The coin before a stack read as an O ("O$ 19700"): the seat was lost.
+- A gap after the thousands comma on a re-read ("$ 3, 940"): no two reads agreed, so the stack
+  was left unknown (most of the 184 and 85 on avatars, the 65 on stock).
+- A bet beside a folded player's stack whose "$" the OCR dropped: the chip just before it was
+  too far left for the check that a chip sits right before the number. The check now leaves
+  room for the missing sign.
+- A turn ring hugging a picture: a circle a few pixels too big (through the ring, the name and
+  the stack plate) matched as well as the picture's own outline, and the ring went unseen. Of two
+  outlines round one picture that match about equally, the smaller is the picture.
+- The "$" before a bet read as a colon ("：800"): on a table where most amounts have a "$", only
+  re-reads showing the sign count, and the colon didn't. With one read left, nothing agreed and
+  the bet was unknown. At eight players the chips then didn't add up, a raise to 800 was taken
+  for the big blind, and K-8 suited in the big blind was told to fold (the true table: call).
+  At six players the same rule dropped your own bet (the two pot mistakes).
+
+Own fonts on the fixed code (c91bcd4), same seeds, to check nothing got worse: avatars and
+portrait at six players 40/40 each, bets 3 each, as before (avatars' 4 stacks unknown are gone);
+at eight players avatars 26/26 and portrait 26/26, bets 2 each, acting seat not read 19/216 and
+0/216, as before (avatars' 2 stacks unknown are gone).

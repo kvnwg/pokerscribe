@@ -190,15 +190,20 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   reads is set up (`tools/fetch_reads.py`). For each folder: run `tools/replay_reads.py`, find the
   cause, fix it, add a regression test. Waiting for saved reads: it can't tell whose turn it is; it
   said to fold the big blind; it said to bet half the starting stack with 9-6; it mixed up the pot
-  and the bets.
+  and the bets; it didn't read a 5 in the middle (27 Nov: where, and on which table, not known yet).
 - Reader work Kevin asked for on 26 Nov: the self-test (`tools/selftest.py`) on twelve layouts, two
   held out, with skipped pictures and fresh seeds: round pictures with level badges and
   countdowns, bare level numbers beside names, grey card backs, eight players (27 Nov: 130/130
   instructions right on five layouts with eight players, after nine misreads fixed). Other players' turn
   is read from the timer bar, the glow or the ring round a picture (WAIT on their turn). The blinds
   come from the chips the small and big blind posted, and the big blind's own chips are never a
-  raise (Kevin's report from 247). Lone single-digit bets come back UNKNOWN (the OCR can't read them
-  reliably). The waiting reports may be fixed by this; confirm with saved reads from 247.
+  raise (Kevin's report from 247). Lone single-digit bets without "$" count only when two reads
+  agree, otherwise UNKNOWN (the OCR can't read them reliably). The waiting reports may be fixed by
+  this; confirm with saved reads from 247. 27 Nov: the picture tables drawn in another font
+  (DejaVu) found seven misreads that only happen in one font, all fixed with tests
+  (`docs/research/runs/selftest.md`, "Another font"). Blinds that go up (a tournament's next level)
+  now count at once on your first move before the flop: the tracker had kept the old ones, so the
+  big blind's chips looked like a raise (Kevin: "thinking blinds are reraises").
 - Known reader gaps: the "Total pot = Pot + bets" and Call amount checks don't block advice yet,
   and the predicted next actor isn't used as a check.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.

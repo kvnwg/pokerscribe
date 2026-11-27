@@ -21,6 +21,10 @@ wireframe.
   button or, without it, as the smallest bet with twice it at the next seat. The big blind's own
   chips are then never taken for a raise (Kevin on 247, 26 Nov: "the guy put down big blind and
   u saw it as he reraised me").
+- Blinds that go up (a tournament's next level) count at once on your first move before the
+  flop, when nobody after you can have raised yet, or when the table's own line says the same.
+  Blinds carried over from earlier hands never overrule a blinds line the chips posted fit
+  (Kevin, 27 Nov: "the game still gets confused thinking blinds are reraises").
 
 **3. New hand or same hand** (every read)
 - Signs of a new hand: a new hand number, new hole cards, an empty board, the button moved.
@@ -151,9 +155,9 @@ between a seat and the middle.
 | Thing | Where | Rule |
 | --- | --- | --- |
 | Player picture | Round, a few text heights across | Found as a circle whose whole outline is an edge (two circle finders propose, the outline decides). Dim pictures of folded players count |
-| Level | A badge on the picture's rim, a box on the name's line, or a bare number beside the name | Text on a picture or in a badge on its rim is never a name, stack or bet. A number on the same line as a name or a stack, next to it, is never a bet, unless it has a currency sign: with eight players a bet can lie beside the next seat's name |
+| Level | A badge on the picture's rim, a box on the name's line, or a bare number beside the name | Text on a picture or in a badge on its rim is never a name, stack or bet. A number on the same line as a name or a stack, next to it, is never a bet, unless it has a currency sign or a chip just before it (at most a sign's width away: in some fonts the OCR loses the "$"): with eight players a bet can lie beside the next seat's name |
 | Countdown | Big digits on the acting player's picture | On the picture: never a bet. The ring round the picture is the turn |
-| Turn ring | A thin coloured arc round the acting picture; its length is the time left | Measured outside the picture; solid shapes beside it (card backs, chips) don't count. A short arc still counts |
+| Turn ring | A thin coloured arc round the acting picture; its length is the time left | Measured outside the picture; solid shapes beside it (card backs, chips) don't count. A short arc still counts. Of two outlines round one picture that match about equally, the smaller is the picture: a ring hugging it, with a name and a plate touching it, can look like a bigger circle |
 | Card backs | Beside the picture on either side, coloured, plain grey, or dark inside a thin white edge | Must be card-shaped and solid: hair, shoulders, level boxes, the table's rim and the dealer button are not backs. Looked for on both sides of the picture, as far out as a card or two (with eight players they reach past the name's width). Plain grey backs are looked for only when no coloured ones are on the table |
 | Face-up cards at showdown | Beside a player | That player is still in. Beside a seat off to the side, they are not yours. A player's two cards go to one seat together, by the middle of the pair: the card further out can be nearer the next seat's name |
 | Your hand's strength | "High Card" beside your picture | Never your name |
@@ -161,7 +165,8 @@ between a seat and the middle.
 | Experience counter, bonus, notification count | Corners | "300512 / 512000", "+100%", a lone "3" are no player and no amount |
 | Currency after the number | "12,400$", "20 €" | An amount |
 | A point with three digits after it | "2.035$" | 2,035: money never has three decimals (OCR reads a small comma as a point) |
-| Chip icon before a bet or stack | Read as "0 210", "C210", or "+$ 19700" (a coin before the currency sign) | The icon is dropped. A bare "+30" (a time bank) stays no amount |
+| Chip icon before a bet or stack | Read as "0 210", "C210", "+$ 19700" or "O$ 19700" (a coin before the currency sign) | The icon is dropped. A bare "+30" (a time bank) stays no amount |
+| A plate's rounded end, wide signs | "[1,136$", "(1,185$", "：1300", "$ 3, 940" (tables drawn in another font) | A bracket on one side only is dropped, full-width signs read as plain ones, a gap after a thousands comma closed. Where re-reads must show the "$", a colon in its place counts as the sign |
 | A stack on the table's rim | The top seat's stack drawn on the felt's edge (eight players) | Under a name or a picture: never the pot |
 | Dealer button touching text | "$ 200D", "D19" (with a level badge) | The character the disc covers is dropped, from the nearer end |
 | Buttons | Stacked in a column at the right edge, or across the bottom of a phone | Both are your buttons. "All in" by your picture is your status, not a button |
