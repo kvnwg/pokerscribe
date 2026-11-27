@@ -2325,6 +2325,29 @@ trainer saves at 2,558,692 iterations and exits with 75, and the supervisor uplo
 second starts with an empty disk, downloads it, resumes at exactly 2,558,692 and finishes, and
 the run's state is "done". The rich run above used the same contract.
 
+### Decision
+
+**Decision (Kevin, 27 Nov 2026): the failure is accepted and Phase 6 starts.**
+
+- The sizes half passes clearly (8.5 to 10.5 paired SE at every bucket count), and that is
+  what the Phase 6 game relies on (the `rich` menu). The buckets half fails at 20 big blinds.
+  It is checked again at 100 big blinds (standard menu, 10, 50 and 200 buckets), as
+  information, before the full Phase 6 run. Phase 6 keeps 200 buckets and OCHS on the river.
+- **Phase 6's gate changed** (the roadmap in `README.md`). It was "LBR falls at every checkpoint;
+  beats B0 heads-up by 2.5 SE". It is now: the last checkpoint beats the first head-to-head by
+  2.5 SE (duplicate deals in the Rust arena), and the blueprint beats B0 heads-up by 2.5 SE. LBR,
+  with menu bets only and with the 56 sizes, is measured at every checkpoint and reported, not
+  pass or fail. Why: in all eight runs here LBR with off-menu bets rose as training went on (for
+  example small-k200 from 119.8 bb/100 at 4M iterations to 131.6 at 64M), so the old wording
+  would judge the betting abstraction rather than the training. Rule 1 (`README.md`, Rules) is
+  unchanged.
+- **The Phase 6 machine** is a c4a-highcpu-64 (64 Arm cores, 128 GB, about $1.31 an hour spot,
+  against $2.05 for the c4a-highmem-64 the projection priced): the game needs 6.4 to 7.4 GB.
+- **Spending**: first a calibration run of about 2 hours, capped at $10, that measures the speed
+  on 64 threads, LBR and the change at each doubling. The cap for the full run is set from what
+  it measures. At $1.31 an hour, the projection above is about $3 to $18 at the central speed
+  and about $61 at the high end of every range.
+
 ### Not done
 
 - **Why the buckets half fails** is not tested. The cheapest next step is the bucket half at 100
