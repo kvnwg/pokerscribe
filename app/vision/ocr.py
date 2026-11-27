@@ -119,13 +119,31 @@ class AppleVisionOcr(OcrEngine):
         return boxes
 
 
+def _rapidocr_version() -> str:
+    from importlib.metadata import version
+
+    return version("rapidocr_onnxruntime")
+
+
+def rapidocr_names(version: str) -> Tuple[str, str]:
+    """What this RapidOCR version calls (the angle classifier's on/off switch, the
+    recognition-only reader). 1.3 renamed both. Tested with 1.2.3 and 1.4.4, the versions
+    requirements.txt pins."""
+    major_minor = tuple(int(p) for p in re.findall(r"\d+", version)[:2])
+    if major_minor >= (1, 3):
+        return "use_cls", "text_rec"
+    return "use_angle_cls", "text_recognizer"
+
+
 class RapidOcrEngine(OcrEngine):
     """PaddleOCR models running on ONNX Runtime (rapidocr_onnxruntime)."""
 
     name = "rapidocr"
     label = "RapidOCR"
     _engine = None
+    _recognize = None  # the engine's recognition-only reader
     _lock = threading.Lock()
+    _line_failure_logged = False
 
     @classmethod
     def available(cls) -> bool:
@@ -135,18 +153,35 @@ class RapidOcrEngine(OcrEngine):
         except Exception:
             return False
 
-    def read(self, image: np.ndarray) -> List[TextBox]:
-        from rapidocr_onnxruntime import RapidOCR
+    @classmethod
+    def _shared_engine(cls):
+        """The one RapidOCR every read uses, made on first use. Call it holding _lock.
 
+        It raises if this RapidOCR lacks a setting PokerScribe relies on. Carrying on
+        without it is how 1.4 kept the angle classifier on and misread small amounts: the
+        old names weren't there, and the code quietly did without them."""
+        if cls._engine is None:
+            from rapidocr_onnxruntime import RapidOCR
+
+            version = _rapidocr_version()
+            switch, reader = rapidocr_names(version)
+            engine = RapidOCR()
+            for attr in (switch, reader):
+                if not hasattr(engine, attr):
+                    raise RuntimeError(f"RapidOCR {version} has no '{attr}', so app/vision/ocr.py doesn't "
+                                       "work with it. Install the version requirements.txt pins.")
+            # Table text is always upright. The angle classifier sometimes decides a crop
+            # is upside down and turns "$999" into "666$", so it is switched off.
+            setattr(engine, switch, False)
+            cls._recognize = getattr(engine, reader)
+            cls._engine = engine
+        return cls._engine
+
+    def read(self, image: np.ndarray) -> List[TextBox]:
         with RapidOcrEngine._lock:
-            if RapidOcrEngine._engine is None:
-                RapidOcrEngine._engine = RapidOCR()
-                # Table text is always upright. The angle classifier sometimes decides a crop
-                # is upside down and turns "$999" into "666$", so it is switched off.
-                if hasattr(RapidOcrEngine._engine, "use_angle_cls"):
-                    RapidOcrEngine._engine.use_angle_cls = False
+            engine = self._shared_engine()
             prepared, scale = self._prepare(image, 700)
-            result, _ = RapidOcrEngine._engine(prepared)
+            result, _ = engine(prepared)
         boxes = []
         for item in result or []:
             # 1.2.x returns [box, text, score]; 1.4.x adds word-level details after the score
@@ -163,18 +198,19 @@ class RapidOcrEngine(OcrEngine):
     def read_line(self, image: np.ndarray) -> Optional[Tuple[str, float]]:
         """Recognition only (no text detection): the whole crop is one line, so "$1,000"
         can't be split into "$1" and "000", and it takes a few milliseconds."""
-        from rapidocr_onnxruntime import RapidOCR
-
+        with RapidOcrEngine._lock:
+            self._shared_engine()  # outside the try below: a missing setting must raise
+            recognize = RapidOcrEngine._recognize
         try:
             with RapidOcrEngine._lock:
-                if RapidOcrEngine._engine is None:
-                    RapidOcrEngine._engine = RapidOCR()
-                    if hasattr(RapidOcrEngine._engine, "use_angle_cls"):
-                        RapidOcrEngine._engine.use_angle_cls = False
-                res = RapidOcrEngine._engine.text_recognizer([image])
+                res = recognize([image])
             items = res[0] if isinstance(res, tuple) else res
             text, score = items[0][0], float(items[0][1])
-        except Exception:
+        except Exception as exc:
+            # The full reader is the fallback, and it misreads small crops (2,450 as 45).
+            if not RapidOcrEngine._line_failure_logged:
+                RapidOcrEngine._line_failure_logged = True
+                log.warning("RapidOCR's line reader failed (%s); reading crops with the full reader instead", exc)
             return super().read_line(image)
         text = " ".join(str(text).split())
         return (text, score) if text else None

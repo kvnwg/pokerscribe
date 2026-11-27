@@ -8,6 +8,7 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from app.tests.synthetic import TEXT_BOLD_FONTS, find_font
+from app.vision import ocr
 from app.vision.ocr import AppleVisionOcr, FallbackOcr, RapidOcrEngine, TesseractOcr, create_engine
 
 
@@ -112,12 +113,72 @@ def test_amounts_are_double_checked():
     assert out[4].confidence <= 0.2  # three different reads: left UNKNOWN
 
 
-def test_rapidocr_never_turns_text_upside_down():
-    from app.vision.ocr import RapidOcrEngine
+def _amount_crop(text="2,450"):
+    """A small crop holding one amount, like the ones the second read of each amount gets."""
+    img = Image.new("RGB", (70, 26), (20, 20, 20))
+    font = ImageFont.truetype(find_font(*TEXT_BOLD_FONTS), 16)
+    ImageDraw.Draw(img).text((6, 3), text, fill=(255, 255, 255), font=font)
+    return np.array(img)[:, :, ::-1].copy()
 
+
+def test_rapidocr_never_turns_text_upside_down(monkeypatch):
+    """The angle classifier read "$999" as "666$", so it is switched off. This checks that a
+    real read on the installed RapidOCR never calls it, not just that a switch is set: a
+    switch RapidOCR doesn't read would pass that check and leave the classifier on."""
     if not RapidOcrEngine.available():
         pytest.skip("RapidOCR not installed")
-    import numpy as np
+    RapidOcrEngine().read(_text_image())  # makes the shared engine
+    engine = RapidOcrEngine._engine
+    classify, calls = engine.text_cls, []
 
-    RapidOcrEngine().read(np.full((60, 200, 3), 255, np.uint8))
-    assert RapidOcrEngine._engine.use_angle_cls is False  # it read "$999" as "666$"
+    def watched(*args, **kwargs):
+        calls.append(1)
+        return classify(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "text_cls", watched)
+    texts = " | ".join(b.text for b in RapidOcrEngine().read(_text_image()))
+    assert "1,250" in texts and "60" in texts
+    assert calls == [], "the angle classifier ran"
+
+
+def test_rapidocr_reads_a_small_amount_with_the_line_reader(monkeypatch):
+    """The second read of each amount uses the recognition-only reader. On 1.4 the old name
+    for it was missing, read_line quietly fell back to the full reader, and that read a
+    2,450 stack as 45."""
+    if not RapidOcrEngine.available():
+        pytest.skip("RapidOCR not installed")
+
+    def full_reader(self, image):
+        raise AssertionError("read_line used the full reader")
+
+    monkeypatch.setattr(RapidOcrEngine, "read", full_reader)
+    text, score = RapidOcrEngine().read_line(_amount_crop("2,450"))
+    assert text == "2,450" and score >= 0.5
+
+
+@pytest.mark.parametrize("version, present, missing", [
+    ("1.4.4", ["use_angle_cls", "text_rec"], "use_cls"),  # the 1.2 switch on a 1.4 version
+    ("1.2.3", ["use_angle_cls", "text_rec"], "text_recognizer"),
+])
+def test_rapidocr_missing_setting_fails_loudly(monkeypatch, version, present, missing):
+    """If RapidOCR renames a setting again, reading raises an error naming it (the app shows
+    it as "OCR engine skipped") instead of reading badly without a word."""
+    class RenamedRapidOCR:
+        def __init__(self):
+            for attr in present:
+                setattr(self, attr, True)
+
+    monkeypatch.setitem(sys.modules, "rapidocr_onnxruntime", types.SimpleNamespace(RapidOCR=RenamedRapidOCR))
+    monkeypatch.setattr(ocr, "_rapidocr_version", lambda: version)
+    monkeypatch.setattr(RapidOcrEngine, "_engine", None)
+    monkeypatch.setattr(RapidOcrEngine, "_recognize", None)
+    with pytest.raises(RuntimeError, match=f"RapidOCR {version} has no '{missing}'"):
+        RapidOcrEngine().read(_text_image())
+    with pytest.raises(RuntimeError, match=f"RapidOCR {version} has no '{missing}'"):
+        RapidOcrEngine().read_line(_amount_crop())
+
+
+def test_rapidocr_setting_names_follow_the_version():
+    assert ocr.rapidocr_names("1.2.3") == ("use_angle_cls", "text_recognizer")
+    assert ocr.rapidocr_names("1.3.19") == ("use_cls", "text_rec")  # 1.3 renamed both
+    assert ocr.rapidocr_names("1.4.4") == ("use_cls", "text_rec")
