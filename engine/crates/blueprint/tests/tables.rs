@@ -295,7 +295,10 @@ fn the_cloud_trainer_writes_strategies_at_stages() {
         let v: serde_json::Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
         if v["event"] == "stage" {
             assert_eq!(v["iterations"].as_u64(), Some(stages[0]));
-            assert!(v["change"].is_null(), "nothing to compare the first stage with");
+            assert!(
+                v["change"].is_null(),
+                "nothing to compare the first stage with"
+            );
             break;
         }
     }
@@ -323,11 +326,15 @@ fn the_cloud_trainer_writes_strategies_at_stages() {
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    let at: Vec<u64> = lines.iter().map(|v| v["iterations"].as_u64().unwrap()).collect();
+    let at: Vec<u64> = lines
+        .iter()
+        .map(|v| v["iterations"].as_u64().unwrap())
+        .collect();
     assert_eq!(at, stages);
     for (k, v) in lines.iter().enumerate() {
-        let file = blueprint::StrategyFile::load(&ckdir.join(format!("strategy-{}.bps", stages[k])))
-            .unwrap();
+        let file =
+            blueprint::StrategyFile::load(&ckdir.join(format!("strategy-{}.bps", stages[k])))
+                .unwrap();
         assert_eq!(file.header.iterations, stages[k]);
         let regrets = &v["regrets"]["streets"];
         assert!(regrets["preflop"]["slots"].as_u64().unwrap() > 0, "{v}");
@@ -356,7 +363,11 @@ fn the_cloud_trainer_writes_strategies_at_stages() {
         .arg(&exported)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let again = blueprint::StrategyFile::load(&exported).unwrap();
     assert_eq!(again.probs, last.probs);
     assert_eq!(again.header.iterations, until);
