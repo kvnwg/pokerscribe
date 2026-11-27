@@ -221,6 +221,10 @@ app/
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
+  interact/          clicks, typing and keys in our own programs (the simulator, the demo
+                     table, our own Qt windows) for automated checks: a runner that checks
+                     every step, dry run, emergency stop, a log. No system pointer or keyboard
+                     (docs/research/INTERACT.md)
   tests/             test suite, the synthetic table renderer and the demo table (several layouts)
 engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
                      the hand evaluator, the river and turn solver (subgame-solve), and

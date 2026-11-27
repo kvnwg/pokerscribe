@@ -1,0 +1,90 @@
+# app/interact: driving our own programs
+
+A small framework for clicking and typing in programs of our own, so the self-test, the demo
+table and PokerScribe's own windows can be driven and checked automatically. It is kept apart
+from the poker engine: it doesn't decide moves, and the engine doesn't know it exists.
+
+## Scope (rule 4)
+
+Every backend acts inside our own process: the simulator's game, the demo table's picture, or a
+Qt widget tree of our own through QtTest (the events go to the widget; the computer's pointer
+doesn't move and no other program sees them). There is no backend for the system pointer or
+keyboard, no pointer movement of any kind, and none of that is to be added: rule 4 in
+`docs/research/README.md`, no automated play on live sites and no detection evasion. Kevin, 27
+Nov: "Do not implement live poker client integration or mechanisms designed to evade platform
+bot detection." `app/tests/test_interact.py` fails if the package (or its backends in
+`tools/interact_backends.py`) imports anything that can drive the system pointer or keyboard,
+or touches `QCursor`.
+
+## How it fits together
+
+- `app/interact/intents.py`: a `Target` (a named box: "call", "amount", a widget's object
+  name, with its label and whether it's shown and enabled), the steps (`Click`, `TypeText`,
+  `PressKey`), an `Expect` (a state to see afterwards, checked on the backend's `snapshot()`),
+  and a `Plan` (steps, an optional state required before the first, the caller's notes).
+- `app/interact/backend.py`: what a backend implements: `targets()`, `click()`, `type_text()`,
+  `press_key()`, `snapshot()`, and `invoke()`, where its calls run (a thread of its own by
+  default, the GUI thread for Qt).
+- `app/interact/runner.py`: the `Runner`. Plans run one at a time, in order, on the runner's own
+  thread; `submit()` returns at once with a Future, `run()` waits. Before acting, each step finds
+  its target and checks it is shown and enabled; afterwards it waits for the step's expected
+  state (and can try again, `retries`). `Settings`: clicking and keys switched on or off
+  separately (a plan needing what is off is skipped whole, so an amount is never typed without
+  its click), dry run (every target found and checked, nothing done), timeouts, a JSON lines
+  log of every step and plan. `stop()` is the emergency stop: waiting plans are dropped, the plan
+  under way ends before its next step or at once if it is waiting for a state, new plans are
+  refused until `reset()`. `Runner.stop_all()` stops every runner. A backend call that doesn't
+  return in time stops the runner too, since it may still act late.
+- `app/interact/moves.py`: `plan_for_move(kind, amount, targets)` turns a poker move (fold,
+  check, call, bet or raise to an amount) into a plan: the button, with the amount typed first
+  when there is an amount box. It refuses (PlanError) what it can't do as asked, and never turns
+  one move into another: a fold with no Fold button is refused, not made a check.
+- `app/interact/qt.py`: `QtBackend(window)`: the window's named widgets (buttons, line edits,
+  combo and spin boxes) are the targets. A plan on it must be submitted, not waited for, on the
+  GUI thread (`run()` there raises), and the window keeps running meanwhile.
+- `tools/interact_backends.py`: `SimBackend`, the hero's buttons in the simulator's game (as the
+  self-test's table shows them) and an amount box; `DemoTableBackend`, the demo table's picture,
+  where the targets are the buttons the reader finds and each click is checked against where the
+  button was really drawn.
+- `tools/selftest.py --interact`: your moves go through the runner on `SimBackend` instead of
+  being made directly. `applied_move()` first works out the move the simulator really makes (a
+  raise under the minimum is the minimum, one you can't make is a call), so the plan asks for
+  exactly that; amounts are typed with `repr`, so they are read back as the same number.
+
+## Checks
+
+- `app/tests/test_interact.py`: order and the runner's own thread, submit not waiting, dry run,
+  switches, missing, hidden and switched-off targets, expected states waited for and retried,
+  required states, the emergency stop (under way, waiting, refused until reset, every runner),
+  a hanging backend, backend errors, the log, no CPU while idle; moves as plans and the moves
+  refused; every kind of move through the runner on `SimBackend` leaves the game exactly as
+  making it directly; what the package may import, both ways.
+- `app/tests/test_interact_qt.py`: clicks, typing and keys reach our own widgets; switched-off,
+  hidden and missing ones are left alone; a QTimer keeps firing while a plan waits (the GUI
+  thread is never blocked); waiting on the GUI thread is refused; dry run.
+- `app/tests/test_interact_demo.py`: on the demo table at 0.75, 1 and 1.5 times its size, and
+  on the column and phone layouts, every button the reader finds has its middle on the button
+  drawn there; the call is made and the buttons are gone when the table is read again; a raise
+  by the amount on its button; a click off its button is caught and nothing is played; and the
+  self-test plays the same game, every count equal, with `--interact` and without.
+- `tools/interact_timing.py`: the timings below.
+
+## Timings
+
+`python tools/interact_timing.py`, 27 Nov, on the 4-core cloud machine with a self-test running
+beside it (load about 4), Qt offscreen:
+
+| What | Plans | p50 ms | p95 ms | max ms |
+| --- | --- | --- | --- | --- |
+| submit() returns (the caller is held up) | 2000 | 0.020 | 0.027 | 0.061 |
+| a click on a backend that does nothing (the runner's own time) | 2000 | 0.136 | 0.190 | 8.019 |
+| simulator: type the amount, click raise, check the turn is over | 2000 | 0.376 | 0.650 | 9.067 |
+| Qt window: click a button, check it was clicked | 200 | 0.570 | 6.081 | 11.654 |
+| stop() to the end of a plan that is waiting | 40 | 0.070 | 0.144 | 0.150 |
+
+An idle runner uses no CPU (0.00% of one core over 2 s: its thread waits on its queue). The
+runner's own cost is a fraction of a millisecond, so a move takes as long as the backend: on
+the demo table that is the reading of the picture afterwards (a second or two), which is why
+its tests give the runner a long `call_timeout`. The time a plan takes doesn't depend on how
+long the advice took to decide it: the advice runs before the plan is submitted, and the
+runner neither waits for nor slows it.

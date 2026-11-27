@@ -62,6 +62,13 @@ the Rust engine as it does. README.md, "Checks", has the rest.
 - `tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`, twelve
   layouts, `--players` for other table sizes) and every read and instruction is checked against the
   truth. Results in `docs/research/runs/selftest.md`. Run it after any reader change.
+- `app/interact/`: clicks, typing and keys in our own programs only (the simulator, the demo table,
+  our own Qt windows through QtTest), kept apart from the poker engine: plans of steps, a runner
+  that checks each target and the state after it, switches, dry run, emergency stop, a log.
+  Backends for the game in `tools/interact_backends.py`; `tools/selftest.py --interact` plays
+  your moves through it. No backend for the system pointer or keyboard, and none is to be added
+  (rule 4; Kevin: no live poker client integration, nothing to evade bot detection). See
+  `docs/research/INTERACT.md`.
 - `tools/simulate.py`, `tools/compare.py`: the simulator (six-max, or heads-up with `--players 2`)
   and paired comparisons. By default a comparison deals duplicate decks (heads-up: each deal twice
   with the seats swapped) and replays each hand that differs 6 times from where the variants part,
