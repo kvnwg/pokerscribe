@@ -196,7 +196,57 @@ Combos under 0.1% of the largest weight are left out. In a match each solve runs
 for the turn (`turn_threads`, matches run deals in parallel) and the flop uses the global thread
 pool.
 
-RESULTS
+## Results (Phase 7 groundwork, 20 big blinds)
+
+On the Phase 5 standard-k200 blueprint (20 big blinds, the standard menu, 200 buckets a street),
+on 4 cores (Intel Xeon at 2.1 GHz), pre-registered in `docs/research/runs/phase7_groundwork/`
+(`README.md` the plan, `results.md` the results and the raw outputs). Groundwork, not the Phase
+7 gate.
+
+| | Result |
+| --- | --- |
+| Search against the blueprint, 3,000 deals | -2.51 ± 4.56 bb/100 (z -0.55): no gain, no loss |
+| LBR `b56_14` (56 bet sizes), 1,500 hands | blueprint +118.0 ± 14.0, search +75.5 ± 14.3; paired -42.5 ± 12.2 (z -3.47) |
+| LBR `fcpa14`, 1,500 hands | blueprint -25.1 ± 16.6, search -53.0 ± 16.2; paired -27.9 ± 11.8 (z -2.35) |
+| REPEAT_ROW
+| Real hand in the range and in the solve, 300 hands against the blueprint | 100% of 415 decisions, both players |
+| B0, 100 deals | B0 -4.70 ± 22.08 against search (+11.78 ± 18.25 against the blueprint); no illegal action |
+
+- **Head-to-head** the search neither gains nor loses against its own blueprint. Against the
+  blueprint its ranges are exact and it never re-solves (the blueprint only bets its own menu),
+  so its edge can only be exact hands over 200 buckets, which at 20 big blinds is small next to
+  its own solving error.
+- **Against LBR** the search is less exploitable than the blueprint, most of all against
+  `b56_14`, whose sizes are off the menu: there the search adds each size to its tree and
+  re-solves (one flop solve in five was a re-solve). That is the part of the blueprint's
+  weakness the Phase 5 gate found (about 18% of its decisions off the tree).
+
+Decision time on 4 threads (`search bench`, 150 hands against the blueprint; a decision that
+reuses its street's solve takes under a millisecond):
+
+| Street | p50 | p95 | Max | Iterations (mean) | Exploitability (mean, share of the pot) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Flop | 480 ms | 752 ms | 1,044 ms | 46 | 0.88% |
+| Turn | 2,228 ms | 6,021 ms | 6,677 ms | 55 | 1.76% |
+| River | 39 ms | 158 ms | 206 ms | 71 | 0.45% |
+
+A turn solve costs 0.010 microseconds per solver node, iteration and combo on one thread and
+runs 3.0 to 3.3 times faster on 4 threads (8% serial); a flop solve 2.3 to 3.0 times (17%
+serial). For the Phase 6 game (200 big blinds, `rich` menu, 200 buckets) on 64 cores, with an
+Axion core taken as fast as one here: about 0.3 to 0.6 s on the flop, 1.5 to 3 s on the turn
+(2.5 to 5 s at the slow end), under 0.3 s on the river. Its leaf tables would be 9.7 GB (8,669
+turn starts) and take about 2 hours to build on 64 cores at 16M deals. `results.md` has the
+method.
+
+### Not done
+
+- Ranges against opponents that are not the blueprint: a hand the blueprint would never play
+  that way gets weight 0 (the search then plays it as the blueprint). Not measured.
+- A safe re-solving gadget, to compare with the unsafe form under LBR.
+- Leaf values by rollout during the search (as Modicum did): a 200 big blind game's tables are
+  large.
+- The flop's serial share (17%): the leaf lookups and the equity table are the next things to
+  parallelize.
 
 ## Tests
 
