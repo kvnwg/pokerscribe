@@ -160,18 +160,29 @@ def main():
     index_now = last4["bytes_per_info_set"] - 12 * last4["slots"] / last4["info_sets"]
     say("\n## Projection\n")
     say(f"- Information sets {PHASE6['info_sets']:,}, slots {PHASE6['slots']:,} ({slots_per_is:.2f} a set).")
-    # The index grows by doubling (cfr: a shard doubles past three quarters full), so with the
-    # whole table met it is the index measured now, or at most twice that.
-    index_total = last4["table_bytes"] - 12 * last4["slots"]
+    # The index grows by doubling (cfr: a shard doubles past three quarters full), and a
+    # checkpoint load sizes it at twice the information sets, rounded up to a power of two
+    # (`SharedTable::with_capacity`). So a fresh run keeps the index measured now (it has room
+    # for the rest), and a resumed one has the index measured after the resume.
+    index_fresh = last4["table_bytes"] - 12 * last4["slots"]
+    index_resumed = (last1["table_bytes"] - 12 * last1["slots"]) if last1 else 2 * index_fresh
     slots_bytes = 12 * PHASE6["slots"]
-    lo_b, hi_b = slots_bytes + index_total, slots_bytes + 2 * index_total
-    say(f"- Memory: {slots_bytes / 1e9:.2f} GB of slots (12 bytes each) and the index, {index_total / 1e9:.2f} GB "
-        f"measured with {last4['info_sets'] / PHASE6['info_sets']:.0%} of the sets met "
-        f"({index_now:.0f} bytes a set), or twice that if it doubles once more: {lo_b / 1e9:.1f} to "
-        f"{hi_b / 1e9:.1f} GB for the tables, {lo_b / PHASE6['info_sets']:.0f} to {hi_b / PHASE6['info_sets']:.0f} "
-        f"bytes a set. The process held {((last4['resident_bytes'] or 0) - last4['table_bytes']) / 1e9:.1f} GB more "
-        f"(bucket tables, the game). Checkpoint: {(19 * PHASE6['info_sets'] + 12 * PHASE6['slots']) / 1e9:.2f} GB. "
+    lo_b, hi_b = slots_bytes + index_fresh, slots_bytes + index_resumed
+    res_fresh = (last4["resident_bytes"] or 0) / 1e9
+    res_resumed = ((last1["resident_bytes"] or 0) / 1e9) if last1 else None
+    say(f"- Memory: {slots_bytes / 1e9:.2f} GB of slots (12 bytes each) and the index: "
+        f"{index_fresh / 1e9:.2f} GB measured with {last4['info_sets'] / PHASE6['info_sets']:.0%} of the sets "
+        f"met ({index_now:.0f} bytes a set, room for the rest), {index_resumed / 1e9:.2f} GB after a resume. "
+        f"So {lo_b / 1e9:.1f} GB for the tables in a fresh run and {hi_b / 1e9:.1f} GB after a resume "
+        f"({lo_b / PHASE6['info_sets']:.0f} and {hi_b / PHASE6['info_sets']:.0f} bytes a set). The whole process "
+        f"(with the bucket tables and the game) was {res_fresh:.1f} GB resident in the last 4-thread session"
+        f"{f' and {res_resumed:.1f} GB after the resume' if res_resumed else ''}, the index's unused cells "
+        f"not all touched. Checkpoint: {(19 * PHASE6['info_sets'] + 12 * PHASE6['slots']) / 1e9:.2f} GB. "
         f"Strategy file: {2 * PHASE6['slots'] / 1e9:.2f} GB.")
+    say(f"- Threads in this game: 4 threads gave {last4['nodes_per_second'] / 4 / 1e6:.2f}M states/s each in "
+        f"the last 4-thread session, 1 thread {last1['nodes_per_second'] / 1e6:.2f}M right after, so 4 threads "
+        f"ran at {last4['nodes_per_second'] / (4 * last1['nodes_per_second']):.2f} of 4 times one thread."
+        if last1 else "- No 1-thread session.")
     say(f"- Speed measured here, last sessions: {per_thread / 1e6:.2f}M states/s per thread "
         f"({'1 thread' if last1 else '4 threads'}), {states_per_it:,.0f} states per iteration, "
         f"with {last4['info_sets'] / PHASE6['info_sets']:.0%} of the table met.")
