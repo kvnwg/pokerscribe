@@ -43,6 +43,7 @@ class TrackInfo:
     street_bets: Dict[int, float] = field(default_factory=dict)  # index in state.players -> chips this round
     to_call: Optional[float] = None
     blinds: Optional[Tuple[float, float]] = None
+    blinds_posted: bool = False  # the blinds are this hand's posted chips (not carried over or held back)
     pot_includes_bets: Optional[bool] = None
     empty_middle: bool = False  # before the flop, no pot printed: every chip is in front of a player
     note: str = ""
@@ -60,6 +61,7 @@ class HandTracker:
         self._blinds: Optional[Tuple[float, float]] = None
         self._table_blinds: Optional[Tuple[float, float]] = None  # last blinds seen cleanly, kept across hands
         self._new_blinds: Optional[Tuple[float, float]] = None  # different blinds seen once, not yet believed
+        self._posted = False  # this hand's blinds are the chips its blinds were seen to post
         self._levels: Dict[int, float] = {}  # board size -> most chips anyone had put in by then
         self.hands_seen = 0
 
@@ -125,6 +127,7 @@ class HandTracker:
                 self.hands_seen += 1
                 self._start_at = at
                 self._blinds = None
+                self._posted = False
                 self._levels = {}
             # nothing was captured between the start of the hand and this read
             fresh = at - self._dropped == len(self._history) - 1
@@ -248,17 +251,39 @@ class HandTracker:
             seen_now = self._infer_blinds(state, info.contributions)
             if seen_now is None:
                 pass
-            elif self._table_blinds is None or seen_now == self._table_blinds or seen_now == self._new_blinds:
+            elif (self._table_blinds is None or seen_now == self._table_blinds or seen_now == self._new_blinds
+                  or self._before_you_acted(state, hero_c) or self._screen_says(state, seen_now)):
+                # New blinds count at once when nobody can have raised yet: on your first move
+                # before the flop the blinds act after you, so their chips are the blinds (a
+                # tournament's blinds going up). Or when the table's own line says the same.
                 self._table_blinds, self._new_blinds, self._blinds = seen_now, None, seen_now
+                self._posted = True
             else:
-                # different blinds from the last hands: believed once seen in two hands. Until
-                # then the smaller ones count, which can never make you look short-stacked.
+                # different blinds from the last hands, after someone may have raised: believed
+                # once seen in two hands. Until then the smaller ones count, which can never make
+                # you look short-stacked.
                 self._new_blinds = seen_now
                 self._blinds = min(seen_now, self._table_blinds, key=lambda b: b[1])
         blinds = self._blinds
+        info.blinds_posted = blinds is not None and self._posted
         if blinds is None and self._table_blinds and self._fits(state, info.contributions, self._table_blinds):
             blinds = self._table_blinds  # blinds don't change from hand to hand at the same table
         info.blinds = blinds
+
+    @staticmethod
+    def _before_you_acted(state: GameState, hero_c: float) -> bool:
+        """Your first move before the flop: you hold cards, aren't in the blinds and have put
+        nothing in (everyone else must put chips in or fold, and the blinds come after you)."""
+        hero = state.hero
+        if hero is None or not hero.position.known or hero.position.value in ("SB", "BTN/SB", "BB"):
+            return False
+        return hero_c < 0.005 and len(state.hero_cards) == 2 and all(c.known for c in state.hero_cards)
+
+    @staticmethod
+    def _screen_says(state: GameState, blinds: Tuple[float, float]) -> bool:
+        if not state.blinds.known or state.blinds.source != "auto":
+            return False
+        return tuple(float(v) for v in state.blinds.value[:2]) == blinds
 
     @staticmethod
     def _infer_blinds(state: GameState, contrib: Dict[int, float]) -> Optional[Tuple[float, float]]:
@@ -308,7 +333,15 @@ class HandTracker:
                 # "no bet seen" only because the number was missed (a lone "6" is easy to miss):
                 # the chips that left the stack say otherwise
                 p.bet = Field.derived(c, CONFIDENCE)
-        if info.blinds and (not state.blinds.known or (
-                state.blinds.source == "auto" and tuple(float(v) for v in state.blinds.value[:2]) != info.blinds)):
-            # the chips the blinds put in are the proof; a line of text that disagrees loses
+        if not info.blinds:
+            return
+        if not state.blinds.known:
+            state.blinds = Field.derived(info.blinds, CONFIDENCE)
+            return
+        text = tuple(float(v) for v in state.blinds.value[:2])
+        if state.blinds.source == "auto" and text != info.blinds and (
+                info.blinds_posted or not self._fits(state, info.contributions, text)):
+            # The chips the blinds put in this hand are the proof: a line of text that disagrees
+            # loses. Blinds only carried over from earlier hands (or held back) don't overrule a
+            # line the chips posted fit: in a tournament the blinds go up.
             state.blinds = Field.derived(info.blinds, CONFIDENCE)
