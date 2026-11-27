@@ -2,7 +2,10 @@
 
 The gate (`docs/research/README.md`, Phase 5): "LBR win rate falls as buckets and sizes are
 added, then flattens". This file was written before the gate run started; `plan.json` is the
-plan the run used, unchanged. The results are in `engine/crates/blueprint/README.md` and
+plan the run used, unchanged. (`plan.json` was written at 02:24:27 UTC on 27 Nov 2026, 12 seconds
+before the gate started, but the repository's `.gitignore` leaves out `runs/*/*.json`, so it
+missed the commit that registered this plan and was added with the results. `gate/plan.json` is
+the copy the gate wrote when it started: the same plan.) The results are in `engine/crates/blueprint/README.md` and
 `docs/research/experiments.md` (Phase 5: the gate).
 
 ## What was decided from the pilots, and why

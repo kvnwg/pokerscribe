@@ -2,6 +2,12 @@
 
     python docs/research/runs/phase5_gate/analyse.py ~/bp/gate [--references DIR] [--md OUT]
 
+From the copy in the repository (the logs, and the final deals in one archive):
+
+    cd docs/research/runs/phase5_gate/gate && tar -xJf deals.tar.xz && cd -
+    python docs/research/runs/phase5_gate/analyse.py docs/research/runs/phase5_gate/gate \
+        --references docs/research/runs/phase5_gate/gate/references
+
 Reads each run's stages.jsonl, lbr.jsonl, progress.jsonl, final.jsonl and done.json, and the
 deals files, so that every difference between two runs is paired deal by deal (the same
 deals for every run: final LBR seed 778, 100,000 hands). `--references DIR` adds the
@@ -66,7 +72,11 @@ def load_run(rdir):
     run["deals"] = {}
     for line in run["final"]:
         reading = line["extra"].get("small_bets", "smallest")
-        run["deals"][(reading, line["setting"])] = deals(line["deals_file"])
+        path = line["deals_file"]
+        if not os.path.exists(path):
+            # The copy in the repository: gate/deals.tar.xz unpacked into gate/.
+            path = os.path.join(rdir, "deals", os.path.basename(path))
+        run["deals"][(reading, line["setting"])] = deals(path)
     return run
 
 

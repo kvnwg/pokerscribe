@@ -1,0 +1,16 @@
+{
+  "stack_bb": 20,
+  "menu": "standard",
+  "abstraction": "/root/abstraction/k10",
+  "training": {
+    "seed": 1,
+    "threads": 4,
+    "compact_scale": 100.0,
+    "regret_floor": -3100000.0,
+    "linear": [
+      200000,
+      20000000
+    ],
+    "pruning": null
+  }
+}
