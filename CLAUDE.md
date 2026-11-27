@@ -84,7 +84,8 @@ the Rust engine as it does. README.md, "Checks", has the rest.
 - `engine/crates/arena`: matches between agents, heads-up to six-max, duplicate deals and the all-in
   equity adjustment, bb/100 with its standard error (the tool behind the 2.5 SE rule). The `arena`
   binary plays the built-in bots.
-- `engine/crates/py`: Python bindings (PyO3, module `pokerscribe_engine`) for `eval` and `nlhe`.
+- `engine/crates/py`: Python bindings (PyO3, module `pokerscribe_engine`) for `eval` and `nlhe`, and
+  arena matches from Python (`run_match`, with Rust agents by name or Python agents).
   `./setup_mac.sh` builds it when Rust is installed; `app/tests/test_engine_bindings.py` tests it.
 - `data/answer_keys/`, `tools/answer_keys/`: 40 river and turn spots and TexasSolver's answers to them, the
   keys the solvers are checked against. Format: `data/SPOT_FORMAT.md`. All 40 solved. TexasSolver is AGPL: it is
@@ -95,6 +96,10 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   `docs/research/RIVER_SOLVER.md`.
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
+- `tools/b0_arena.py`: B0 against any Rust agent heads-up in the Rust arena (each deal twice with the
+  seats swapped, all-in equity, bb/100 with SE), through `pokerscribe_engine.run_match`, which takes
+  any Python agent too (`engine/crates/py/README.md`). A Rust agent (a `Player` or a `Strategy`)
+  becomes playable from Python with one line in `engine/crates/py/src/agents.rs`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
   isn't in the repo (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
@@ -124,8 +129,9 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   and a largest r of 0.53, but 1.41 times the CPU (bar 1.25): it fails as written, on CPU only.
   The manager session accepted it under Kevin's delegation (`experiments.md`, The gate,
   heads-up, Decision): per CPU second the SE is 0.45 of classic's. The bots keep their six-max
-  styles, so heads-up they fold a lot and B0 beats every table. Not built: head-to-head play
-  (two agents against each other heads-up), which Phase 6 will need.
+  styles, so heads-up they fold a lot and B0 beats every table. Head-to-head play (two agents
+  against each other heads-up) is in the Rust arena now, B0 included: `tools/b0_arena.py` and
+  `pokerscribe_engine.run_match` (Phase 6 groundwork, below).
 - Fixed on 27 Nov 2026 (found by the heads-up work): B0 said a bet under the minimum in a tiny
   pot (BET 1.5 into two big blinds, six-max, about 1 in 5200 instructions). A last check in
   `advise()` (`_legal_size`) keeps every bet and raise between the minimum and the stack. No
@@ -149,6 +155,16 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
   7-card hands. Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov
   2026). Don't use Fable.
+- Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena
+  (`tools/b0_arena.py`; `experiments.md`, Phase 6 groundwork). It sees each spot exactly as in
+  the simulator. No instruction was illegal in 41145. B0 against B0 is exactly 0, and it beats
+  always-fold and always-call by 29 and 12.5 SE. B0 is the slow part: 22 to 32 hands per second
+  on one process against near-equal bots (tag +8.2 ± 5.6, tag-loose +2.5 ± 7.4), 94% of it in
+  B0's Monte Carlo equity. At their sd (300 to 400 per deal) a 2.5 SE test of a 5 bb/100 edge
+  needs 47,000 to 81,000 hands, and one of 10 bb/100 needs 12,000 to 20,000. The simulator's
+  always-wrong check flagged 9 jams with AKo facing big re-raises from the LBR random
+  strategies: a false alarm (the check ignores the bet faced). B0 calls a 100 big blind jam with
+  JJ or better only.
 - Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
   last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
   For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.

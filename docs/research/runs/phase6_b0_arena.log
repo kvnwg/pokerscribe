@@ -1,0 +1,80 @@
+b0 bet_size 0.5: 236 s
+b0, plain: 144 s
+call: 441 s
+tag: 189 s
+tag-loose: 277 s
+b0: 65 s
+fold: 22 s
+lbr-random: 129 s
+lbr-call-or-raise: 204 s
+jam: 61 s
+# B0 against Rust agents in the arena
+
+Made by `docs/research/runs/phase6_b0_arena.py`. Heads-up, 100 big blinds, blinds 50/100, B0 as
+agent 0. Duplicate (each deal twice, seats swapped) and all-in equity unless the row says plain.
+Speed is per CPU second of one process.
+
+| Opponent | Deals | Hands | B0 bb/100 | SE | z | Plain SE | sd per deal | All-in hands adjusted |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| b0 | 400 | 800 | +0.00 | 0.00 | +1.4 | 39.71 | 0 | 4 |
+| b0, plain | 1000 | 1000 | -42.06 | 32.47 | -1.3 | 34.90 | 1027 | 4 |
+| b0 bet_size 0.5 | 1500 | 3000 | +2.91 | 3.89 | +0.7 | 14.06 | 150 | 8 |
+| fold | 1000 | 2000 | +34.73 | 1.18 | +29.3 | 1.23 | 37 | 0 |
+| call | 1000 | 2000 | +239.50 | 19.17 | +12.5 | 22.04 | 606 | 0 |
+| tag | 3000 | 6000 | +8.15 | 5.62 | +1.4 | 7.66 | 308 | 10 |
+| tag-loose | 3000 | 6000 | +2.49 | 7.36 | +0.3 | 8.61 | 403 | 13 |
+| lbr-random | 1000 | 2000 | +157.70 | 34.26 | +4.6 | 38.09 | 1083 | 23 |
+| lbr-call-or-raise | 1000 | 2000 | +362.63 | 53.07 | +6.8 | 65.13 | 1678 | 101 |
+| jam | 1000 | 2000 | +8.10 | 20.08 | +0.4 | 32.54 | 635 | 42 |
+
+| Opponent | Hands/s | ms per B0 instruction | B0 instructions per hand | Not legal as said | Always-wrong (simulate.check_advice) |
+| --- | --- | --- | --- | --- | --- |
+| b0 | 12.4 | 28.9 | 2.78 | none | none |
+| b0, plain | 7.1 | 54.7 | 2.57 | none | none |
+| b0 bet_size 0.5 | 13.1 | 29.1 | 2.63 | none | none |
+| fold | 91.4 | 21.9 | 0.50 | none | none |
+| call | 4.6 | 69.7 | 3.11 | none | none |
+| tag | 32.3 | 36.7 | 0.84 | none | none |
+| tag-loose | 22.0 | 40.9 | 1.11 | none | none |
+| lbr-random | 15.7 | 43.3 | 1.47 | none | all in 100bb deep preflop with AKo x3 |
+| lbr-call-or-raise | 9.9 | 48.7 | 2.07 | none | all in 100bb deep preflop with AKo x6 |
+| jam | 33.3 | 24.7 | 1.22 | none | none |
+
+Hands for an edge to be 2.5 SE at this sd per deal (hands = 2 x (2.5 sd / edge)^2):
+
+| Opponent | sd per deal | Edge 5 bb/100 | Edge 10 bb/100 | Edge 20 bb/100 |
+| --- | --- | --- | --- | --- |
+| b0 | 0 | 2 | 2 | 2 |
+| b0 bet_size 0.5 | 150 | 11,324 | 2,832 | 708 |
+| fold | 37 | 700 | 176 | 44 |
+| call | 606 | 183,774 | 45,944 | 11,486 |
+| tag | 308 | 47,414 | 11,854 | 2,964 |
+| tag-loose | 403 | 81,230 | 20,308 | 5,078 |
+| lbr-random | 1083 | 586,766 | 146,692 | 36,674 |
+| lbr-call-or-raise | 1678 | 1,408,332 | 352,084 | 88,022 |
+| jam | 635 | 201,600 | 50,400 | 12,600 |
+
+Profile, B0 against tag, 300 hands, 253 B0 instructions, 22.6 CPU seconds (cProfile slows Python down, so these are shares, not speeds):
+
+| Part | Seconds | Share | Calls |
+| --- | --- | --- | --- |
+| B0Player.act (everything B0 does) | 22.79 | 101% | 253 |
+| advise, with its own equity runs | 2.35 | 10% | 253 |
+| sim_compute (the equity the advice is given) | 20.12 | 89% | 253 |
+| equity (all Monte Carlo equity runs) | 21.52 | 95% | 526 |
+| app_state (the GameState) | 0.02 | 0% | 253 |
+| table (the simulator's Hand from the view) | 0.01 | 0% | 253 |
+| check_advice (the always-wrong checks) | 0.03 | 0% | 253 |
+| engine_action (instruction to nlhe action) | 0.00 | 0% | 253 |
+| treys evaluations (hands.evaluate) | 0.08 | 0% | 10759 |
+| Outside B0 (the arena, tag, crossing into Python) | -0.20 | -1% | |
+exit 0
+
+Afterwards (27 Nov 2026), once B0Player kept the spots of always-wrong instructions:
+  python docs/research/runs/phase6_b0_arena.py --jobs 2 --only lbr-random lbr-call-or-raise
+  lbr-random: 127 s
+  lbr-call-or-raise: 206 s
+  (both reports, B0's counts included, the same as the first run's), and
+  python docs/research/runs/phase6_b0_arena.py --profile
+  (the profile timed in CPU seconds, as its total; the first run's mixed wall and CPU time).
+summary.md is the latest.

@@ -5,6 +5,8 @@
 //! in the workspace need neither PyO3 nor Python. See README.md for the build and the API.
 #![cfg(feature = "python")]
 
+mod agents;
+mod arena;
 mod cards;
 mod game;
 mod hand_eval;
@@ -25,6 +27,8 @@ mod hand_eval;
 /// with rank 0 = two ... 12 = ace and suit 0..3 = c, d, h, s. Chips are whole numbers.
 #[pyo3::pymodule]
 mod pokerscribe_engine {
+    #[pymodule_export]
+    use crate::arena::{agents, run_match, MatchReport, View};
     #[pymodule_export]
     use crate::cards::{card_index, card_string};
     #[pymodule_export]
