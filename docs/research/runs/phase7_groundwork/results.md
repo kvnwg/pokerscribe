@@ -19,7 +19,36 @@ What changed after the plan was committed, none of it in how any agent plays:
   fails while the four cores are busy. Pausing changes no result here: no solve has a time
   limit.
 
-H2H
+## Head-to-head (1)
+
+`search match`, search against the blueprint, 3,000 deals (6,000 hands, seed 7101), each deal
+twice with the seats swapped, all-in hands scored by equity (410 hands), 4 threads, 7,064 s.
+
+| | bb/100 | SE | z | As the chips fell | Plain SE (no duplicate) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Search | -2.51 | 4.56 | -0.55 | -6.01 ± 5.16 | 8.56 |
+| On the button | +9.71 | 8.93 | | | |
+| In the big blind | -14.73 | 8.84 | | | |
+
+No illegal action. The search agent does not beat the blueprint it searches on: the result is
+within one SE of 0, and an edge of more than +6.6 bb/100 (two SEs above the result) is unlikely. At the Phase 7
+gate's bar (2.5 SE) this would fail. What it does show is that the search plays a full match at
+the blueprint's level without breaking: no leak large enough to show in 6,000 hands, in spite of
+the flop's leaf values, the turn's small river menu and the unsafe re-solving.
+
+Why no gain is the expected first result here, not a surprise:
+
+- Against the blueprint the search's ranges are exactly right (the opponent is the strategy the
+  ranges are updated with), and the blueprint only bets sizes on its own menu, so the search
+  never re-solves: its edge can only come from playing exact hands instead of 200 buckets, and
+  from solving each street again with the real ranges.
+- At 20 big blinds with 200 buckets a street, the blueprint is already a fine abstraction of a
+  small game (LBR `fcpa14` won +3.5 ± 2.0 against the Phase 5 gate's standard-k200 file; against this one, below). There is little left for search
+  to fix, and the search's own errors (1% of the pot on the flop, 2% on the turn, the leaf
+  tables' noise) are of the same order.
+- The flop leaves value the rest of the hand with the blueprint (and its biased versions) by
+  bucket, so on the flop the search inherits the blueprint's card abstraction for every later
+  street.
 
 LBR
 
