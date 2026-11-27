@@ -65,10 +65,27 @@ default is duplicate deals with the luck adjustment and replays; see "Phase 1" b
 | | even | fish247 | 3000 | 204 | -1.1 ± 7.7 | |
 | `semibluff_turn: "combo"`, with profiles | even | mixed | 2000 | 4 | -0.8 ± 0.9 | off |
 | | even | fish247 | 2000 | 0 | 0.0 | |
+| `push_chart` (26 Nov, seed 101) | tourney | mixed | 20000 | 243 | +0.6 ± 0.6 | off |
+| | tourney | fish247 | 20000 | 229 | -0.2 ± 0.6 | |
+| | tourney | stations | 20000 | 191 | +0.3 ± 0.7 | |
+| | tourney | maniacs | 20000 | 153 | +0.7 ± 0.6 | |
+| `committed_raise: 0.25` (26 Nov, seed 101, `--short-raise`) | tourney | mixed | 20000 | 343 | +0.7 ± 1.0 | off |
+| | tourney | fish247 | 20000 | 90 | -0.2 ± 0.5 | |
+| | tourney | stations | 20000 | 85 | -0.8 ± 0.5 | |
+| | tourney | maniacs | 20000 | 399 | +0.6 ± 1.2 | |
 
 Note on the first `ev_sizing` run: its sizing maths used a time limit, not a fixed number
 of samples, so that run was not exactly repeatable. The simulator now fixes the sample
 count for it too (`variant` in tools/simulate.py). The profile runs above it use that.
+
+`committed_raise` (added 26 Nov after Kevin's K9 hand: a 247 bot raised to 30 of its 100 at
+5/10): facing one raise from a committed short stack, decide on the whole effective stack against
+the push-or-fold range for the raiser's seat. Measured with `--short-raise` (short bots raise small
+instead of moving all in, as that 247 bot did); without it the simulator never makes the spot (0 of
+2000 hands differ). Neither it nor `push_chart` (Kevin's Q8 offsuit with 5 big blinds) is
+significant over 20000 hands; `committed_raise` leans negative against stations (1.6 SE), whose
+short raises are tighter than the charts assume. Both stay off. One "folded the best possible
+hand" appeared on the stations table in both runs; it is B0's (the base variant's count).
 
 Not run, so they stay off: `eff_push`, `commit` with tournament stacks, `commit_draws`,
 `geometric`, `river_ip_call_share`, `balanced_river`, `bucket_sizing` / `small_bet_from`,

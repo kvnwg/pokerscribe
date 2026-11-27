@@ -44,7 +44,7 @@ def main(folder: str) -> None:
         img = cv2.imread(os.path.join(folder, line["image"]))
         res = rec.recognize(img)
         info = tracker.update(res.state)
-        hand.update(res.state, [r.box for r in res.board_readings], info.new_hand)
+        hand.update(res.state, [r.box for r in res.board_readings], info.new_hand, res.layout.hand_id)
         computed = compute(res.state, spec, 250)
         res.state.computed = computed
         adv = advise(res.state, computed, numbers_checked=info.valid)

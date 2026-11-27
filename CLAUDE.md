@@ -52,8 +52,16 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   Start here for any reader work.
 - `docs/research/`: the research report link, `KNOWLEDGE.md` (book and paper principles),
   `experiments.md`, `DATASET.md`, `DEMO.md`, and `runs/` (raw experiment scripts and logs).
+- `tools/fetch_reads.py`: Kevin's "Save last reads" folders, sent by the app to his private repository
+  (Settings, Send reads; default `kvnwg/pokerscribe-reads`). Attach it with add_repo, then
+  `python tools/fetch_reads.py` lists them with Kevin's notes and `--replay` replays the newest.
+  Work only on reads from 247 or other play-money tables (rule 4): a buy-in, prize pool or real
+  currency in the title means a real-money table, and those reads are not worked on.
 - `tools/replay_reads.py "<saved reads folder>"`: replays a "Save last reads" folder through the
   current reader, tracker and advice, and prints then vs now for each picture.
+- `tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`, twelve
+  layouts, `--players` for other table sizes) and every read and instruction is checked against the
+  truth. Results in `docs/research/runs/selftest.md`. Run it after any reader change.
 - `tools/simulate.py`, `tools/compare.py`: the simulator (six-max, or heads-up with `--players 2`)
   and paired comparisons. By default a comparison deals duplicate decks (heads-up: each deal twice
   with the seats swapped) and replays each hand that differs 6 times from where the variants part,
@@ -176,13 +184,28 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   always-wrong check flagged 9 jams with AKo facing big re-raises from the LBR random
   strategies: a false alarm (the check ignores the bet faced). B0 calls a 100 big blind jam with
   JJ or better only.
-- Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
-  last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
-  For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.
-  Waiting for saved reads: it can't tell whose turn it is; it said to fold the big blind; it said
-  to bet half the starting stack with 9-6; it mixed up the pot and the bets.
-- Known reader gaps: other players' turn (the timer bar on their seats isn't read yet), and the
-  "Total pot = Pot + bets" and Call amount checks don't block advice yet.
+- Reader bugs already reported still get fixed (no new reader work otherwise, unless Kevin asks).
+  Kevin presses "Save last reads" when an instruction is wrong. Folders go to
+  `~/Documents/PokerScribe reads/<time>`, and to his private reads repository once Settings, Send
+  reads is set up (`tools/fetch_reads.py`). For each folder: run `tools/replay_reads.py`, find the
+  cause, fix it, add a regression test. Waiting for saved reads: it can't tell whose turn it is; it
+  said to fold the big blind; it said to bet half the starting stack with 9-6; it mixed up the pot
+  and the bets; it didn't read a 5 in the middle (27 Nov: where, and on which table, not known yet).
+- Reader work Kevin asked for on 26 Nov: the self-test (`tools/selftest.py`) on twelve layouts, two
+  held out, with skipped pictures and fresh seeds: round pictures with level badges and
+  countdowns, bare level numbers beside names, grey card backs, eight players (27 Nov: 130/130
+  instructions right on five layouts with eight players, after nine misreads fixed). Other players' turn
+  is read from the timer bar, the glow or the ring round a picture (WAIT on their turn). The blinds
+  come from the chips the small and big blind posted, and the big blind's own chips are never a
+  raise (Kevin's report from 247). Lone single-digit bets without "$" count only when two reads
+  agree, otherwise UNKNOWN (the OCR can't read them reliably). The waiting reports may be fixed by
+  this; confirm with saved reads from 247. 27 Nov: the picture tables drawn in another font
+  (DejaVu) found seven misreads that only happen in one font, all fixed with tests
+  (`docs/research/runs/selftest.md`, "Another font"). Blinds that go up (a tournament's next level)
+  now count at once on your first move before the flop: the tracker had kept the old ones, so the
+  big blind's chips looked like a raise (Kevin: "thinking blinds are reraises").
+- Known reader gaps: the "Total pot = Pot + bets" and Call amount checks don't block advice yet,
+  and the predicted next actor isn't used as a check.
 - Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
 - Possible goal: a demo at Web Summit Vancouver, 25 to 28 May 2027 (`docs/research/DEMO.md`, not
   approved). A heads-up challenge needs Phase 7; six-max won't be ready by then.

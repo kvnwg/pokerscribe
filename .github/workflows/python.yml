@@ -45,7 +45,10 @@ jobs:
 
       # Xvfb is the virtual display (test_capture.py starts it with xvfb-run). The lib*
       # packages are what PySide6 (Qt) and the screen grabber load. tesseract-ocr is the third
-      # text reader. The fonts are the ones app/tests/synthetic.py draws test tables with.
+      # text reader. The fonts are the ones app/tests/synthetic.py draws test tables with, and
+      # the self-test's demo table (app/tests/demo_table.py): Inter on the avatars and portrait
+      # layouts, FreeSans on stock, Carlito on levels. Without them those layouts are drawn in
+      # DejaVu and the tests read a different picture.
       - name: Install the display, text reader and fonts
         run: |
           sudo apt-get update
@@ -58,7 +61,8 @@ jobs:
             libxcb-util1 libxcb-xfixes0 libxcb-xkb1 \
             tesseract-ocr \
             fonts-dejavu-core fonts-liberation fonts-texgyre fonts-adf-gillius \
-            fonts-tlwg-loma-otf fonts-lmodern fonts-noto-cjk
+            fonts-tlwg-loma-otf fonts-lmodern fonts-noto-cjk \
+            fonts-inter fonts-freefont-ttf fonts-crosextra-carlito
 
       # Crimson Text is not in Ubuntu's packages. It comes from the Google Fonts repository at
       # a fixed commit, and the download is checked before it is installed.
@@ -71,9 +75,10 @@ jobs:
           sudo install -D -m 644 "$RUNNER_TEMP/CrimsonText-Bold.ttf" /usr/share/fonts/truetype/crimsontext/CrimsonText-Bold.ttf
           for font in texgyreadventor-bold.otf GilliusADF-Bold.otf Loma-Bold.otf lmsans10-bold.otf \
                       CrimsonText-Bold.ttf texgyreschola-bold.otf NotoSerifCJK-Regular.ttc \
-                      DejaVuSans.ttf DejaVuSans-Bold.ttf; do
+                      DejaVuSans.ttf DejaVuSans-Bold.ttf Inter-SemiBold.otf FreeSansBold.ttf \
+                      Carlito-Regular.ttf; do
             if ! find /usr/share/fonts /usr/share/texmf/fonts -iname "$font" | grep -q .; then
-              echo "::error::The font $font is missing: the card tests would draw with another font."
+              echo "::error::The font $font is missing: the card and demo-table tests would draw with another font."
               exit 1
             fi
           done

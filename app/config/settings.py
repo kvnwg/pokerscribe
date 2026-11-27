@@ -64,6 +64,10 @@ class Settings:
     custom_range: str = ""
     pot_includes_bets: bool = False
 
+    # Send reads: "Save last reads" also sends the folder to this private GitHub repository
+    # (owner/name), where Claude can fetch it. Empty: only saved on this Mac.
+    reads_repo: str = ""
+
     @staticmethod
     def default_path() -> Path:
         return app_data_dir() / "settings.json"

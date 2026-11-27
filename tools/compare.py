@@ -205,6 +205,12 @@ def paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb: flo
     return sa, sb, diffs, replayed, extra
 
 
+def _init_worker(short_raise: bool) -> None:
+    """Module switches set from the command line, for worker processes that start fresh
+    (spawned, as on macOS) rather than as a copy of this one."""
+    sim.SHORT_RAISE = short_raise
+
+
 def _paired_star(args):
     *rest, start, resample, use_hidden, lean, redeal, exact_luck, players = args
     return paired(*rest, start=start, resample=resample, use_hidden=use_hidden, lean=lean, redeal=redeal,
@@ -228,7 +234,7 @@ def run_paired(base: dict, other: dict, n: int, table: str, seed: int, depth_bb:
     starts = list(range(0, n, chunk))
     args = [(base, other, min(chunk, n - st), table, seed, depth_bb, stacks, profiles, method, adjust, adjust_all, st,
              resample, use_hidden, lean, redeal, exact_luck, players) for st in starts]
-    with ProcessPoolExecutor(max_workers=jobs) as ex:
+    with ProcessPoolExecutor(max_workers=jobs, initializer=_init_worker, initargs=(sim.SHORT_RAISE,)) as ex:
         parts = list(ex.map(_paired_star, args))
     sa, sb, diffs, replayed, extra = parts[0]
     for pa, pb, d, rep_, ex_ in parts[1:]:
@@ -305,10 +311,12 @@ def main():
     ap.add_argument("--full-luck", action="store_true",
                     help="luck-adjust every board card after the split; by default only those after which nobody "
                          "can bet again")
+    ap.add_argument("--short-raise", action="store_true", help="short bots raise small instead of moving all in")
     ap.add_argument("--players", type=int, default=6, choices=sim.PLAYERS,
                     help="6: six-max; 2: heads-up against one of the table's bots at a time (each deal played twice "
                          "with the seats swapped)")
     a = ap.parse_args()
+    sim.SHORT_RAISE = a.short_raise
     if a.resample is None:
         a.resample = 1 if (a.method == "classic" or a.profiles) else 6
     keyed = a.method != "classic" and not a.profiles

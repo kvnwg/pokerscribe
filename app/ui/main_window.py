@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QGroupBox,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from app import APP_NAME
 from app.capture.history import ReadLog, default_folder
+from app.capture.send import send_folder
 from app.ai.base import AIError
 from app.ai.registry import create_provider
 from app.capture import CaptureError, ImageSource, ScreenGrabber, ScreenSource, list_screens, load_image_file
@@ -680,7 +682,8 @@ class MainWindow(QMainWindow):
             result = self.recognizer().recognize(img)
             info = self.tracker.update(result.state)
             # same hand as the last check? Keep what it knew; a new hand starts afresh
-            if self.hand.update(result.state, [r.box for r in result.board_readings], info.new_hand):
+            if self.hand.update(result.state, [r.box for r in result.board_readings], info.new_hand,
+                                result.layout.hand_id):
                 self._claude_asks = 0
             claude_note = self._ask_claude(reader, img, result) if reader is not None else ""
             # opponents' styles from the hands seen so far (never part of the text for an AI)
@@ -715,20 +718,42 @@ class MainWindow(QMainWindow):
         run_task(work, on_done=done, on_error=failed)
 
     def save_reads(self) -> None:
-        """Write the last reads to a folder on this Mac and show it in Finder."""
-        if not len(self.read_log):
+        """Write the last reads to a folder on this Mac, with a note on what went wrong, and send
+        it to the private GitHub repository from Settings, Send reads, if one is set up."""
+        items = self.read_log.snapshot()  # now: watching goes on while the note is typed
+        if not items:
             self.simple.show_warning("Nothing to save yet: start watching first, then press Save last reads "
                                      "right after something goes wrong.")
             return
+        note, ok = QInputDialog.getText(
+            self, "Save last reads",
+            "What went wrong? (optional, e.g. \"said I was re-raised, he only posted the big blind\")")
+        if not ok:
+            return
         folder = default_folder()
         try:
-            n = self.read_log.save(folder)
+            n = self.read_log.save(folder, items=items, note=note)
         except OSError as exc:
             self.simple.show_warning(f"Couldn't save the reads: {exc}")
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
-        self.simple.show_warning(f"Saved the last {n} reads to Documents/PokerScribe reads. "
-                                 "Drag that folder into the chat with Claude to get the misread fixed.")
+        repo = (self.settings.reads_repo or "").strip()
+        token, _ = get_api_key("github_reads")
+        if not (repo and token):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            self.simple.show_warning(f"Saved the last {n} reads to Documents/PokerScribe reads. Drag that folder "
+                                     "into the chat with Claude, or set up Settings, Send reads to have them sent.")
+            return
+        self.simple.show_warning(f"Saved the last {n} reads. Sending them to {repo}...")
+
+        def sent(url):
+            self.simple.show_warning(f"Sent the last {n} reads to {repo}. Tell Claude \"check my saved reads\".")
+
+        def failed(msg):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+            self.simple.show_warning(f"Saved the last {n} reads on this Mac (Documents/PokerScribe reads), but "
+                                     f"sending failed: {msg}")
+
+        run_task(send_folder, folder, repo, token, on_done=sent, on_error=failed)
 
     def _on_watch_result(self, payload: dict) -> None:
         res: RecognitionResult = payload["result"]
@@ -756,10 +781,13 @@ class MainWindow(QMainWindow):
     def _spot_key(self, st: GameState) -> tuple:
         """What the decision depends on: the hand, the cards, the pot, the price and whose turn."""
         cards = lambda fs: tuple(f.value if f.known else None for f in fs)  # noqa: E731
+        acts = st.available_actions.value if st.available_actions.known else None
         return (self.hand.number, tuple(sorted(c for c in cards(st.hero_cards) if c)), cards(st.board),
                 round(float(st.pot.value), 1) if st.pot.known else None,
                 round(float(st.to_call.value), 1) if st.to_call.known else None,
-                st.hero_to_act.value if st.hero_to_act.known else None)
+                st.hero_to_act.value if st.hero_to_act.known else None,
+                # the buttons: Check turning into Call means someone bet, whatever else was read
+                tuple(sorted({a.kind for a in acts})) if acts else None)
 
     def _steady(self, adv: Advice, st: GameState) -> Advice:
         """Keep one instruction for one spot. Another read of the same table must not change
@@ -771,8 +799,8 @@ class MainWindow(QMainWindow):
             if key == held_key:
                 return held
             same_hand_board = key[:3] == held_key[:3] and key[5] == held_key[5]
-            lost_only = (same_hand_board and key[3] in (None, held_key[3]) and key[4] in (None, held_key[4])
-                         and (key[3], key[4]) != (held_key[3], held_key[4]))
+            lost_only = (same_hand_board and all(key[i] in (None, held_key[i]) for i in (3, 4, 6))
+                         and key != held_key)
             if lost_only:
                 return held
         if held is not None and held_key is not None and adv.action == "unknown" and key[0] == held_key[0] \

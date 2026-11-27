@@ -20,6 +20,8 @@ Built for practice with simulators, reviewing recorded sessions, and platforms t
 
 **Read now.** The button next to Start watching reads the table right away, even if nothing seems to have changed.
 
+**Save last reads.** Something looked wrong? Press it right away. It asks what went wrong (one line, optional) and saves the last 30 reads (the pictures of the table box, what was read and the instruction shown) to Documents/PokerScribe reads. Set up Settings, Send reads once and it also sends the folder to your own private GitHub repository, so Claude can fetch it (`tools/fetch_reads.py`) without you dragging it into the chat. Setting up: make a private repository (e.g. pokerscribe-reads), make a fine-grained token for only that repository with Contents: Read and write, write owner/name and paste the token in Settings, Send reads, and press Test. A public repository is refused, because the pictures show other players' names. For 247 Free Poker and other play-money tables only (see the ground rules).
+
 **Never a wrong kind of move.** It never says FOLD when checking is free (when it can't tell, it says CHECK OR FOLD), never mistakes your own raise for someone raising you (it says WAIT until someone acts), and trusts the Check and Call buttons on screen over its own chip maths. Your hand is judged against what the board already gives everyone: a pair, straight or flush lying in the middle is shared, and the instruction says so. A simulator (`tools/simulate.py`) plays thousands of hands against different kinds of opponents and flags any of these.
 
 **All in only when it makes sense.** It goes all in only when your own stack is short or the bet would be most of your stack anyway, and only when your stack was read reliably (while watching, when the chips that left the stacks add up to the pot). A short-stacked opponent never makes it shove your whole stack.
@@ -133,7 +135,7 @@ All providers receive only the structured text and the fixed instructions in `ap
 
 ## Privacy, in detail
 
-- **Screenshots stay in memory.** They are never written to disk unless you save one yourself, and never sent anywhere.
+- **Screenshots stay in memory.** They are never written to disk unless you save one yourself or press Save last reads, and never sent anywhere, except a saved reads folder to your own private GitHub repository when you set up Settings, Send reads.
 - **Recognition is local.** OpenCV, RapidOCR's bundled models, Apple Vision and Tesseract all run on your machine. A test runs capture, recognition, math and text generation with networking disabled.
 - **The text is built only from fixed vocabulary and numbers.** Card names, positions, actions and statuses come from enumerations; no free text read from the screen (player names, table titles, logos) is ever rendered.
 - **A privacy check runs before every request.** The outgoing text must match the expected line structure and use only the app's vocabulary. A URL, path, e-mail address, unknown word or unexpected character blocks the request. Tests try player names, site names, URLs, file paths and e-mail addresses.
@@ -156,6 +158,7 @@ Existing card models were investigated first. The public 52-class detectors (for
 
 Measured on synthetic tables whose card fonts were deliberately excluded from the templates:
 
+- **Self-test** (`python tools/selftest.py`, PokerScribe playing on our own demo table in six layouts, one held out from the fixes, with 15% of pictures skipped): 192 of 193 instructions the same as from the true table, no move shown on another player's turn (0 of 490), the seat acting read every time, no wrong card. Details in `docs/research/runs/selftest.md`.
 - **Cards** (`python tools/eval_cards.py 300`, 1,500 cards at 36 to 120 px tall, with blur and JPEG artefacts): 98.6% found. Best guess correct for 97 to 99% of cards at 90 to 120 px and about 91% at 56 to 70 px; tiny cards (36 to 44 px) mostly come back UNKNOWN by design. Of the cards shown as known, 0.6% were wrong (5 of 893, mostly 44 px cards). After teaching a deck from 13 corrected cards, the tests read that deck exactly.
 - **Exact cards** (tested end to end in `app/tests/test_ui_flow.py`, plus a benchmark on six unseen decks at 56 to 120 px with blur and JPEG): after one confirmation per rank and per suit, 1,739 cards were reported as known and **none were wrong**; the remaining 23% were asked about (and learned) instead. On a real client, which draws each card identically every time, the confirmed shapes match at about 0.9 to 1.0 similarity and different ranks at 0.6 or less.
 - **Fanned hole cards** (turned 8 to 20 degrees and overlapping, like many clients draw them): each card's tilt is measured from its corner index and the card is read straightened, three times; a read counts only when two agree. In the synthetic test about 60% are read and none are read wrong; the rest come back UNKNOWN. Cards from a real client's fanned hand read correctly at 98 to 100% confidence.
@@ -218,14 +221,15 @@ app/
   ai/                provider interface, Claude, OpenAI-compatible, minimal HTTP client
   config/            settings file, API keys (Keychain / environment)
   ui/                PySide6 interface
-  tests/             test suite and the synthetic table renderer
+  tests/             test suite, the synthetic table renderer and the demo table (several layouts)
 engine/              the Rust core (a Cargo workspace): CFR, toy games, the rules engine,
                      the hand evaluator, the river and turn solver (subgame-solve), and
                      crates/py, the Python module pokerscribe_engine.
                      Optional: the app runs without Rust (see engine/crates/py/README.md)
 tools/               benchmarks, template builders, the simulator, paired comparisons,
-                     the luck adjustment (luck.py), the opponents' hidden cards (hidden.py)
-                     and the weakness report (weakness.py)
+                     the luck adjustment (luck.py), the opponents' hidden cards (hidden.py),
+                     the weakness report (weakness.py), the self-test (PokerScribe reading our
+                     own demo table, checked against the truth) and fetch_reads.py (saved reads)
   phh/               hand history dataset pipeline (separate from the app, see tools/phh/README.md)
   slumbot/           heads-up benchmark against Slumbot's bot API (see tools/slumbot/README.md)
   gtowizard/         heads-up benchmark against GTO Wizard AI: benchmark only, its hands are never

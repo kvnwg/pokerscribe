@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from app.state.model import Field, GameState, Player
-from app.state.positions import assign_positions
+from app.state.positions import assign_positions, posted_blinds
 from app.vision.card_recognizer import CardReading, CardRecognizer
 from app.vision.ocr import OcrEngine, TextBox
 
@@ -54,6 +54,8 @@ class TableRecognizer:
                 boxes = self.ocr.read(image)
                 boxes += self._big_amounts(image, boxes)
                 boxes += self._big_light_text(image, boxes)
+                boxes += self._short_amounts(image, boxes)
+                boxes += self._stacks_under_names(image, boxes)
                 boxes = self._verify_amounts(image, boxes)
             except Exception as exc:
                 warnings.append(f"OCR failed: {exc}")
@@ -133,10 +135,17 @@ class TableRecognizer:
             p = Player(seat=i, is_hero=s.is_hero, name=s.name, anchor=s.center)
             if s.stack is not None:
                 p.stack = Field.auto(s.stack.value, s.stack_conf, T)
+            tagged = (s.action.amount if s.action is not None and s.action.amount is not None
+                      and s.action.kind in ("bet", "call", "raise", "all-in") else None)
             if s.bet is not None:
-                p.bet = Field.auto(s.bet.value, s.bet_conf, T)
-            elif s.action is not None and s.action.amount is not None and s.action.kind in ("bet", "call", "raise", "all-in"):
-                p.bet = Field.auto(s.action.amount, s.action_conf * 0.9, T)
+                value, conf = s.bet.value, s.bet_conf
+                if tagged is not None and abs(tagged - value) < 1e-6:
+                    conf = min(0.97, max(conf, s.action_conf * 0.9) + 0.1)  # chips and tag agree
+                elif tagged is not None and s.action_conf * 0.9 > conf:
+                    value, conf = tagged, s.action_conf * 0.9
+                p.bet = Field.auto(value, conf, T)
+            elif tagged is not None:
+                p.bet = Field.auto(tagged, s.action_conf * 0.9, T)
             elif has_ocr:
                 p.bet = Field.auto(0.0, no_bet_conf, T)  # nothing in front of this seat
             if s.action is not None:
@@ -160,12 +169,28 @@ class TableRecognizer:
             players.insert(0, hero)
         st.players = players
 
+        hero_acting = lay.acting_seat is not None and lay.seats[lay.acting_seat].is_hero
         if lay.hero_to_act is True:
-            st.hero_to_act = Field.auto(True, lay.hero_to_act_conf, T)
-            st.available_actions = Field.auto(list(lay.actions), lay.actions_conf, T)
+            conf = lay.hero_to_act_conf
+            if hero_acting:  # the buttons and the timer on your seat agree
+                conf = max(conf, min(0.95, 0.5 * (conf + lay.acting_conf) + 0.1))
+            st.hero_to_act = Field.auto(True, conf, T)
+            st.available_actions = Field.auto(list(lay.actions), max(lay.actions_conf, conf if hero_acting else 0.0), T)
         elif lay.hero_to_act is False:
             st.hero_to_act = Field.auto(False, lay.hero_to_act_conf, T)
             st.available_actions = Field.auto([], lay.hero_to_act_conf, T)
+        elif lay.acting_seat is not None and not lay.seats[lay.acting_seat].is_hero:
+            # the timer bar or glow is on another seat and no buttons are showing
+            st.hero_to_act = Field.auto(False, lay.acting_conf, T)
+            st.available_actions = Field.auto([], lay.acting_conf, T)
+
+        if street == "preflop" and not st.blinds.known:
+            # no stakes printed (or not read): the chips the blinds put in front of them say
+            # what they are, so the big blind's own chips never look like a raise
+            posted = posted_blinds(players)
+            if posted is not None:
+                confs = [p.bet.confidence for p in players if p.bet.known and float(p.bet.value or 0) in posted]
+                st.blinds = Field.auto(posted, round(0.95 * min(confs), 3) if confs else 0.0, T)
 
         st.to_call = self._to_call(st, lay)
         return st
@@ -209,8 +234,11 @@ class TableRecognizer:
                     big = cv2.resize(crop, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
                     found = sorted(self.ocr.read(big), key=lambda t: t.x)
                     line = ("".join(t.text for t in found), min(t.confidence for t in found)) if found else None
-                if not line or (uses_symbol and not re.match(r"^\s*[$€£]", line[0])):
-                    continue  # this read lost the "$": don't count it
+                needs_symbol = uses_symbol and (suspicious or re.match(r"^\s*[$€£]", b.text))
+                # (in some fonts the OCR reads the "$" as a colon, "：800": still a sign, not a digit)
+                if not line or (needs_symbol and not re.match(r"^\s*[$€£:：]", line[0])):
+                    continue  # this read lost the "$": don't count it (bets some clients
+                    # print without it, next to stacks with it, are read as they are)
                 amount = parse_amount(line[0])
                 if amount is not None:
                     reads.append((amount.value, line[0], line[1]))
@@ -219,7 +247,8 @@ class TableRecognizer:
                 if agreed:
                     same = [r for r in reads if r[0] == agreed[0]]
                     text = b.text if b.text in [r[1] for r in same] else max(same, key=lambda r: r[2])[1]
-                    decided = TextBox(text, max(r[2] for r in same), b.x, b.y, b.w, b.h)
+                    # two reads agreeing is the proof: more certain than either read alone
+                    decided = TextBox(text, min(0.9, max(r[2] for r in same) + 0.15), b.x, b.y, b.w, b.h)
                     break
             out.append(decided or TextBox(b.text, min(b.confidence, 0.2), b.x, b.y, b.w, b.h))
         return out
@@ -269,6 +298,107 @@ class TableRecognizer:
             line = self.ocr.read_line(crop) if crop.size else None
             if line and line[1] >= 0.5 and parse_amount(line[0]) is not None and any(ch.isdigit() for ch in line[0]):
                 out.append(TextBox(line[0], line[1], x, y, w, h))
+        return out
+
+    def _stacks_under_names(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:
+        """A folded player's plate is dimmed, and its stack (grey on dark) can be missed by the
+        text finder. A name with nothing under it: read the spot under it directly. Without
+        its stack the seat would be lost, and every position after it would shift."""
+        import re
+        import unicodedata
+
+        from .amounts import parse_amount
+        from .layout import ACTION_RE, HAND_ID_RE, POT_RE, PRE_ACTION_RE, STATUS_RE
+
+        H, W = image.shape[:2]
+        out: List[TextBox] = []
+        for b in boxes:
+            t = b.text.strip()
+            if (not re.search(r"[A-Za-z]", t) or len(t) > 18 or parse_amount(t) is not None or ACTION_RE.match(t)
+                    or STATUS_RE.search(t) or PRE_ACTION_RE.search(t) or POT_RE.search(t) or HAND_ID_RE.search(t)
+                    or b.cy < 0.08 * H):
+                continue
+            x0, x1 = int(b.x - 0.4 * b.w), int(b.right + 0.4 * b.w)
+            y0, y1 = int(b.bottom - 0.1 * b.h), int(b.bottom + 1.4 * b.h)
+            if any(o is not b and o.x < x1 and x0 < o.right and o.y < y1 and y0 < o.bottom for o in boxes + out):
+                continue  # something was read there already
+            crop = image[max(0, y0): min(H, y1), max(0, x0): min(W, x1)]
+            line = self.ocr.read_line(crop) if crop.size else None
+            if not line:
+                continue
+            text = unicodedata.normalize("NFKC", line[0]).strip()
+            if parse_amount(text) is not None and any(ch.isdigit() for ch in text):
+                out.append(TextBox(text, line[1], max(0, x0), max(0, y0), min(W, x1) - max(0, x0),
+                                   min(H, y1) - max(0, y0)))
+        return out
+
+    def _short_amounts(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:
+        """Short amounts on the felt that the text finder skipped ("$2", a lone "6" by a bet's
+        chip): light text of the usual height that no box covers, read directly. A bet that
+        isn't found counts as no bet at all, so a missed "6" would turn a raise into nothing."""
+        import re
+        import unicodedata
+
+        import cv2
+
+        from .amounts import parse_amount
+
+        H, W = image.shape[:2]
+        if not boxes:
+            return []
+        median_h = float(np.median([b.h for b in boxes]))
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        light = ((hsv[..., 2] >= 190) & (hsv[..., 1] <= 70)).astype(np.uint8)
+        n, _, stats, _ = cv2.connectedComponentsWithStats(light, connectivity=8)
+        comps = []
+        for i in range(1, n):
+            x, y, w, h, area = (int(v) for v in stats[i])
+            if not (0.45 * median_h <= h <= 1.3 * median_h and w <= 1.5 * h):
+                continue
+            if 0.8 <= w / h <= 1.25 and (area < 0.35 * w * h or area > 0.5 * w * h and h >= median_h):
+                continue  # round: a chip's outline, or the dealer button
+            if area > 0.75 * w * h:
+                continue  # solid: a card or a button
+            if not (0.1 * W <= x + w / 2 <= 0.9 * W and 0.1 * H <= y + h / 2 <= 0.88 * H):
+                continue
+            comps.append([x, y, w, h])
+        comps.sort()
+        lines: List[List[int]] = []
+        for c in comps:
+            for ln in lines:
+                lx, ly, lw, lh = ln
+                overlap = min(ly + lh, c[1] + c[3]) - max(ly, c[1])
+                if overlap > 0.5 * min(lh, c[3]) and 0 <= c[0] - (lx + lw) < 0.6 * max(lh, c[3]):
+                    nx, ny = min(lx, c[0]), min(ly, c[1])
+                    ln[:] = [nx, ny, max(lx + lw, c[0] + c[2]) - nx, max(ly + lh, c[1] + c[3]) - ny]
+                    break
+            else:
+                lines.append(list(c))
+        out: List[TextBox] = []
+        for x, y, w, h in lines:
+            if w > 6 * h or any(x < b.x + b.w and b.x < x + w and y < b.y + b.h and b.y < y + h for b in boxes):
+                continue
+            px, py = int(0.6 * h), int(0.35 * h)
+            cx0, cy0 = max(0, x - px), max(0, y - py)
+            crop = image[cy0: min(H, y + h + py), cx0: min(W, x + w + px)].copy()
+            if crop.size == 0:
+                continue
+            # only the text: the chip beside it would read as a "1" or a "0" ("19" for a 9)
+            border = np.concatenate([crop[0], crop[-1], crop[:, 0], crop[:, -1]])
+            keep = np.zeros(crop.shape[:2], bool)
+            keep[max(0, y - cy0 - 1): y - cy0 + h + 1, max(0, x - cx0 - 1): x - cx0 + w + 1] = True
+            crop[~keep] = np.median(border, axis=0).astype(crop.dtype)
+            line = self.ocr.read_line(crop)
+            if not line:
+                continue
+            text = unicodedata.normalize("NFKC", line[0]).strip()
+            amount = parse_amount(text)
+            if amount is None or amount.value <= 0 or not any(ch.isdigit() for ch in text):
+                continue
+            conf = line[1]
+            if not re.search(r"[$€£]", text) and len(re.sub(r"\D", "", text)) == 1:
+                conf = min(conf, 0.45)  # a lone digit: never sure enough to count on its own
+            out.append(TextBox(text, conf, x, y, w, h))
         return out
 
     def _big_amounts(self, image: np.ndarray, boxes: List[TextBox]) -> List[TextBox]:

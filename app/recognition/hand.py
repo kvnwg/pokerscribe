@@ -8,9 +8,12 @@ checks:
 - a card read for sure, or confirmed by you, stays known for the rest of the hand;
 - new board cards are added as they come (matched by where they lie on the table, so a
   card missed in one read keeps its place);
-- a new hand is recognised from clear evidence: different hole cards, a different card
-  where a board card was, the pot starting over, the stacks showing a new hand began, or
-  the board and your cards gone and back. One odd frame is not enough.
+- a new hand is recognised from clear evidence: a new hand number, different hole cards,
+  a different card where a board card was, the board cleared while you have cards, the
+  pot starting over, the stacks showing a new hand began, or your cards gone and back.
+
+When in doubt it is a new hand: forgetting a card only means it is read (or asked) again,
+while last hand's cards carried into this one would be advice on the wrong cards.
 """
 from __future__ import annotations
 
@@ -31,6 +34,24 @@ class _BoardCard:
     field: Field  # known value with its confidence and source
 
 
+CLEAR_GUESS = 0.6  # an unsure read this confident is a clear card not yet confirmed, not a covered one
+
+
+def _fits(read: Field, remembered: Field) -> bool:
+    """Can a card remembered from earlier in the hand fill this unsure read? Not when the
+    read clearly sees another card there (its best guess differs in both rank and suit):
+    then it is probably a new hand whose start was missed, with one hole card the same as
+    last hand's by chance, and last hand's other card must not come back. A card covered by
+    chips (a weak guess) and a card you confirmed always fill."""
+    guess = read.guess
+    if remembered.source == "manual" or not isinstance(guess, str) or len(guess) != 2:
+        return True
+    if read.confidence < CLEAR_GUESS:
+        return True
+    value = str(remembered.value)
+    return guess[0] == value[0] or guess[1] == value[1]
+
+
 class HandMemory:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -43,18 +64,22 @@ class HandMemory:
         self._view: List[Tuple[float, float]] = []  # (x, w) of each card in the board last shown
         self._last_pot: Optional[float] = None
         self._empty_reads = 0  # reads in a row with no cards of yours and no board
+        self._hand_id: Optional[str] = None  # the client's hand number, when it shows one
         self._started = False
         self._content = False  # this hand has known cards (so a new one counts as another hand)
 
     # ------------------------------------------------------------ public
     def update(self, state: GameState, board_boxes: List[Tuple[float, float, float, float]],
-               stacks_new_hand: bool = False) -> bool:
+               stacks_new_hand: bool = False, hand_id: Optional[str] = None) -> bool:
         """Merge one read into the hand (filling in cards known earlier in it) and return
         True when this read starts a new hand. board_boxes: (x, y, w, h) of each board card
-        in `state.board`, in the same order."""
+        in `state.board`, in the same order. hand_id: the hand number on screen, if any."""
         with self._lock:
             reads = [(x + w / 2.0, float(w), f) for (x, _, w, _), f in zip(board_boxes, state.board)]
             new = self._new_hand(state, reads, stacks_new_hand)
+            if hand_id:
+                new = new or (self._hand_id is not None and hand_id != self._hand_id)
+                self._hand_id = hand_id
             if new:
                 self._begin()
             self._merge_hero(state)
@@ -132,13 +157,25 @@ class HandMemory:
             return True
         # your cards and the board gone (the hand ended), then cards again
         has_cards = any(f.known or f.guess for f in state.hero_cards)
+        same_cards = bool(seen) and seen <= mine and len(mine) == 2
         if not has_cards and not state.board:
             self._empty_reads += 1
             return False
-        came_back = self._empty_reads >= 2 and has_cards
+        gap = self._empty_reads if has_cards else 0
         self._empty_reads = 0
-        if came_back and not (seen and seen <= mine and len(mine) == 2):
-            return True  # (the same two cards back again: just a gap in the reads)
+        if gap and not same_cards:  # (the same two cards back again: just a gap in the reads)
+            if gap >= 2:
+                return True
+            # One empty read can be a frame where nothing could be seen: it is the same hand
+            # if a board card or one of your cards (even a guess at it) is still the same.
+            board_same = any(f.known and (slot := self._find(x, w)) is not None and slot.field.value == f.value
+                             for x, w, f in reads)
+            guessed = {f.guess for f in state.hero_cards if not f.known and isinstance(f.guess, str)}
+            if not board_same and not ((seen | guessed) & mine):
+                return True
+        # the board was cleared while you have cards: the board never shrinks in a hand
+        if not reads and len(self._board) >= 3 and has_cards and not same_cards:
+            return True
         return False
 
     def _merge_hero(self, state: GameState) -> None:
@@ -160,7 +197,10 @@ class HandMemory:
         spare = [h for h in mine if h.value not in known_here]
         for i, f in enumerate(fields):
             if not f.known and spare:
-                h = spare.pop(0)
+                h = next((c for c in spare if _fits(f, c)), None)
+                if h is None:
+                    continue  # this read sees another card there: leave it UNKNOWN (ask)
+                spare.remove(h)
                 fields[i] = Field(h.value, h.confidence, h.source)
 
     def _merge_board(self, state: GameState, reads) -> None:

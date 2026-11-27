@@ -79,8 +79,48 @@ def test_bigger_blinds_need_two_hands_to_be_believed():
     t.update(capture(FULL, cards=None, positions=pos))
     st = capture(dict(FULL, John=999, Mike=998), pot=3, positions=pos)
     assert t.update(st).valid and st.blinds.value == (1, 2)
-    # a capture that already shows the small blind's raise to 6 and the big blind's
-    # re-raise to 18: one such hand doesn't make it a 6/18 game
+    # a capture that already shows your call of 2, the small blind's raise to 6 and the big
+    # blind's re-raise to 18: one such hand doesn't make it a 6/18 game. (With nothing of yours
+    # in, it couldn't be raises: before the flop the blinds act after you.)
     t.update(capture(dict(FULL, John=999, Mike=1001), cards=None, positions=pos))
-    st = capture(dict(FULL, John=993, Mike=983), cards=("Qs", "9d"), pot=24, positions=pos)
+    st = capture(dict(FULL, hero=998, John=993, Mike=983), cards=("Qs", "9d"), pot=26, positions=pos)
     assert t.update(st).valid and st.blinds.value == (1, 2)
+
+
+def test_blinds_that_go_up_are_believed_on_your_first_move():
+    """Kevin: "the game still gets confused thinking blinds are reraises". In a tournament the
+    blinds went up from 1/2 to 2/4. The tracker kept 1/2 until 2/4 had been seen in two hands,
+    so the big blind's 4 was a raise to two big blinds and the hijack's open to 10 a re-raise:
+    "a raise and a re-raise", fold. On your first move before the flop (not in the blinds,
+    nothing put in) nobody after you has acted yet, so the blinds' chips are the blinds."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    st = capture(dict(FULL, John=999, Mike=998), pot=3)  # blinds 1/2
+    assert t.update(st).valid and st.blinds.value == (1, 2)
+    t.update(capture(dict(FULL, John=999, Mike=1001), cards=None))  # the big blind wins it
+    # blinds 2/4 now: John posts 2, Mike 4, George (hijack) opens to 10, your move (cutoff)
+    st = capture(dict(FULL, John=997, Mike=997, George=990), cards=("Ah", "Qs"), pot=16)
+    assert t.update(st).valid and st.blinds.value == (2, 4)
+    a = advise(st, budget_ms=150)
+    assert "a raise and a re-raise" not in a.reason, (a.headline, a.reason)
+    # the next hand's first picture is missed: the blinds carried over are the new ones
+    t.update(capture(dict(FULL, John=997, Mike=997, George=1006), cards=None))  # George wins it
+    t.update(capture(dict(FULL, John=995, Mike=993, George=996, Deja=990), cards=None))
+    st = capture(dict(FULL, John=995, Mike=993, George=996, Deja=990, hero=990), cards=("Ah", "Qs"), pot=36)
+    assert t.update(st).valid and st.blinds.value == (2, 4)
+
+
+def test_a_blinds_line_beats_blinds_carried_over_from_earlier_hands():
+    """The blinds went up and the first picture of the hand was missed, so the chips the blinds
+    posted weren't seen alone. The 1/2 of earlier hands were carried over and overruled the
+    table's own line, "Blinds 2/4", which the chips posted fit."""
+    t = HandTracker()
+    t.update(capture(FULL, cards=None))
+    st = capture(dict(FULL, John=999, Mike=998), pot=3)
+    assert t.update(st).valid and st.blinds.value == (1, 2)
+    t.update(capture(dict(FULL, John=999, Mike=1001), cards=None))
+    t.update(capture(dict(FULL, John=997, Mike=997), cards=None))  # 2/4 posted, no cards read yet
+    st = capture(dict(FULL, John=997, Mike=997, George=990), cards=("Ah", "Qs"), pot=16)
+    st.blinds = Field.auto((2.0, 4.0), 0.9, 0.5)
+    t.update(st)
+    assert st.blinds.value == (2, 4)

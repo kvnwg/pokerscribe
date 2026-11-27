@@ -114,3 +114,55 @@ def test_hand_count_ignores_the_gap_between_hands():
     assert m.number == 1
     m.update(*read(hero=("7s", "4s"), pot=3), stacks_new_hand=True)
     assert m.number == 2
+
+
+def test_next_hand_after_one_empty_read_does_not_keep_last_hands_cards():
+    """Last hand ended before the flop; one empty read, then new cards not yet read for sure.
+    Nothing ties them to the old hand, so they must not be filled in with last hand's cards."""
+    m = HandMemory()
+    m.update(*read(hero=("Ah", "Ac"), board=()))
+    m.update(*read(hero=(), board=(), pot=None))
+    st, boxes = read(hero=(None, None), board=(), pot=None, guesses=None)
+    assert m.update(st, boxes)
+    assert not any(c.known for c in st.hero_cards)
+
+
+def test_board_cleared_while_you_have_cards_is_a_new_hand():
+    """The board never shrinks within a hand: it went from five cards to none."""
+    m = HandMemory()
+    m.update(*read(hero=("Ah", "Ac"), board=("3h", "8d", "Td", "6d", "Jc")))
+    st, boxes = read(hero=(None, None), board=(), pot=None)
+    assert m.update(st, boxes)
+    assert st.board == [] and not any(c.known for c in st.hero_cards)
+
+
+def test_a_new_hand_number_is_a_new_hand():
+    m = HandMemory()
+    m.update(*read(hero=("Ah", "Ac")), hand_id="357618001")
+    assert not m.update(*read(hero=("Ah", None)), hand_id="357618001")
+    st, boxes = read(hero=(None, None))
+    assert m.update(st, boxes, hand_id="357618002")
+    assert not any(c.known for c in st.hero_cards)
+
+
+def test_last_hands_card_does_not_fill_a_card_read_as_something_else():
+    """Found by tools/selftest.py: hand 12 was 3d 4c, hand 13 Ah 3d, and the empty moment
+    between them was missed. The 3d matched, so it looked like the same hand, and the unsure
+    Ah was filled in as 4c. A guess that differs in rank and suit must not be overwritten."""
+    m = HandMemory()
+    m.update(*read(hero=("3d", "4c"), pot=None))
+    st, boxes = read(hero=(None, "3d"), pot=None)
+    st.hero_cards[0].guess, st.hero_cards[0].confidence = "Ah", 0.63  # clear, just not confirmed yet
+    m.update(st, boxes)
+    assert st.hero_cards[0].value is None and st.hero_cards[1].value == "3d"
+
+
+def test_a_confirmed_card_fills_whatever_the_guess():
+    m = HandMemory()
+    st, boxes = read(hero=(None, "Th"))
+    m.update(st, boxes)
+    m.confirm("hero", 0, "Qd")
+    st, boxes = read(hero=(None, "Th"))
+    st.hero_cards[0].guess, st.hero_cards[0].confidence = "8c", 0.63  # the same misread again
+    m.update(st, boxes)
+    assert st.hero_cards[0].value == "Qd"

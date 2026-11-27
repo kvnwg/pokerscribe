@@ -191,3 +191,37 @@ def test_defaults_are_the_frozen_baseline():
         baseline = json.load(f)
     current = json.loads(json.dumps(advice.TUNING))  # tuples become lists, as in the file
     assert current == baseline
+
+
+def test_committed_short_stack_raise_is_judged_as_all_in():
+    """The committed_raise option (off by default): a short stack raising to 30 of its 100 at
+    5/10 is really all in. Decide on the whole effective stack against what that seat raises
+    with (push-or-fold charts): K9 offsuit goes all in against the button, folds against
+    under the gun; AK always goes; 72 never."""
+    from app.state.model import Action, Field, GameState, Player
+
+    def spot(cards, raiser):
+        order = ["BTN", "SB", "BB", "UTG", "HJ", "CO"]
+        players = []
+        for i, p in enumerate(order):
+            hero, vill = p == "BB", p == raiser
+            bet = 10.0 if hero else 30.0 if vill else {"SB": 5.0}.get(p, 0.0)
+            stack = 590.0 if hero else 70.0 if vill else 600 - bet
+            players.append(Player(seat=i, is_hero=hero, position=Field.manual(p), stack=Field.manual(stack),
+                                  bet=Field.manual(bet), in_hand=Field.manual(hero or vill)))
+        st = GameState(hero_cards=[Field.manual(c) for c in cards], players=players)
+        st.street, st.pot, st.blinds = Field.manual("preflop"), Field.manual(0.0), Field.manual((5.0, 10.0))
+        st.to_call, st.hero_to_act = Field.manual(20.0), Field.manual(True)
+        st.available_actions = Field.manual([Action("fold"), Action("call", 20.0), Action("raise")])
+        return advice.advise(st)
+
+    saved = advice.TUNING["committed_raise"]
+    advice.TUNING["committed_raise"] = 0.25
+    try:
+        assert spot(("Kh", "9c"), "BTN").amount == 100 and "all in" in spot(("Kh", "9c"), "BTN").reason
+        assert spot(("Kh", "9c"), "UTG").action == "fold"
+        assert spot(("Ah", "Kd"), "UTG").amount == 100
+        assert spot(("7h", "2c"), "BTN").action == "fold"
+    finally:
+        advice.TUNING["committed_raise"] = saved
+    assert "really all in" not in spot(("Kh", "9c"), "BTN").reason  # off: the usual chart

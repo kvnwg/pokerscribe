@@ -259,3 +259,29 @@ def test_one_instruction_per_spot(qapp, tmp_home):
     assert w._steady(call, st(pot=14.0, to_call=4.0)).headline == "CALL 4"  # someone bet: new move
     assert w._steady(check, st(pot=14.0, board=("2h", "6c", "Tc", "Js"))).headline == "CHECK"  # new card
     w.close()
+
+
+def test_check_turning_into_call_is_a_new_spot(qapp, tmp_home):
+    """Kevin on 247: "the guy just bet and it's telling me to check". You check, the bot bets at
+    once (its turn never captured), and the next read can't work out the price (247 prints no
+    bets). Only the buttons changed, Check to Call: that is a bet, never a value merely lost."""
+    from app.poker.advice import Advice
+    from app.state.model import Action, Field, GameState
+
+    w = MainWindow(Settings())
+
+    def st(buttons, to_call):
+        s = GameState(hero_cards=[Field.manual("Qd"), Field.manual("Th")],
+                      board=[Field.manual(c) for c in ("2h", "6c", "Tc")])
+        s.pot = Field.manual(10.0)
+        s.to_call = Field.manual(to_call) if to_call is not None else Field()
+        s.hero_to_act = Field.manual(True)
+        s.available_actions = Field.manual(buttons) if buttons is not None else Field()
+        return s
+
+    check = Advice("check", "CHECK", "medium")
+    call = Advice("call", "CALL UP TO 12", "price unknown")
+    assert w._steady(check, st([Action("check"), Action("bet")], 0.0)).headline == "CHECK"
+    assert w._steady(check, st(None, None)).headline == "CHECK"  # buttons not read once: keep the move
+    assert w._steady(call, st([Action("fold"), Action("call"), Action("raise")], None)).headline == "CALL UP TO 12"
+    w.close()

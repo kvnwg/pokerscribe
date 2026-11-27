@@ -180,7 +180,8 @@ class SimpleView(QWidget):
         self.explain_btn.hide()
         self.save_btn = QPushButton("Save last reads")
         self.save_btn.setToolTip("Something looks wrong? Saves the last reads (pictures of the table box and what "
-                                 "was read) to a folder on your Mac, to send to Claude. Nothing is sent anywhere.")
+                                 "was read) to a folder on your Mac, with a note on what went wrong. Sent to your private "
+                                 "GitHub repository for Claude only if you set up Settings, Send reads.")
         self.save_btn.clicked.connect(self.saveReadsRequested)
         bottom.addWidget(self.on_top)
         bottom.addStretch(1)

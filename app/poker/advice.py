@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from app.state.model import GameState, Player
-from app.state.positions import label as position_label
+from app.state.positions import label as position_label, posted_blinds
 from app.state.text_format import card_symbol, fmt_amount
 
 from . import charts, exploits, hands
@@ -193,6 +193,12 @@ TUNING = {
     # out of position heads-up on the flop, on boards that favour the preflop raiser (high
     # cards, paired, one suit or dry): lead only from this chance of winning (0 = off)
     "oop_lead": 0.0,
+    # Facing one raise from a short stack that has committed itself (its raise is at least this
+    # share of its chips, or it has 15 big blinds or fewer): what matters is the effective stack,
+    # so decide as if all in, on the odds against the hands short stacks raise with, and put
+    # them all in when it pays (Mathematics of Poker, jam or fold; Harrington, effective
+    # stacks). 0 = off: the usual chart for calling a raise.
+    "committed_raise": 0.0,
     # river, heads-up: play the river solver's strategy (app/solver) when it answers within
     # its time budget; otherwise, and on every other street, the rules above decide
     "river_solver": False,
@@ -334,7 +340,7 @@ def advise(state: GameState, computed: Optional[dict] = None, range_spec: Option
     waiting = _waiting_on_others(s)
     if waiting:
         return Advice("wait", "WAIT", waiting, basis="none", hand=text)
-    adv = _legal_size(s, _never_fold_a_free_check(s, _preflop(s) if not board else _postflop(s)))
+    adv = _legal_size(s, _never_fold_a_free_check(s, _never_check_a_bet(s, _preflop(s) if not board else _postflop(s))))
     adv.hand = text
     if not state.hero_to_act.known:
         adv.detail = _join(adv.detail, "(No action buttons visible: this is the plan for when it's your turn.)")
@@ -342,6 +348,18 @@ def advise(state: GameState, computed: Optional[dict] = None, range_spec: Option
 
 
 # ---------------------------------------------------------------- shared
+def _never_check_a_bet(s: _Spot, adv: Advice) -> Advice:
+    """The other last check: CHECK only when checking is possible. With a Call button and no
+    Check button (or a bet worked out to call), a free look isn't on offer: the instruction
+    wanted to put nothing in, so it folds. (8-player self-test: a seat missed, you were read
+    as the big blind, and "CHECK" was shown over a Call 200 button.)"""
+    if adv.action != "check" or s.can_check is not False:
+        return adv
+    owed = f"There's {_amt(s.to_call)} to call" if s.to_call else "There's a bet to call"
+    return Advice("fold", "FOLD", f"{owed}, so it isn't free, and this hand was only worth a free look. Fold.",
+                  basis=adv.basis, detail=adv.detail, hand=adv.hand)
+
+
 def _never_fold_a_free_check(s: _Spot, adv: Advice) -> Advice:
     """The last check on every instruction: folding when checking costs nothing is never
     right. When it can't tell whether there's a bet, say both."""
@@ -662,6 +680,79 @@ def _top_pair_plus(hero: Tuple[str, ...], board: Tuple[str, ...]) -> bool:
     return top in mine
 
 
+BEHIND = {"UTG": 5, "UTG+1": 5, "UTG+2": 5, "MP": 4, "LJ": 4, "HJ": 4, "CO": 3, "BTN": 2, "SB": 1, "BTN/SB": 1}
+
+
+def _vs_committed_raise(s: _Spot, raiser: Player, raiser_pos: Optional[str], name: str) -> Optional[Advice]:
+    """One raise from a short stack that is committed: decide on the whole effective stack,
+    against the hands a stack that short plays from that seat (the push-or-fold charts: it
+    raises about what it would move all in with). None when it doesn't apply, or a number it
+    needs wasn't read reliably."""
+    if not (s.bb and s.trusted and s.pot is not None and s.total is not None
+            and raiser.stack.known and raiser.bet.known):
+        return None
+    bet, behind = float(raiser.bet.value), float(raiser.stack.value)
+    total = bet + behind
+    if total <= 0 or not (bet >= TUNING["committed_raise"] * total or total <= 15 * s.bb):
+        return None
+    eff = min(total, s.total)
+    seat = exploits.opener_seat(raiser, raiser_pos)  # a loose player raises like the button
+    share = push_share(BEHIND.get(seat or "", 4), total / s.bb)
+    try:
+        r = equity(s.hero, (), 1, ranges.top_fraction(share), budget_s=TUNING["allin_budget_s"],
+                   max_iterations=TUNING["facing_iterations"])
+    except ValueError:
+        return None
+    mine = s.hero_bet or 0.0
+    dead = max(0.0, s.pot - bet - mine)  # the blinds and folded chips already in
+    final = dead + 2 * eff
+    add = eff - mine
+    need = add / final
+    word = f"they have {_amt(total)} in all, so it's really all in"
+    if r.equity * final - add > 0:
+        reason = (f"{word.capitalize()}: {name} wins about {_pct(r.equity)} against the {_top(share)} they raise with "
+                  f"and needs {_pct(need)}.")
+        if s.can_raise and total < s.total:
+            return _aggressive(s, "raise", total, _join(reason, "Put them all in."), basis="math")
+        return _call(s, reason, basis="math")
+    return Advice("fold", "FOLD", f"{word.capitalize()}: {name} wins about {_pct(r.equity)} against the "
+                                  f"{_top(share)} they raise with but needs {_pct(need)}.", basis="math")
+
+
+def _at_most(p, bb: float) -> bool:
+    """This player's chips in front are no more than the big blind."""
+    try:
+        return p.bet.known and float(p.bet.value) <= 1.01 * bb
+    except (TypeError, ValueError):
+        return False
+
+
+def _posted_bb(s: _Spot) -> Optional[float]:
+    """The big blind when the stakes weren't read: the smallest bet in front of an opponent
+    (everyone still in has put in at least the big blind, the small blind aside), or twice
+    the small blind's chips (even faint reads). Not the big blind's chips alone: they may be
+    a re-raise, and then a re-raise would look like nobody raised. Only to tell whether
+    someone raised: without it, a raise to 99 could look like nobody raised. First of all the
+    blinds' own chips, when they can be told apart (posted_blinds)."""
+    posted = posted_blinds(s.state.players)
+    if posted is not None:
+        return posted[1]
+    found = []
+    for p in s.state.players:
+        v = p.bet.value if p.bet.known else p.bet.guess
+        try:
+            v = float(v) if v is not None else None
+        except (TypeError, ValueError):
+            v = None
+        if not v or v <= 0:
+            continue
+        if p.position.known and p.position.value in ("SB", "BTN/SB"):
+            found.append(2 * v)
+        elif not p.is_hero:
+            found.append(v)
+    return min(found) if found else None
+
+
 def _preflop(s: _Spot) -> Advice:
     cls = hands.preflop_class(s.hero)
     pct = preflop_percentile(cls)
@@ -679,8 +770,17 @@ def _preflop(s: _Spot) -> Advice:
         bets = [float(p.bet.value) for p in opp if p.bet.known]
         if opp and len(bets) == len(opp):
             max_bet = max(bets)
-    raised = max_bet > 1.01 * s.bb if (s.bb and max_bet is not None) else bool(raisers)
-    hero_raised = bool(s.hero_bet and s.bb and s.hero_bet > 1.01 * s.bb) or _last(s.state.hero) in ("raise", "bet")
+    if s.to_call is not None and (max_bet is None or max_bet < s.to_call + (s.hero_bet or 0.0)):
+        # the price alone shows the biggest bet is at least this much: owing more than a big
+        # blind means someone raised, even when their chips weren't read
+        max_bet = s.to_call + (s.hero_bet or 0.0)
+    bb = s.bb or _posted_bb(s)
+    if bb:
+        # posting the big blind is no raise, whatever a tag on the plate says ("Bet 2")
+        raisers = [p for p in raisers if _last(p) == "all-in" or not _at_most(p, bb)]
+    raised = max_bet > 1.01 * bb if (bb and max_bet is not None) else bool(raisers)
+    hero_raised = bool(s.hero_bet and bb and s.hero_bet > 1.01 * bb) or (
+        _last(s.state.hero) in ("raise", "bet") and not (bb and s.hero_bet is not None and s.hero_bet <= 1.01 * bb))
     my_bb = s.hero_bb  # your own stack, read reliably; None when unsure
     all_in_vs = any(_last(p) == "all-in" for p in raisers) or (
         s.to_call is not None and s.stack is not None and s.to_call >= 0.98 * s.stack and raised)
@@ -755,6 +855,12 @@ def _preflop(s: _Spot) -> Advice:
         size_bb = max_bet / s.bb if (max_bet is not None and s.bb) else None
         cold_3bet = size_bb is not None and size_bb >= 7 or len(raisers) >= 2
         others_in = [p for p in callers if p is not raiser]
+        if TUNING["committed_raise"] and len(raisers) < 2 and not others_in and raiser is not None:
+            # (a raise of 7 big blinds or more is otherwise taken for a re-raise not seen; from
+            # a short stack it is just a big raise)
+            adv = _vs_committed_raise(s, raiser, raiser_pos, name)
+            if adv is not None:
+                return adv
         if cold_3bet:
             move, spot = charts.cold_vs_3bet(cls), "a raise and a re-raise"
         elif others_in:
@@ -806,7 +912,9 @@ def _preflop(s: _Spot) -> Advice:
                              "standard play.")
         return _fold_or_check(s, f"You have about {int(my_bb)} big blinds left. Wait for a better hand than "
                                  f"{name}.")
-    if s.pos == "BB" or (s.can_check and not limpers):
+    if (s.pos == "BB" and s.can_check is not False) or (s.can_check and not limpers):
+        # (the big blind sees the flop for free only when checking is on offer: with a Call
+        # button and no Check, the seat was misread or someone put in more)
         if charts.vs_limpers("BB", cls) == "raise" and s.can_raise:
             to = (3.5 + limpers) * s.bb if s.bb else None
             return _aggressive(s, "raise", to, f"{name} is a {top} hand. Raise instead of checking.",

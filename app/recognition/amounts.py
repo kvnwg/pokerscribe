@@ -6,6 +6,7 @@ Handles "1,250", "1 250", "$12.50", "12,50" (decimal comma), "1.5K", "2M",
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -31,16 +32,25 @@ AMOUNT_RE = re.compile(
 
 
 def _repair(token: str) -> Tuple[str, bool]:
-    """Fix letters that OCR often confuses with digits, only inside number-like tokens."""
-    digits = sum(ch.isdigit() for ch in token)
-    if digits == 0 or digits < len(token) * 0.5:
+    """Fix letters that OCR often confuses with digits, only inside number-like tokens
+    (what follows a currency sign: "pot:$1o" is $10)."""
+    head, cur, tail = "", "", token
+    m = re.search(rf"[{CURRENCY}]", token)
+    if m:
+        head, cur, tail = token[: m.start()], m.group(), token[m.end():]
+    digits = sum(ch.isdigit() for ch in tail)
+    if digits == 0 or digits < len(tail) * 0.5:
         return token, False
-    fixed = token.translate(str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "|": "1"}))
+    fixed = head + cur + tail.translate(str.maketrans({"O": "0", "o": "0", "D": "0", "l": "1", "I": "1", "i": "1", "|": "1"}))
     return fixed, fixed != token
 
 
 def _to_number(num: str) -> Optional[float]:
     num = num.replace("\u00a0", "").replace("\u202f", "").replace(" ", "")
+    if re.fullmatch(r"[1-9]\d{0,2}\.\d{3}", num):
+        # "2.035": money never has three digits after the point. A thousands point
+        # ("2.035" in Europe), or "2,035" with the comma read as a point by OCR.
+        return float(num.replace(".", ""))
     if "," in num and "." in num:
         if num.rfind(",") > num.rfind("."):  # 1.234,56
             num = num.replace(".", "").replace(",", ".")
@@ -60,6 +70,7 @@ def _to_number(num: str) -> Optional[float]:
 
 def find_amounts(text: str) -> List[Tuple[Amount, int, int]]:
     """All amounts in `text` with their (start, end) positions."""
+    text = unicodedata.normalize("NFKC", text)  # full-width digits ("６") from some OCR reads
     repaired_parts = []
     corrected = False
     for tok in re.split(r"(\s+)", text):
@@ -88,12 +99,30 @@ def find_amounts(text: str) -> List[Tuple[Amount, int, int]]:
 
 def parse_amount(text: str) -> Optional[Amount]:
     """The amount when `text` is essentially just an amount (e.g. a stack label)."""
-    stripped = text.strip()
+    # full-width signs from the OCR: a "$" read as "：" ("：1300") is a colon like any other
+    stripped = unicodedata.normalize("NFKC", text).strip()
+    # the rounded end of a plate read as a bracket on one side only: "[1,136$", "(1,185$"
+    if stripped[:1] in "[({" and not re.search(r"[\])}]", stripped):
+        stripped = stripped[1:].lstrip()
+    elif stripped[-1:] in "])}" and not re.search(r"[\[({]", stripped):
+        stripped = stripped[:-1].rstrip()
+    # a chip or coin icon before the number, read as a lone "0", "o" or "@" ("0 210"): no
+    # amount starts with a lone 0. Or glued to the number as a round letter ("C210", "©70";
+    # an "O" becomes a 0 anyway)
+    stripped = re.sub(r"^[0oO@©®•°*]\s+(?=[$€£¥₹]?\s*\d)", "", stripped)
+    # a coin icon before the currency sign, read as a symbol or a round letter: "+$ 19700",
+    # "O$ 19700". (A bare "+30", a time bank, stays no amount)
+    stripped = re.sub(r"^[cCGeQOo0@©®•°*+·]\s*(?=[$€£¥₹]\s*\d)", "", stripped)
+    stripped = re.sub(r"^[cCGeQ@©®•°*](?=\d[\d.,]*\d)", "", stripped)
+    # a gap read after the thousands comma: "$ 3, 940" is one amount, not a 3 and a 940
+    stripped = re.sub(r"(?<=\d),\s+(?=\d{3}(?!\d))", ",", stripped)
     found = find_amounts(stripped)
     if len(found) != 1:
         return None
     amount, start, end = found[0]
     rest = (stripped[:start] + stripped[end:]).strip(" :.,-")
+    if len(rest) == 1 and rest in CURRENCY and stripped.endswith(rest):
+        rest = ""  # "12,400$", "20 €": the currency after the number
     if rest and not re.fullmatch(r"(?i)(bb|chips?)", rest):
         return None
     return amount
@@ -124,6 +153,7 @@ def parse_blinds(text: str) -> Optional[Tuple[float, float]]:
     """'Blinds 5/10', 'NLH $0.05/$0.10', '25/50 ante 5' -> (sb, bb)."""
     if "pot" in text.lower():
         return None  # bet-sizing buttons such as "1/2 Pot"
+    text = re.sub(r"(?<=/)\s*[sS](?=\d)", "$", text)  # "$1/s2": OCR read the second "$" as an s
     for m in BLINDS_RE.finditer(text):
         if _NOT_BLINDS_BEFORE.search(text[:m.start()]):
             continue

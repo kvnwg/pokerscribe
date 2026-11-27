@@ -60,6 +60,7 @@
   "bucket_sizing": false,
   "small_bet_from": 0.0,
   "oop_lead": 0.0,
+  "committed_raise": 0.0,
   "river_solver": false,
   "river_solver_fixed_work": false,
   "rust_solver": false

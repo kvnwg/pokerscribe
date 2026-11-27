@@ -7,7 +7,8 @@ from typing import Optional, Tuple
 
 from app import APP_NAME
 
-ENV_VARS = {"claude": "ANTHROPIC_API_KEY", "openai_compat": "OPENAI_API_KEY"}
+ENV_VARS = {"claude": "ANTHROPIC_API_KEY", "openai_compat": "OPENAI_API_KEY",
+            "github_reads": "POKERSCRIBE_GITHUB_TOKEN"}  # sending saved reads (send.py)
 
 
 def get_api_key(provider: str) -> Tuple[Optional[str], str]:
