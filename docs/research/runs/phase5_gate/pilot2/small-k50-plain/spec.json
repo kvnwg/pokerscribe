@@ -1,0 +1,13 @@
+{
+  "stack_bb": 20,
+  "menu": "small",
+  "abstraction": "/root/abstraction/k50",
+  "training": {
+    "seed": 1,
+    "threads": 4,
+    "compact_scale": 100.0,
+    "regret_floor": -3100000.0,
+    "linear": null,
+    "pruning": null
+  }
+}

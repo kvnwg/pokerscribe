@@ -1,0 +1,2 @@
+{"after":127.256,"before":126.04896,"change":0.08390576363206383,"converged":false,"from":4000000,"lbr_flat":true,"lowered_by":-1.20704,"run":"small-k50","setting":"b56_14","settled":false,"std_err":1.6817765008069463,"to":8000000}
+{"after":129.13308,"before":127.256,"change":0.07446629145969111,"converged":true,"from":8000000,"lbr_flat":true,"lowered_by":-1.87708,"run":"small-k50","setting":"b56_14","settled":true,"std_err":1.7078124966659474,"to":16000000}

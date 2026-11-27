@@ -1,0 +1,9 @@
+{
+  "best_bb_per_100": 112.30524,
+  "best_setting": "b56_14",
+  "best_std_err": 1.852963125433614,
+  "reason": "converged",
+  "run": "standard-k200",
+  "stage": 64000000,
+  "train_seconds": 1206.555100351
+}

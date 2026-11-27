@@ -1,0 +1,187 @@
+{
+  "dir": "/root/bp/gate",
+  "first": 4000000,
+  "max": 1024000000,
+  "save_every_minutes": 10.0,
+  "stage_lbr": {
+    "hands": 50000,
+    "seed": 777,
+    "settings": [
+      "b56_14",
+      "fcpa34"
+    ]
+  },
+  "final_lbr": {
+    "hands": 100000,
+    "seed": 778,
+    "settings": [
+      "b56_14",
+      "b56_34",
+      "fcpa14",
+      "fcpa34",
+      "fc34"
+    ]
+  },
+  "stop": {
+    "relative": 0.03,
+    "sigmas": 2.0,
+    "max_change": 0.08
+  },
+  "runs": [
+    {
+      "name": "small-k10",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "small",
+        "abstraction": "/root/abstraction/k10",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "small-k50",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "small",
+        "abstraction": "/root/abstraction/k50",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "small-k50eq",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "small",
+        "abstraction": "/root/abstraction/k50eq",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "small-k200",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "small",
+        "abstraction": "/root/abstraction/k200",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "standard-k10",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "standard",
+        "abstraction": "/root/abstraction/k10",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "standard-k50",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "standard",
+        "abstraction": "/root/abstraction/k50",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "standard-k50eq",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "standard",
+        "abstraction": "/root/abstraction/k50eq",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    },
+    {
+      "name": "standard-k200",
+      "spec": {
+        "stack_bb": 20,
+        "menu": "standard",
+        "abstraction": "/root/abstraction/k200",
+        "training": {
+          "seed": 1,
+          "threads": 4,
+          "compact_scale": 100.0,
+          "regret_floor": -3100000.0,
+          "linear": [
+            200000,
+            20000000
+          ],
+          "pruning": null
+        }
+      }
+    }
+  ],
+  "final_readings": [
+    "check-or-call"
+  ]
+}

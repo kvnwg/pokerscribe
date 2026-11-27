@@ -100,6 +100,11 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   buckets a street on 4 cores). Its README has the adapter to `abstract_game`'s `Bucketer`.
 - `engine/crates/lbr`: local best response (Lisy and Bowling 2017) for heads-up play (Phase 5). What it
   wins against a `Strategy` is a lower bound on how exploitable that strategy is.
+- `engine/crates/blueprint`: the heads-up blueprint (Phases 5 and 6): external-sampling MCCFR on
+  `abstract_game` with `abstraction`'s tables (threads, checkpoints, linear weighting, pruning),
+  a compact strategy file that plays as `lbr`'s `Strategy` and as the arena agent
+  `blueprint:<file>`, the Phase 5 gate runner, and the `tools/cloud` trainer contract. The Phase
+  5 gate's plan, scripts and results are in `docs/research/runs/phase5_gate/`.
 - `engine/crates/arena`: matches between agents, heads-up to six-max, duplicate deals and the all-in
   equity adjustment, bb/100 with its standard error (the tool behind the 2.5 SE rule). The `arena`
   binary plays the built-in bots.
@@ -175,10 +180,19 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   7-card hands.
 - Phase 4 is done (26 Nov 2026): the `subgame` solver passes every gate on the 40 answer-key spots
   at its default target of 0.2% of the pot (`docs/research/PHASE4.md`).
-- Phase 5 is under way. Built: `abstract_game` (bet menus, mapping rule), `lbr` (the exploiter)
-  and `abstraction` (hand buckets, 27 Nov 2026). Not yet run: its gate, LBR win rate against
-  bucket count and bet menu, which also measures the training speed and memory that Phase 6's
-  cost estimate needs.
+- Phase 5 is done (27 Nov 2026): `abstract_game` (bet menus, mapping rule), `lbr` (the
+  exploiter), `abstraction` (hand buckets) and `blueprint` (training, the strategy file, the
+  cloud trainer). Its gate failed (3 of 7 conditions) and Kevin accepted it: at 20 big blinds
+  more bet sizes lower LBR at every bucket count (8.5 to 10.5 SE) and more buckets don't, and
+  most of what LBR wins comes from bets off the menu (about 18% of the blueprint's decisions).
+  OCHS stays on the river. Being checked: the buckets half at 100 big blinds
+  (`experiments.md`, Phase 5: the gate).
+- Phase 6 is next: the heads-up blueprint at 200bb (the `rich` menu, 200 buckets: 97M
+  information sets, about 7 GB) on a c4a-highcpu-64, after a calibration run of about 2 hours
+  capped at $10 (Kevin, 27 Nov 2026). Its gate changed the same day: the last checkpoint beats
+  the first head-to-head by 2.5 SE, and it beats B0 heads-up by 2.5 SE; LBR is reported at
+  every checkpoint, not pass or fail. Projected 2.5 to 14 hours at the central speed, uncertain
+  by a factor of about 100 (`engine/crates/blueprint/README.md`, Phase 6 projection).
 - Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov 2026).
   Don't use Fable.
 - Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena

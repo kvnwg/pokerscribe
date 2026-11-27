@@ -1,0 +1,9 @@
+{
+  "best_bb_per_100": 92.96979999999999,
+  "best_setting": "b56_34",
+  "best_std_err": 3.24449293851841,
+  "reason": "reached the largest stage",
+  "run": "small-k50-lin",
+  "stage": 64000000,
+  "train_seconds": 558.126606653
+}
