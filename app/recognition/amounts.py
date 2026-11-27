@@ -104,7 +104,10 @@ def parse_amount(text: str) -> Optional[Amount]:
     # amount starts with a lone 0. Or glued to the number as a round letter ("C210", "©70";
     # an "O" becomes a 0 anyway)
     stripped = re.sub(r"^[0oO@©®•°*]\s+(?=[$€£¥₹]?\s*\d)", "", stripped)
-    stripped = re.sub(r"^[cCGeQ@©®•°*](?=[$€£¥₹]?\d[\d.,]*\d)", "", stripped)
+    # a coin icon before the currency sign, read as a symbol: "+$ 19700". (A bare "+30", a time
+    # bank, stays no amount)
+    stripped = re.sub(r"^[cCGeQ@©®•°*+·]\s*(?=[$€£¥₹]\s*\d)", "", stripped)
+    stripped = re.sub(r"^[cCGeQ@©®•°*](?=\d[\d.,]*\d)", "", stripped)
     found = find_amounts(stripped)
     if len(found) != 1:
         return None

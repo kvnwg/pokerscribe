@@ -27,7 +27,7 @@ from app.state.model import Action
 from app.vision.card_recognizer import CardReading
 from app.vision.ocr import TextBox
 
-from .amounts import Amount, first_amount, has_blinds_label, parse_amount, parse_blinds
+from .amounts import CURRENCY, Amount, first_amount, has_blinds_label, parse_amount, parse_blinds
 
 # OCR often drops spaces: "Call60", "Raiseto$46"
 ACTION_RE = re.compile(r"^\s*(fold|folds|check|checks|call|calls|bet|bets|raise\s*to|raises|raise|all[\s-]?in|allin)(?![a-z])", re.I)
@@ -397,6 +397,10 @@ def _find_unlabelled_pot(res: LayoutResult, boxes, used, W, H) -> None:
             continue
         if abs(b.cx - cx) > 0.22 * W or abs(b.cy - cy) > 0.3 * H:
             continue
+        if _under_name_or_picture(b, boxes, res.pictures, median_h):
+            # a seat's stack on the edge of the felt (the top seat of eight, before the flop
+            # with no pot shown): taken for the pot, that seat was lost
+            continue
         d = math.hypot(b.cx - cx, b.cy - cy)
         if best is None or d < best[0]:
             best = (d, b, amount)
@@ -640,7 +644,11 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
 
 def _beside_seat_text(b: TextBox, seats: List[Seat]) -> bool:
     """On the same line as a seat's name or stack and next to it: part of the nameplate
-    (a player level, a rank), never a bet. Bets lie apart, toward the middle."""
+    (a player level, a rank), never a bet. Bets lie apart, toward the middle. An amount with a
+    currency sign is no level: on a crowded table (eight on a phone) a bet can sit beside the
+    next seat's name, and dropping it lost the blinds."""
+    if re.search(f"[{CURRENCY}]", b.text):
+        return False
     for s in seats:
         for t in (s.label, s.stack_box):
             if t is None or t is b:
@@ -912,6 +920,36 @@ def _outlined_back(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], c
         if any(math.hypot(gx + bw / 2 - x, gy + bh / 2 - y) < r + 0.3 * text_h for x, y, r in res.pictures):
             continue
         rects = [(t.x, t.y, t.w, t.h) for t in boxes] + list(cards)
+        if any(rx < gx + bw and gx < rx + rw and ry < gy + bh and gy < ry + rh for rx, ry, rw, rh in rects):
+            continue
+        return True
+    return _white_edged_back(res, image, boxes, cards, pic)
+
+
+def _white_edged_back(res: LayoutResult, image: np.ndarray, boxes: List[TextBox], cards, pic) -> bool:
+    """A dark card inside a thin white edge, beside the picture: the inside of the edge is a
+    card-shaped hole in the white. 8-player phone table: the backs lay across the table's
+    black rim, so they neither stood out from one colour nor had an outline of their own."""
+    H, W = image.shape[:2]
+    px, py, pr = pic
+    x0, x1 = int(max(0, px - 3.2 * pr)), int(min(W, px + 3.2 * pr))
+    y0, y1 = int(max(0, py - 1.6 * pr)), int(min(H, py + 1.6 * pr))
+    white = (cv2.cvtColor(image[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY) >= 200).astype(np.uint8)
+    contours, hierarchy = cv2.findContours(white, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if hierarchy is None:
+        return False
+    rects = [(t.x, t.y, t.w, t.h) for t in boxes] + list(cards)
+    for c, (_, _, _, parent) in zip(contours, hierarchy[0]):
+        if parent < 0:
+            continue  # an outer edge; the holes inside the white have a parent
+        bx, by, bw, bh = cv2.boundingRect(c)
+        if not (0.5 * pr <= bh <= 1.8 * pr and 0.45 <= bw / bh <= 0.95):
+            continue  # one card standing up (the hole in a letter or in the button is far smaller)
+        if cv2.contourArea(c) < 0.75 * bw * bh:
+            continue
+        gx, gy = x0 + bx, y0 + by
+        if any(math.hypot(gx + bw / 2 - x, gy + bh / 2 - y) < r + 0.2 * pr for x, y, r in res.pictures):
+            continue  # a picture inside its white rim
         if any(rx < gx + bw and gx < rx + rw and ry < gy + bh and gy < ry + rh for rx, ry, rw, rh in rects):
             continue
         return True

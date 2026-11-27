@@ -10,7 +10,7 @@ import pytest
 from app.recognition.amounts import parse_amount
 from app.recognition.layout import analyse
 from app.recognition.recognizer import TableRecognizer
-from app.tests.demo_table import SeatView, TableView, layouts, render
+from app.tests.demo_table import SeatView, TableView, for_players, layouts, render
 from app.vision.card_recognizer import CardRecognizer
 from app.vision.ocr import RapidOcrEngine, TextBox
 
@@ -446,3 +446,61 @@ def test_the_blinds_come_from_the_chips_the_blinds_posted(rec):
     from app.poker.advice import advise
     adv = advise(res.state)
     assert adv.action == "raise" and adv.amount is not None
+
+
+# ------------------------------------------------------------------ eight players
+NAMES8 = NAMES + ["Ines", "Otto"]
+
+
+def read8(rec, layout, stacks, bets=None, folded=(), button=5, buttons=(), acting=None, hero_cards=("8c", "2d")):
+    """Eight players on a layout's seat spots (Kevin: "it also needs to be trained on an 8
+    people table"): the reading and its seats keyed by screen seat."""
+    lay = for_players(LAY[layout], 8)
+    bets = bets or {}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0), has_cards=i not in folded) for i, name in enumerate(NAMES8)]
+    view = TableView(seats, list(hero_cards), [], 0.0, button, acting, list(buttons), hand_no=7, timer_left=0.6)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+
+    def seat_of(center):
+        return min(range(len(plates)), key=lambda i: (plates[i][0] - center[0]) ** 2 + (plates[i][1] - center[1]) ** 2)
+
+    return res, {seat_of(s.center): s for s in res.layout.seats}, lay.unit
+
+
+def test_a_coin_icon_before_the_currency_sign():
+    """8-player phone table: the coin before a stack read as a "+" ("+$ 19700"), so the stack
+    was no amount and the seat was lost; every position after it moved one seat."""
+    assert parse_amount("+$ 19700").value == 19700
+    assert parse_amount("·$ 5").value == 5
+    assert parse_amount("+30") is None  # a time bank is no amount
+
+
+@needs_ocr
+def test_eight_on_a_phone_table(rec):
+    """8-player self-test, phone table, before the flop: the small blind's bet beside the next
+    seat's name was taken for a level, a coin icon read as "+" lost a seat, and card backs lying
+    across the table's rim were missed. You (under the gun) were read as the big blind and told
+    to CHECK over a Call 200 button."""
+    stacks = [194, 207.5, 189, 400, 184, 197, 197, 218.5]
+    res, seats, unit = read8(rec, "portrait", stacks, bets={6: 1, 7: 2}, button=5, acting=0,
+                             buttons=["Fold", "Call 2", "Raise"])
+    assert sorted(seats) == list(range(8))
+    assert [bet(seats[i]) for i in (5, 6, 7)] == [0, 1 * unit, 2 * unit]
+    assert all(seats[i].has_cards for i in range(1, 8))
+    positions = {p.seat: p.position.value for p in res.state.players}
+    hero = next(p for p in res.state.players if p.is_hero)
+    assert hero.position.value == "UTG", positions
+
+
+@needs_ocr
+def test_eight_round_pictures_the_top_stack_is_not_the_pot(rec):
+    """8-player self-test, round pictures, between hands: the top seat's stack sits on the
+    table's rim, and with no pot on the felt it was taken for the pot. That seat was lost and
+    every position after it moved one seat."""
+    stacks = [192, 240.5, 189, 400, 157, 197, 197, 217.5]
+    res, seats, unit = read8(rec, "avatars", stacks, button=7, folded=range(8), hero_cards=())
+    assert sorted(seats) == list(range(8))
+    assert seats[4].stack.value == 157 * unit
+    assert res.state.pot.value is None
