@@ -211,7 +211,7 @@ def analyse(image: np.ndarray, readings: List[CardReading], boxes: List[TextBox]
     _find_seats(res, boxes, used, med_text_h)
     _your_seat_without_name(res, boxes, used)
     _assign_hero_and_order(res, W, H)
-    _assign_bets(res, boxes, used, W, H)
+    _assign_bets(res, boxes, used, W, H, image)
     _find_button(res, image, boxes, card_rects, med_text_h)
     _find_card_backs(res, image, boxes)
     _find_acting(res, image, boxes, med_text_h)
@@ -601,7 +601,7 @@ def _assign_hero_and_order(res: LayoutResult, W, H) -> None:
     res.seats.sort(key=lambda s: (s.angle - ref) % 360.0)
 
 
-def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
+def _assign_bets(res: LayoutResult, boxes, used, W, H, image: Optional[np.ndarray] = None) -> None:
     if not res.seats:
         return
     cx, cy = res.center
@@ -615,7 +615,7 @@ def _assign_bets(res: LayoutResult, boxes, used, W, H) -> None:
             continue
         if res.pot_box is not None and _next_to(b, res.pot_box):
             continue  # the pot's own number, read apart from its label
-        if _beside_seat_text(b, res.seats):
+        if _beside_seat_text(b, res.seats) and not _chip_before(image, b, boxes):
             continue  # a level or rank on the nameplate, next to the name or the stack
         best, best_d = None, None
         for s in res.seats:
@@ -656,6 +656,40 @@ def _beside_seat_text(b: TextBox, seats: List[Seat]) -> bool:
             h = max(b.h, t.h)
             if abs(b.cy - t.cy) < 0.6 * h and max(b.x - t.right, t.x - b.right) < 3.0 * h:
                 return True
+    return False
+
+
+def _chip_before(image: Optional[np.ndarray], b: TextBox, boxes) -> bool:
+    """A chip picture just before the number, about as big as the text: the number is a bet.
+    On a crowded table a bet can lie beside the next seat's name or stack, where a level would
+    be; the chip tells them apart (a level has none). The currency sign doesn't always: in some
+    fonts the OCR loses the "$" next to the chip ("200")."""
+    if image is None:
+        return False
+    H, W = image.shape[:2]
+    h = b.h
+    x0, x1 = int(max(0, b.x - 2.0 * h)), int(min(W, b.x + 0.2 * h))
+    y0, y1 = int(max(0, b.cy - 1.0 * h)), int(min(H, b.cy + 1.0 * h))
+    roi = image[y0:y1, x0:x1].astype(np.int16)
+    if roi.shape[0] < 4 or roi.shape[1] < 4:
+        return False
+    bg = np.median(roi.reshape(-1, 3), axis=0)
+    diff = (np.abs(roi - bg).sum(axis=-1) > 60).astype(np.uint8)
+    for t in boxes:  # other text (a name, a stack) is no chip
+        if t is not b:
+            diff[max(0, t.y - y0): max(0, t.bottom - y0), max(0, t.x - x0): max(0, t.right - x0)] = 0
+    n, _, stats, _ = cv2.connectedComponentsWithStats(diff, connectivity=8)
+    for i in range(1, n):
+        cx, cy, cw, ch, area = (int(v) for v in stats[i])
+        if not (0.5 * h <= cw <= 1.6 * h and 0.5 * h <= ch <= 1.6 * h and 0.6 <= cw / ch <= 1.6):
+            continue
+        if area < 0.5 * cw * ch:
+            continue  # a ring or a letter's stroke, not a solid chip
+        if x0 + cx + cw > b.x + 0.3 * h or b.x - (x0 + cx + cw) > 0.9 * h:
+            continue  # not just before the number
+        if abs((y0 + cy + ch / 2) - b.cy) > 0.5 * h:
+            continue
+        return True
     return False
 
 

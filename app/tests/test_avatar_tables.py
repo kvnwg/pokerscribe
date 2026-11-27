@@ -549,3 +549,26 @@ def test_eight_a_bet_goes_to_its_own_seat_on_the_flop(rec):
                              buttons=["Fold", "Call 14", "Raise"])
     assert sorted(seats) == list(range(8))
     assert [bet(seats[i]) for i in (1, 6, 7)] == [14 * unit, 0, 14 * unit]
+
+
+@needs_ocr
+def test_a_blind_beside_a_stack_is_a_bet_by_its_chip(rec):
+    """The eight-player phone table drawn in another font (DejaVu, as on a machine without
+    Inter): the OCR loses the "$" beside the big blind's chip and reads a bare "200". On the
+    line of the next seat's stack, with no currency sign, it was dropped as a level number, and
+    the big blind had no bet. The chip picture just before it makes it a bet."""
+    import dataclasses
+
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(for_players(LAY["portrait"], 8), text_font=find_font("DejaVuSans.ttf"))
+    stacks = [194, 207.5, 189, 400, 184, 197, 197, 218.5]
+    bets = {6: 1, 7: 2}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0)) for i, name in enumerate(NAMES8)]
+    view = TableView(seats, ["8c", "2d"], [], 0.0, 5, 0, ["Fold", "Call 2", "Raise"], hand_no=7, timer_left=0.6)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+    seat = {min(range(8), key=lambda i: (plates[i][0] - s.center[0]) ** 2 + (plates[i][1] - s.center[1]) ** 2): s
+            for s in res.layout.seats}
+    assert [bet(seat[i]) for i in (5, 6, 7)] == [0, 1 * lay.unit, 2 * lay.unit]
