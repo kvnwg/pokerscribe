@@ -89,10 +89,81 @@ def test_prices(tmp_path):
     s = make_settings(tmp_path, DISK_SIZE_GB=365, DISK_PRICE_PER_GB_MONTH=0.10)
     assert s.machine_price == 2.0461
     assert s.disk_price_per_hour == pytest.approx(365 * 0.10 / 730)
-    assert s.price_per_hour == pytest.approx(2.0461 + 0.005 + 0.05)
+    # A Spot machine's external IP costs half an on-demand one's (Google, 27 Nov 2026).
+    assert s.ip_price == 0.0025
+    assert s.price_per_hour == pytest.approx(2.0461 + 0.0025 + 0.05)
     std = make_settings(tmp_path, PROVISIONING="standard")
     assert std.PROVISIONING == "STANDARD" and std.machine_price == 3.7722
+    assert std.ip_price == 0.005
     assert s.vcpus() == 64 and make_settings(tmp_path, MACHINE_TYPE="c4a-highmem-64-lssd").vcpus() == 64
+
+
+def test_disk_price_counts_iops_and_throughput_above_the_baseline(tmp_path):
+    base = make_settings(tmp_path, DISK_SIZE_GB=80)
+    assert base.DISK_PRICE_PER_GB_MONTH == 0.08
+    assert base.disk_price_per_hour == pytest.approx(80 * 0.08 / 730)
+    # 400 MiB/s is 260 above the free 140; 3,000 IOPS is the free baseline.
+    fast = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=400, DISK_IOPS=3000)
+    assert fast.disk_price_per_hour == pytest.approx((80 * 0.08 + 260 * 0.04) / 730)
+    more = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_IOPS=6000)
+    assert more.disk_price_per_hour == pytest.approx((80 * 0.08 + 3000 * 0.005) / 730)
+    # Below the baseline costs nothing extra, and other disk types aren't priced that way.
+    low = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=100)
+    assert low.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
+    pd = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_TYPE="pd-balanced", DISK_IOPS=6000)
+    assert pd.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
+
+
+def test_vm_family_quota_from_the_cloud_quotas_api():
+    # A QuotaInfo as the Cloud Quotas API documents it (and gcloud beta quotas info describe
+    # prints it as JSON): int64 values come as strings, and an entry with fewer dimensions is
+    # the default for the others.
+    info = {
+        "name": "projects/123/locations/global/services/compute.googleapis.com/quotaInfos/"
+                "CPUS-PER-VM-FAMILY-per-project-region",
+        "quotaId": "CPUS-PER-VM-FAMILY-per-project-region",
+        "metric": "compute.googleapis.com/cpus_per_vm_family",
+        "service": "compute.googleapis.com",
+        "isPrecise": True,
+        "containerType": "PROJECT",
+        "dimensions": ["region", "vm_family"],
+        "metricDisplayName": "CPUs per VM family",
+        "quotaDisplayName": "CPUs per VM Family per project per region",
+        "metricUnit": "1",
+        "quotaIncreaseEligibility": {"isEligible": True},
+        "dimensionsInfos": [
+            {"dimensions": {"region": "us-central1", "vm_family": "C4A"},
+             "details": {"value": "64"}, "applicableLocations": ["us-central1"]},
+            {"dimensions": {"region": "us-central1"}, "details": {"value": "24"},
+             "applicableLocations": ["us-central1"]},
+            {"dimensions": {"region": "europe-west4", "vm_family": "C4A"},
+             "details": {"value": "8"}, "applicableLocations": ["europe-west4"]},
+            {"details": {"value": "0"}},
+        ],
+    }
+    q = gce.parse_vm_family_quota(info, "us-central1", "C4A")
+    assert q["limit"] == 64 and q["dimensions"]["vm_family"] == "C4A"
+    assert gce.parse_vm_family_quota(info, "europe-west4", "c4a")["limit"] == 8
+    # A family with no entry of its own gets the region's default, then the global one.
+    assert gce.parse_vm_family_quota(info, "us-central1", "N4")["limit"] == 24
+    assert gce.parse_vm_family_quota(info, "asia-east1", "C4A")["limit"] == 0
+    # A list (gcloud beta quotas info list) with other quotas in it; -1 is no limit.
+    other = {"quotaId": "CPUS-per-project-region", "metric": "compute.googleapis.com/cpus",
+             "dimensionsInfos": [{"dimensions": {"region": "us-central1"},
+                                  "details": {"value": "500"}}]}
+    unlimited = dict(info, dimensionsInfos=[{"dimensions": {"region": "us-central1",
+                                                            "vm_family": "C4A"},
+                                             "details": {"value": -1}}])
+    assert gce.parse_vm_family_quota([other, info], "us-central1", "C4A")["limit"] == 64
+    assert gce.parse_vm_family_quota([other, unlimited], "us-central1", "C4A")["limit"] == \
+        float("inf")
+    # Anything else: None, so check says it couldn't read the quota.
+    for bad in (None, [], {}, [other], "text", {"metric": gce.VM_FAMILY_METRIC},
+                dict(info, dimensionsInfos=[{"dimensions": {"region": "us-central1",
+                                                            "vm_family": "C4A"},
+                                             "details": {"value": "many"}}]),
+                dict(info, dimensionsInfos="?")):
+        assert gce.parse_vm_family_quota(bad, "us-central1", "C4A") is None
 
 
 def elf_header(machine: int) -> bytes:
@@ -130,6 +201,32 @@ def test_example_settings_file_loads_and_has_no_secrets():
     for key in settings.SPEC:
         assert key in text, f"{key} is not documented in settings.example.env"
     assert "@" not in text.replace("@example", "")    # no email addresses
+
+
+def test_phase6_settings_example(tmp_path):
+    """docs/research/runs/phase6/cloud.env.example: it loads, names no project, bucket or
+    account, and with a project and bucket filled in has no problems and the planned price."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(settings.__file__)))
+    path = os.path.join(repo, "docs", "research", "runs", "phase6", "cloud.env.example")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    values = settings.parse_env_file(text)
+    assert set(values) <= set(settings.SPEC)
+    assert values["PROJECT"] == "" and values["BUCKET"] == "" and values["SERVICE_ACCOUNT"] == ""
+    assert "@" not in text
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r")
+    filled = tmp_path / "cloud.env"
+    filled.write_text(text.replace("PROJECT=\n", "PROJECT=test-project\n")
+                      .replace("BUCKET=\n", "BUCKET=test-bucket\n")
+                      .replace("TRAINER_FILES=~/abstraction/k200", f"TRAINER_FILES={tables}"))
+    s = settings.load(str(filled), environ={})
+    assert s.problems(for_launch=False) == []
+    assert s.MACHINE_TYPE == "c4a-highcpu-64" and s.BUDGET_USD == 10
+    # $1.445888 + $0.0025 + 80 GB at $0.08 and 260 MiB/s at $0.04 a month.
+    assert s.price_per_hour == pytest.approx(1.445888 + 0.0025 + (80 * 0.08 + 260 * 0.04) / 730)
+    assert s.disk_needed_gb() <= s.DISK_SIZE_GB
 
 
 # --- checkpoint names, restore, retention --------------------------------------------------------
@@ -306,7 +403,7 @@ def test_create_command_spot(tmp_path):
     md = control.instance_metadata(s, "abc123")
     cmd = gce.create_command(s, "us-central1-b", 7200, md, "/x/startup.sh")
     assert cmd[:5] == ["beta", "compute", "instances", "create", "ps-hu-test"]
-    for flag in ("--zone=us-central1-b", "--machine-type=c4a-highmem-64",
+    for flag in ("--zone=us-central1-b", "--machine-type=c4a-highcpu-64",
                  "--provisioning-model=SPOT", "--instance-termination-action=STOP",
                  "--max-run-duration=2h", "--image-family=debian-12-arm64",
                  "--image-project=debian-cloud", "--boot-disk-size=200GB",
@@ -499,7 +596,8 @@ def test_cli_help_runs():
 def test_known_machines_memory_and_disk_rules(tmp_path):
     s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
     assert s.vcpus() == 64 and s.machine_memory_gb() == 128.0
-    assert make_settings(tmp_path).machine_memory_gb() == 512.0        # c4a-highmem-64
+    assert make_settings(tmp_path).machine_memory_gb() == 128.0        # the default
+    assert make_settings(tmp_path, MACHINE_TYPE="c4a-highmem-64").machine_memory_gb() == 512.0
     assert make_settings(tmp_path, MACHINE_TYPE="n2-custom-8-1024").machine_memory_gb() is None
     # The Phase 6 trainer (7.4 GB at its peak) fits; 120 GB does not leave 10% spare.
     assert make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64",

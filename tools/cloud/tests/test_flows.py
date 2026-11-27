@@ -274,7 +274,7 @@ def test_leftovers_lists_what_costs_money(tmp_path):
     control.print_leftovers(ctx)
     text = "\n".join(out)
     assert "stopped: its disks still bill" in text and "attached to nothing" in text
-    assert "about $20.00/month" in text                         # 200 GB at $0.10
+    assert "about $16.00/month" in text                         # 200 GB at $0.08
     assert "static IP" in text and "5.00 GB stored" in text
     assert text.count("(this run)") == 3                        # machine, disk, bucket
 
@@ -367,6 +367,42 @@ def test_check_on_c4a_highcpu_64_with_the_phase6_sizes(tmp_path):
     rc, text = run_check(big, check_answers(131072))
     assert rc == 1 and "does not fit c4a-highcpu-64 (128 GB)" in text
     assert "FIX   the trainer's 120 GB fits c4a-highcpu-64's 128 GB" in text
+
+
+def test_check_reads_the_c4a_quota_as_cpus_per_vm_family(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    answers = check_answers(131072)
+    # As on Kevin's project: no C4A_CPUS in regions describe, only the plain CPU quotas.
+    answers[("compute", "regions", "describe")] = (0, json.dumps({"quotas": [
+        {"metric": "CPUS", "limit": 100.0, "usage": 0.0}]}))
+    quota = {"quotaId": "CPUS-PER-VM-FAMILY-per-project-region",
+             "metric": "compute.googleapis.com/cpus_per_vm_family",
+             "dimensionsInfos": [{"dimensions": {"region": "us-central1", "vm_family": "C4A"},
+                                  "details": {"value": "64"}}]}
+    answers[("beta", "quotas", "info", "describe")] = (0, json.dumps(quota))
+    rc, text = run_check(s, answers)
+    assert rc == 0, text
+    assert "ok    C4A CPU quota (CPUs per VM family) in us-central1 is 64, room for 64" in text
+    # Too small is a thing to fix.
+    quota["dimensionsInfos"][0]["details"]["value"] = "32"
+    answers[("beta", "quotas", "info", "describe")] = (0, json.dumps(quota))
+    rc, text = run_check(s, answers)
+    assert rc == 1 and "FIX   C4A CPU quota (CPUs per VM family) in us-central1 is 32" in text
+    # describe fails, list has it.
+    del answers[("beta", "quotas", "info", "describe")]
+    quota["dimensionsInfos"][0]["details"]["value"] = "72"
+    answers[("beta", "quotas", "info", "list")] = (0, json.dumps([quota]))
+    rc, text = run_check(s, answers)
+    assert rc == 0 and "is 72, room for 64" in text
+    # The API off or another format: the "?" line naming the quota, and no failure.
+    answers[("beta", "quotas", "info", "list")] = (1, "")
+    rc, text = run_check(s, answers)
+    assert rc == 0, text
+    assert '?     couldn\'t read the C4A CPU quota: on the Quotas page it is "CPUs per VM ' \
+           'family", vm_family C4A, region us-central1' in text
+    answers[("beta", "quotas", "info", "list")] = (0, "not json")
+    rc, text = run_check(s, answers)
+    assert rc == 0 and "couldn't read the C4A CPU quota" in text
 
 
 def test_artifacts_lists_and_downloads(tmp_path):

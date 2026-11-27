@@ -1,6 +1,6 @@
 """tools/blueprint_eval.py, the Phase 6 evaluation command: its arithmetic (pooling B0's
-processes, the hands a 2.5 SE result needs), which pairs it compares, the gate readings under
-each wording, and the whole command on fake measurements (sorted by iterations, work already
+processes, the hands a 2.5 SE result needs), which pairs it compares, the gate's reading, and
+the whole command on fake measurements (sorted by iterations, work already
 done is not run again, the summary written)."""
 import json
 import math
@@ -84,7 +84,7 @@ def test_projection_of_the_stop():
     assert "hours_left" not in be.projection(files, [])
 
 
-def test_gate_readings_under_each_wording():
+def test_gate_readings():
     files = [{"label": f"f{i}"} for i in range(4)]
     lbr = {("fcpa14", 0): 300.0, ("fcpa14", 3): 250.0}
     pairs = {("fcpa14", 0, 1): step(-20, 5), ("fcpa14", 1, 2): step(5, 5),
@@ -94,18 +94,21 @@ def test_gate_readings_under_each_wording():
     h2h = {(0, 3): {"bb_per_100": 6.0, "se": 2.0}}
     b0 = {3: {"blueprint_bb_per_100": 20.0, "se": 10.0}}
     g = be.gate_readings(files, lbr, pairs, h2h, b0, ["fcpa14", "b56_14"])
-    a = g["a_lbr_falls_at_every_checkpoint"]
-    assert a["fcpa14"] == {"steps": 3, "fell": 2, "fell_by_2_5_se": 2, "rose_by_2_5_se": 0,
-                           "every_step_fell": False}
-    assert a["b56_14"]["fell"] == 0 and a["b56_14"]["rose_by_2_5_se"] == 3
-    assert g["b_last_beats_first_by_2_5_se"]["passes"] and g["b_last_beats_first_by_2_5_se"]["z"] == 3
-    c = g["c_lbr_menu_bets_falls_first_to_last"]
-    assert c["setting"] == "fcpa14" and c["falls"] and c["falls_by_2_5_se"]
-    assert c["first"] == 300.0 and c["last"] == 250.0
-    assert not g["b0_beaten_by_2_5_se"]["passes"] and g["b0_beaten_by_2_5_se"]["z"] == 2
+    h = g["h2h_last_beats_first"]
+    assert h["passes"] and h["z"] == 3 and (h["first"], h["last"]) == ("f0", "f3")
+    assert not g["b0_beaten"]["passes"] and g["b0_beaten"]["z"] == 2
+    assert g["passes"] is False                        # B0 is beaten by only 2 SE
+    b0[3]["blueprint_bb_per_100"] = 25.0
+    assert be.gate_readings(files, lbr, pairs, h2h, b0, ["fcpa14"])["passes"] is True
+    # LBR is reported only: rising LBR doesn't fail the gate.
+    r = g["lbr_reported"]
+    assert r["fcpa14"] == {"first": 300.0, "last": 250.0, "difference": -50, "se": 10, "z": -5,
+                           "steps": 3, "fell": 2, "fell_by_2_5_se": 2, "rose_by_2_5_se": 0}
+    assert r["b56_14"]["fell"] == 0 and r["b56_14"]["rose_by_2_5_se"] == 3
     none = be.gate_readings(files[:1], {}, {}, {}, {}, ["fcpa14"])
-    assert none["b_last_beats_first_by_2_5_se"] is None
-    assert none["c_lbr_menu_bets_falls_first_to_last"] is None
+    assert none["h2h_last_beats_first"] is None and none["passes"] is None
+    no_b0 = be.gate_readings(files, lbr, pairs, h2h, {}, ["fcpa14"])
+    assert no_b0["passes"] is None and no_b0["h2h_last_beats_first"]["passes"]
 
 
 class FakeRunner(be.Runner):
@@ -177,15 +180,16 @@ def test_evaluate_on_fake_measurements(tmp_path):
         ("strategy-1000000.bps", "strategy-4000000.bps")]
     assert [c for c in r.calls if c[0] == "b0"] == [("b0", "it4M", 4)]
     g = s["gate"]
-    assert g["a_lbr_falls_at_every_checkpoint"]["fcpa14"]["every_step_fell"]
-    assert g["b_last_beats_first_by_2_5_se"]["passes"]
-    assert g["c_lbr_menu_bets_falls_first_to_last"]["difference"] == -100
-    assert g["b0_beaten_by_2_5_se"]["passes"] and g["b0_beaten_by_2_5_se"]["z"] == 4
+    assert g["h2h_last_beats_first"]["passes"] and g["passes"] is True
+    assert g["b0_beaten"]["passes"] and g["b0_beaten"]["z"] == 4
+    assert g["lbr_reported"]["fcpa14"]["difference"] == -100
+    assert g["lbr_reported"]["fcpa14"]["fell"] == 2
     b0 = s["b0"][0]
     assert b0["needed_hands"]["10"] == be.hands_needed(b0["sd_per_deal"], 10)
     md = (out / "summary.md").read_text()
-    for want in ("| it4M | 4,000,000 | 0.2000 | strategy-2000000.bps |", "## The gate under each wording",
-                 "(b) the last file beats the first head to head by 2.5 SE: +3.00", "18.0%"):
+    for want in ("| it4M | 4,000,000 | 0.2000 | strategy-2000000.bps |", "## The gate",
+                 "- Head to head, the last file against the first: it4M against it1M, +3.00",
+                 "- The gate: passes", "- Reported: LBR fcpa14 from +400.0 to +300.0", "18.0%"):
         assert want in md, want
     assert "\u2014" not in md  # no em dash
     assert json.loads((out / "summary.json").read_text())["seeds"]["lbr"] == be.LBR_SEED

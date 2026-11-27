@@ -281,8 +281,9 @@ and the caveats are in `docs/research/experiments.md`, "Phase 6 projection".
 - **Size**: 97.2M information sets, 251.7M slots.
 - **Memory**: a 5.2 GB table in a fresh run, 7.3 GB after a resume; the process 6.4 to 7.4 GB
   here; a 4.9 GB checkpoint and a 0.5 GB strategy file. The 512 GB of a c4a-highmem-64 is about
-  60 times that. A c4a-highcpu-64 (the same 64 cores, 128 GB) is enough, at $1.31 an hour spot
-  against $2.05.
+  60 times that. A c4a-highcpu-64 (the same 64 cores, 128 GB) is enough, at $1.45 an hour spot
+  against $2.25 (Google's prices, 27 Nov 2026; the projection used $1.31 and $2.05). The run's
+  plan: `docs/research/runs/phase6/README.md`.
 - **Hours on 64 threads**: at the central speed, 2.5 (a power law in iterations fitted to the
   gate's runs) to 13.9 (states per information set as at 20bb), about $5 to $28 spot. Across all
   the ranges, 0.5 to 47 hours ($96 at the high end).

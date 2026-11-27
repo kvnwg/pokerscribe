@@ -35,10 +35,13 @@ On Kevin's computer, from the repo root.
    strategy files trained with one set of tables can't be played with the other.
 
 2. **The settings:** `cp docs/research/runs/phase6/cloud.env.example ~/.config/pokerscribe/cloud.env`,
-   then fill in `PROJECT` and `BUCKET`, and read the current Spot price of c4a-highcpu-64 in
-   us-central1 into `SPOT_PRICE_PER_HOUR`.
+   then fill in `PROJECT`, `BUCKET` and `SERVICE_ACCOUNT`, and read the current Spot price of
+   c4a-highcpu-64 in us-central1 into `SPOT_PRICE_PER_HOUR` ($1.445888 on 27 Nov 2026).
 
-3. **Check, then launch the calibration run** (about 2 hours, $3 cap):
+3. **The cheap real test** once, if it hasn't been done (`tools/cloud/README.md`, "The cheap
+   real test"): a few cents.
+
+4. **Check, then launch the calibration run** (about 2 hours, capped at $10):
 
    ```
    python -m tools.cloud check                      # ends with "all checks passed"
@@ -47,19 +50,24 @@ On Kevin's computer, from the repo root.
    python -m tools.cloud watch --every 60
    ```
 
-4. **Measure the calibration** once it stops at the cap (state "budget"):
+   After about 2 hours of training (`watch`: the machine "RUNNING for 2 h"), or at the first
+   stage after that, stop it: `python -m tools.cloud stop` (the trainer saves, the checkpoint is
+   uploaded, state "stopped"). If nobody does, the $10 cap stops it after about 6.5 hours;
+   that training is not lost, since the full run goes on from it.
+
+5. **Measure the calibration**:
 
    ```
    python -m tools.cloud artifacts --download ~/phase6/run1
    python tools/blueprint_eval.py ~/phase6/run1/strategy-*.bps --tables ~/abstraction/k200 --out ~/phase6/eval --b0 none
    ```
 
-   and update the projection ("The plan").
+   and set the full run's cap from it ("The plan", "From the calibration to the full run").
 
-5. **The full run** is the same run going on: raise `BUDGET_USD` to the cost agreed, then
+6. **The full run** is the same run going on: raise `BUDGET_USD` to that cap, then
    `python -m tools.cloud resume`. After each new stage, download and run the evaluation again
    (it measures only the new files) and read its stop rule. When it says stop, or at the cap:
-   `python -m tools.cloud stop`, then the evaluation with B0 (`--b0 last`), then
+   `python -m tools.cloud stop`, then the gate's B0 match ("The gate"), then
    `python -m tools.cloud cleanup` and `leftovers`.
 
 ## The game and the training settings
@@ -141,17 +149,21 @@ scaled to an 8M-iteration run.
 ### Checkpoints and stages
 
 - **A checkpoint every 30 minutes**, and at every stage (a session never runs past the next
-  stage, and cfr saves when a session ends). A checkpoint is 4.9 GB once the table is full; on
-  the disk's free 140 MiB/s it takes about 35 seconds to write (here, on a faster disk, 8 to 10
-  seconds for 3.3 to 3.6 GB), during which training waits: 2% of the time at 30 minutes. A
-  preemption costs the work since the last checkpoint that reached the bucket; with the
-  2-minute notice the trainer saves on SIGTERM and that save is uploaded, so usually nothing is
-  lost. At a preemption every 20 hours, 30 minutes is about the best trade (the save costs
-  35 s each time; a lost checkpoint costs 15 minutes on average). The save on SIGTERM (35 s) and its upload
-  (reading it back off the disk, about as long) fit in the notice. Provisioned throughput
-  (`DISK_THROUGHPUT_MBPS`, which costs extra) would shorten both; it is left at the free
-  baseline, and `watch` shows the real times (a checkpoint written, then uploaded) in the
-  calibration run.
+  stage, and cfr saves when a session ends). A checkpoint is 4.9 GB once the table is full
+  (here, on a faster disk, saves of 3.3 to 3.6 GB took 8 to 10 seconds). A preemption costs the
+  work since the last checkpoint that reached the bucket; with the 2-minute notice the trainer
+  saves on SIGTERM and that save is uploaded, so usually nothing is lost. At a preemption every
+  20 hours, 30 minutes is about the best trade between the time each save takes and the work a
+  lost one costs (15 minutes on average).
+- **The disk's throughput: 400 MiB/s** (`DISK_THROUGHPUT_MBPS=400`; the IOPS stay at the free
+  3,000). On the free 140 MiB/s a 4.9 GB save takes about 35 seconds and reading it back for
+  the upload about as long: 70 seconds of the notice's 120 before the upload itself, and 35
+  seconds of training lost at every checkpoint (2% at 30 minutes). At 400 MiB/s both take about
+  12 seconds. The extra 260 MiB/s cost $0.04 each a month, $10.40 a month or $0.014 an hour,
+  about what the 23 seconds saved at each checkpoint are worth in machine time (1.3% of $1.45 an
+  hour), so it pays for itself and makes the notice safe. If Google refuses the setting,
+  `launch` fails before anything is made; empty, the disk gets the free baseline. `watch` shows
+  the real times (a checkpoint written, then uploaded).
 - **A strategy file at each doubling**, 1M to 8,192M: 14 files of 0.50 GB, 7 GB in all, kept on
   the machine and in the bucket (`artifacts/`). Each stage also measures the change from the
   stage before (which needs the solver's weights, so only the trainer can do it), the regrets by
@@ -175,7 +187,7 @@ uploaded once from Kevin's computer and downloaded by each new machine in second
 `/opt/pscloud/bundle/files/k200`, the path `trainer.json` names.
 
 - **Cheaper.** Building them takes 7.6 minutes on this machine's 4 cores (28.9 core-minutes;
-  peak memory 2.9 GB). On 64 cores that would be 1 to 3 minutes of a $1.33-an-hour machine,
+  peak memory 2.9 GB). On 64 cores that would be 1 to 3 minutes of a $1.47-an-hour machine,
   plus building `abstraction-build`, and again on every new machine after a preemption that
   deletes one. Copying costs a 138 MB upload and $0.003 a month of storage.
 - **Safer.** A strategy file can only be played with the tables it was trained with (their
@@ -189,16 +201,20 @@ uploaded once from Kevin's computer and downloaded by each new machine in second
 
 ## Sizes and costs
 
+Prices in us-central1, read on Google's pricing pages on 27 Nov 2026 (`docs/research/BENCHMARKS.md`).
+
 | | Size | Cost |
 | --- | --- | --- |
-| Machine | c4a-highcpu-64: 64 Arm cores, 128 GB | $1.3146 an hour Spot ($2.4243 on demand), us-central1, read 22 Nov 2026 |
+| Machine | c4a-highcpu-64: 64 Arm cores, 128 GB | $1.445888 an hour Spot ($2.42432 on demand) |
 | Trainer's memory | 4.6 to 6.6 GB while training in the rehearsal (86.6M information sets met), 7.4 GB in Phase 5 after a resume with the table nearly full, 8.9 GB at the peak (a stage, during the export) | 128 GB is 14 times that |
-| Disk | 80 GB Hyperdisk Balanced: 4 checkpoints (19.6 GB), the strategy files (7 GB), 30 GB for the system and the Rust build | about $0.011 an hour (at the settings' rough $0.10 a GB a month) |
-| External IP | | $0.005 an hour |
-| Bucket | 3 checkpoints (14.6 GB), 14 strategy files (7 GB), the bundle (0.14 GB), logs | about $0.44 a month (Standard, $0.02 a GB) |
-| Downloads | the 14 strategy files, 7 GB, to Kevin's computer | about $0.85 (internet egress at about $0.12 a GB; not checked against the price list) |
+| Disk | 80 GB Hyperdisk Balanced, 400 MiB/s: 4 checkpoints (19.6 GB), the strategy files (7 GB), 30 GB for the system and the Rust build | $0.0088 an hour for the GB ($0.08 a GB a month) and $0.0142 for the throughput: $0.023 an hour, billed while the disk exists |
+| External IP | | $0.0025 an hour on a Spot machine |
+| Bucket | 3 checkpoints (14.6 GB), 14 strategy files (7 GB), the bundle (0.14 GB), logs | about $0.44 a month (Standard storage, about $0.02 a GB) |
+| Downloads | the 14 strategy files, 7 GB, to Kevin's computer | about $0.85 (internet egress at about $0.12 a GB; not read from the price list) |
 
-All in, the machine costs $1.33 an hour while it runs.
+All in, **$1.4714 an hour** while the machine runs, which is what `launch` and the cap count.
+The quotas are enough: 64 C4A CPUs in us-central1 and 64 in all regions, and 500 GB of
+Hyperdisk Balanced against the 80 GB disk.
 
 ## The evaluation command
 
@@ -217,13 +233,13 @@ For the files given, sorted by their iterations:
    equity, bb/100 with its standard error, 200bb, seed 6101. About 2 seconds of play and 15 of
    loading the two files for each pair.
 3. **B0 heads-up** (`tools/b0_arena.py`) against the last file (`--b0 all`: every file), at 200
-   big blinds, split over one process per core with seeds 6201, 6202, ... and pooled. It reports
-   the standard deviation per deal and the hands a 2.5 SE result needs at 5, 10 and 20 bb/100
-   and at the edge measured.
+   big blinds, split over one process per core with seeds 6201, 6202, ... and pooled
+   (`--b0-deals`, default 4,000; `--b0-seed`, default 6201). It reports the standard deviation
+   per deal and the hands a 2.5 SE result needs at 5, 10 and 20 bb/100 and at the edge measured.
 4. **The change** at each stage, from `stages.jsonl`.
 
-It writes `summary.md` and `summary.json`: the tables, the stop rule at each stage, and the gate
-under each wording. Work already in the folder is reused, so after each new stage it measures
+It writes `summary.md` and `summary.json`: the tables, the stop rule at each stage, the projection
+and the gate's reading. Work already in the folder is reused, so after each new stage it measures
 only the new file.
 
 **Why B0 plays at 200 big blinds.** The blueprint's game is 200bb: its stacks are part of every
@@ -314,107 +330,113 @@ TBD_CHECK
    rented), on the same Arm family.
 2. `python -m tools.cloud check` with the Phase 6 settings: the machine type in the zones, its
    memory against `TRAINER_MEMORY_GB`, the disk against `CHECKPOINT_GB` and `ARTIFACTS_GB`,
-   the tables in `TRAINER_FILES`, the price, the budget. It ends with "all checks passed".
+   the tables in `TRAINER_FILES`, the C4A quota, the price, the budget. It ends with "all
+   checks passed".
 
-### The calibration run: about 2 hours, $3
+### The calibration run: about 2 hours, capped at $10
 
-`BUDGET_USD=3` in `cloud.env.example`. At $1.3306 an hour that buys 2.25 hours: `launch` sets
-Google's own stop (`--max-run-duration`) to 2 hours 15 minutes, and the supervisor stops the
-trainer 15 minutes before the cap (`BUDGET_MARGIN_MINUTES`), saves and uploads. About 2 hours of
-training, less the start (installing Rust and building the trainer, a few minutes, not timed on
-Arm).
+`BUDGET_USD=10` in `cloud.env.example`, Kevin's cap (27 Nov 2026). At $1.4714 an hour it would
+buy 6.8 hours, so the calibration is ended by hand: `python -m tools.cloud stop` after about 2
+hours of training, or at the first stage after that (step 4 above). Two hours cost about $3
+(plus the start: installing Rust and building the trainer, a few minutes, not timed on Arm). If
+nobody stops it, the supervisor does at the cap, after about 6.5 hours, and nothing is wasted:
+the full run goes on from wherever it stopped.
 
 At the Phase 5 projection's speeds (57M, 112M and 227M states a second at about 1,134 states an
 iteration) 2 hours reach the stage at 256M (slow), 512M (central) or 1,024M (fast): 9 to 11
 strategy files. Each stage pauses training about 1.5 minutes (the export and the measures run
 on one thread), so 9 to 11 stages cost 14 to 17 minutes of the 2 hours, most of them in the
-first minutes, where the stages come quickly. What it gives:
+first minutes, where the stages come quickly.
 
-- **the speed on 64 Arm threads**, measured (`watch`, and `log.jsonl`): it replaces the three
-  guesses of the projection (an Axion core against a Xeon core, 64 threads against 64 times one,
-  the table met), which make a factor of 4 between slow and fast;
-- **the change at each doubling** and the regrets by street (`stages.jsonl`), with what pruning
-  skipped from 35M on;
-- **LBR and head to head at each stage**, on Kevin's computer, with
-  `python -m tools.cloud artifacts --download ~/phase6/run1`, then
-  `python tools/blueprint_eval.py ~/phase6/run1/strategy-*.bps --tables ~/abstraction/k200 --out ~/phase6/eval --b0 none`
-  (about 10 minutes for LBR at 20,000 hands, a few minutes for the downloads);
-- **the projection** at the end of the summary: the stage where the change reaches 0.08 at the
-  rate it fell over the last 4 stages, and the hours left at the measured speed. It narrows the
-  factor of 100 in the Phase 5 projection, most of which is the work, to whatever the curve
-  shows; if the change hasn't started to fall by then (as in the rehearsal's first 8M), the
-  projection says so, and the high estimate below stands.
+**What the calibration reports**, from `watch`, the trainer's logs and the evaluation summary
+(`--b0 none`), for an entry in `experiments.md`:
+
+1. **The speed on 64 Arm threads**: iterations a second over the last sessions of a minute or
+   more (the summary's projection line), states a second and states per iteration
+   (`log.jsonl`). It replaces the projection's three guesses (an Axion core against a Xeon
+   core, 64 threads against 64 times one, the table met), a factor of 4 between slow and fast.
+2. **The change at each doubling**, the regrets by street and what pruning skipped from 35M on
+   (`stages.jsonl`), and the times of the saves, uploads and stages.
+3. **LBR** (`fcpa14`, `b56_14`) at every stage, and the head-to-head results from each stage to
+   the next and from the first to the last.
+4. **The projection**: the factor the change was multiplied by at each doubling over the last 4
+   stages, the stage where it reaches 0.08 (where the stop rule can first say stop), and the
+   hours to that stage at the measured speed.
+
+### From the calibration to the full run
+
+- **The iterations**: `until` stays 8,192M, and the stop rule ends the run. The calibration's
+  projection names the stage where it expects that, S, and the hours to it, H.
+- **The cap**: the cost so far (`watch`) plus 1.25 times H at $1.4714 an hour, plus 1.5 minutes
+  for each stage left before S and 30 minutes for restarts, rounded up to the next $5. Kevin
+  sets it as `BUDGET_USD` and runs `resume`. At the projection's central figures that is about
+  $10 (if S is 1,024M) to $45 (8,192M); Kevin's billing alert at CA$20 fires on the bigger ones.
+- **If the change isn't falling yet** over the last 4 stages (it rose over the rehearsal's first
+  8M, inside the linear phase, which ends at 70M), the projection says so and there is no S.
+  Then `resume` with the cap still at $10: the run goes on to about 6.5 hours, 2 more
+  doublings, and the projection is made again from there.
+- **Why not a separate calibration**: linear weighting and pruning are fixed in the checkpoint
+  and a resume with other settings is refused, so the calibration is the start of the full run,
+  and its training counts.
 
 ### The full run
 
-The same run going on: raise `BUDGET_USD` and `python -m tools.cloud resume` (a resume with
-other settings would be refused, so nothing about the run changes). `recover` stays running on
-Kevin's computer for preemptions.
+The same run going on, with `recover` running on Kevin's computer for preemptions.
 
-- **The stop rule** (Phase 5's, `runs/phase5_gate/plan.json`): stop at the first stage where the
-  strategy changed by at most 0.08 since the stage before, and LBR `b56_14` moved by less than
-  3% of its value or less than 2 standard errors of the paired difference. After each new stage
-  (every doubling, so the stages come further apart: at the central speed 512M to 1,024M takes
-  about 85 minutes, 4,096M to 8,192M about 11.5 hours), download and run the evaluation again; it
-  measures only the new file. When the summary says "stop here":
-  `python -m tools.cloud stop`, then the evaluation with B0 (`--b0 last`), then `cleanup` and
-  `leftovers`.
+- **The stop rule** (Phase 5's, `runs/phase5_gate/plan.json`), pre-registered: stop at the first
+  stage where the strategy changed by at most 0.08 since the stage before, and LBR `b56_14`
+  (20,000 hands, seed 6001) moved by less than 3% of its value or less than 2 standard errors
+  of the paired difference. After each new stage (every doubling, so the stages come further
+  apart: at the central speed 512M to 1,024M takes about 85 minutes, 4,096M to 8,192M about
+  11.5 hours), download and run the evaluation again; it measures only the new file. When the
+  summary says "stop here": `python -m tools.cloud stop`, then the gate's B0 match ("The
+  gate"), then `cleanup` and `leftovers`.
 - **Stages are doublings**, so the run trains on to the first stage past the point where the
   change reaches 0.08: up to twice the iterations that point needs. A stop by hand at any time
-  (`stop`) keeps the last checkpoint, which can be exported (above) and judged like any stage,
-  but without a change measure.
-- **The cap.** The stop rule decides when to stop; `BUDGET_USD` decides what is the most it can
-  cost. Set it from the calibration's projection, with room: the hours to the stage the
-  projection names, and 20% more.
-- **The cost**, machine and disk at $1.33 an hour, at the projection's speeds and 1,134 states
-  an iteration, if the calibration doesn't change the projection:
+  (`stop`) keeps the last checkpoint, which can be exported (above) and measured like any
+  stage, but without a change measure.
+- **The cost**, at $1.4714 an hour, the projection's speeds and 1,134 states an iteration, if
+  the calibration doesn't change the projection:
 
   | Estimate | Iterations needed | Stage where it can stop | Hours to that stage | Cost |
   | --- | ---: | --- | ---: | ---: |
-  | Central, power law in iterations (central speed) | 7.4e8 | 1,024M | 2.9 | $3.80 |
-  | Central, states per information set as at 20bb (central speed) | 4.9e9 | 8,192M (4,096M if the change is a little faster) | 23.0 (11.5) | $30.60 ($15.30) |
-  | High: the 20bb model's high work at the slow speed | 5.7e9 to 8.6e9 | 8,192M, the end of `until` | 45.3 | $60.30 |
+  | Central, power law in iterations (central speed) | 7.4e8 | 1,024M | 2.9 | $4.30 |
+  | Central, states per information set as at 20bb (central speed) | 4.9e9 | 8,192M (4,096M if the change is a little faster) | 23.0 (11.5) | $33.80 ($16.90) |
+  | High: the 20bb model's high work at the slow speed | 5.7e9 to 8.6e9 | 8,192M, the end of `until` | 45.3 | $66.70 |
 
   The Phase 5 projection's hours (2.5, 13.9 and 46.9) are to the point itself; the table adds
-  the rest of the doubling. If the run reaches 8,192M without the stop rule saying stop, the
-  run is past every projection, and going on is a decision for Kevin, not for the cap.
+  the rest of the doubling. On top: 21 minutes of stage pauses at most (14 stages, $0.51), the
+  bucket (about 22 GB, $0.44 a month while it is kept) and downloading the strategy files (7
+  GB, about $0.85). A preemption costs the minutes to restart and, if a save is lost, up to 30
+  minutes of training. If the run reaches 8,192M without the stop rule saying stop, it is past
+  every projection, and going on is Kevin's decision, not the cap's.
 
-  plus 21 minutes of stage pauses at most (14 stages, $0.47), the bucket (about 22 GB, $0.44 a
-  month while it is kept) and downloading the strategy files (7 GB, about $0.85). A preemption
-  costs the minutes to restart and, if a checkpoint is lost, up to 30 minutes of training.
+## The gate
 
-## The gate: waiting for Kevin's decision
+The roadmap's gate (Kevin, 27 Nov 2026): **the last checkpoint beats the first head to head by
+2.5 SE, and the blueprint beats B0 heads-up by 2.5 SE. LBR, with menu bets only and with the 56
+sizes, is measured at every checkpoint and reported, not pass or fail.**
 
-The roadmap's wording now: **"LBR falls at every checkpoint; beats B0 heads-up by 2.5 SE."**
-Kevin is deciding whether to keep it. Phase 5 found that at 20bb LBR rose as training went on
-in every run (the blueprint's strategy sharpens and LBR's off-menu bets find more to exploit),
-and about 18% of the blueprint's decisions against LBR's 56 sizes are off the menu, so "falls at
-every checkpoint" may not hold for a blueprint that is training well.
+Pre-registered here, before the run:
 
-The evaluation measures every wording below for any list of files, and its summary ends with
-each reading. Which files are "the checkpoints", and which is "first", is decided by the files
-given: the 14 stages by default; any other list, such as the stages from 64M on, works the same.
+| | |
+| --- | --- |
+| The checkpoints | The strategy files of the stages, `strategy-1000000.bps` up to the stage where the stop rule says stop (or the last one before the cap ends the run). The first is the 1M file, the last is that stage's. Files exported by hand from other checkpoints are not checkpoints for the gate |
+| Head to head | `tools/blueprint_eval.py` on all the stage files: the last against the first, 200,000 deals (400,000 hands), each played twice with the seats swapped, all-in hands scored by their equity, 200 big blinds, seed 6101. Passes at z ≥ 2.5 |
+| B0, sizing | 4,000 deals (8,000 hands) against the last file, seeds 6201 on, one process per core (`--b0-deals 4000`): it measures the sd a deal and is not judged |
+| B0, the gate's match | Against the last file, N deals with N = (2.5 × sd / 10)², the deals a 2.5 SE result needs at an edge of 10 bb/100 at the sizing match's sd, rounded up to a multiple of 1,000 and at least 10,000; seeds 7201 on (`--b0-deals N --b0-seed 7201`); 200 big blinds, each deal played twice with the seats swapped, all-in hands scored by their equity. Passes at z ≥ 2.5, on this match alone (the sizing match is not pooled with it) |
+| LBR, reported | `fcpa14` (bets of the pot and all in only, so the menu's own sizes) and `b56_14` (56 sizes), 20,000 hands, seed 6001, the same deals for every file; each file against the one before and the last against the first, deal by deal. Not pass or fail |
+| The stop rule | As above |
+| Fixed once the run starts | The seeds, the hands and deals, the stop rule, which files are first and last, and the sizing rule for B0. A result that misses is not run again with more hands or other seeds; a new test is a new pre-registration in `experiments.md` |
 
-| Wording | Measured by | Passes when |
-| --- | --- | --- |
-| (a) As written: LBR falls at every checkpoint | LBR (`fcpa14` and `b56_14`), each file against the one before, deal by deal on the same deals | the paired difference is below zero at every step, for the setting chosen. The summary also counts the steps where it fell by 2.5 SE and rose by 2.5 SE, since at 20,000 hands most steps late in a run will be within noise |
-| (b) The last checkpoint beats the first head to head by 2.5 SE | the arena, last against first, duplicate deals, all-in equity | z ≥ 2.5 |
-| (c) LBR with menu bets only falls from first to last | LBR `fcpa14` (bets of the pot and all in only, so off-menu mapping plays no part), last against first, deal by deal | the paired difference is below zero (the summary also says whether by 2.5 SE) |
-| In every case: beats B0 heads-up by 2.5 SE | `tools/b0_arena.py` at 200bb against the last file, pooled over processes | z ≥ 2.5 |
+The summary's last section reads the gate: both conditions, "passes" or "does not pass", and the
+LBR figures beside them. The gate's reading is the summary of the run with the gate's B0 match.
 
-Points to weigh:
-
-- **"First" matters for (b) and (c).** The first stage is at 1M iterations, a nearly random
-  strategy (the 2M file beat the 1M one by 150 bb/100), so last against first passes easily.
-  A stricter reading is the first file after the linear phase (128M), or the stage before the
-  last.
-- **(a) needs enough hands.** At 20,000 hands an LBR difference has an SE of 30 to 40 bb/100,
-  so late steps that move a few bb/100 fall or rise at random, and 13 steps all falling would
-  then happen by chance about once in 8,000 times. Judged on "every step falls by 2.5 SE",
-  it would need far more hands than any step's difference supports. `--lbr-hands` sets the
-  hands (200,000 is about an hour and a half for 14 files).
-- **B0**: the hands follow from the sd and the edge, both measured by the first match
-  (`--b0-deals`, default 4,000). A suggestion, to pre-register when Kevin decides: after the
-  stop, 4,000 deals (seed 6201 on) to measure them, then a match of the deals the summary says
-  the measured edge needs, twice over, on fresh seeds (`b0_arena.py --seed` 7201 on), judged
-  on that match alone.
+- **The B0 match's size.** 10 bb/100 is the smallest edge the match is sized to see: a larger
+  edge passes with room, a smaller one may not pass at all. At the 2M file's sd (1,291 a deal)
+  N would be 104,000 deals (208,000 hands), about 22 minutes on a computer with 10 cores at 16
+  hands a second each; the trained file's sd decides it.
+- **What the head-to-head condition shows.** The 1M file is nearly random (the 2M file beat it
+  by 121 ± 4.5 bb/100 over 200,000 deals), so the last file beating it shows that the training
+  went somewhere, and little more. The summary also reports each stage against the one before,
+  which shows whether the later doublings still gained anything.

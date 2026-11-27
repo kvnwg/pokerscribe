@@ -1,9 +1,10 @@
 # tools/cloud: training runs on a rented Google Cloud machine
 
 These tools run one long training job (the Phase 6 heads-up blueprint) on a big Arm machine in
-Google Cloud: a c4a-highmem-64 (64 vCPUs, 512 GB), a c4a-highcpu-64 (the same 64 vCPUs with 128 GB,
-for a trainer that needs little memory, as the Phase 6 blueprint does), or similar, for hours or
-days, usually as a Spot machine, which Google can take back at any time with 30 seconds' warning. You run them on
+Google Cloud: a c4a-highcpu-64 (64 vCPUs, 128 GB; the Phase 6 blueprint needs 9 GB at most), a
+c4a-highmem-64 (the same 64 vCPUs with 512 GB, for a trainer that needs more memory), or similar,
+for hours or days, usually as a Spot machine, which Google can take back at any time with 30
+seconds' warning. You run them on
 your own computer; they drive the gcloud CLI. They:
 
 1. **launch**: create the machine (machine type, region, Spot or on-demand, and disk size are
@@ -65,11 +66,15 @@ cycle on your computer, with a fake trainer and a local folder standing in for t
 
    ```
    gcloud services enable compute.googleapis.com storage.googleapis.com --project <PROJECT>
+   gcloud services enable cloudquotas.googleapis.com --project <PROJECT>   # optional, for check
    ```
 
+   The third, the Cloud Quotas API, only lets `check` read the C4A quota (step 4).
+
 4. **Quota: 64 C4A vCPUs in us-central1.** New projects have little or no C4A quota. In the
-   console, open IAM & Admin, Quotas & System Limits, filter for the C4A CPUs quota of the
-   Compute Engine API in region us-central1, select it, choose Edit, and ask for 64 (the
+   console, open IAM & Admin, Quotas & System Limits, and filter for the Compute Engine API's
+   "CPUs per VM family" quota (metric `compute.googleapis.com/cpus_per_vm_family`) with
+   dimensions region us-central1 and vm_family C4A. Select it, choose Edit, and ask for 64 (the
    machine's vCPU count). Check the "CPUs (all regions)" quota the same way (`CPUS_ALL_REGIONS`):
    it must have room for 64 too, so ask for 64 or more if it doesn't.
    - Don't ask for preemptible quota. A Spot machine counts against the normal C4A quota when
@@ -80,9 +85,14 @@ cycle on your computer, with a fake trainer and a local folder standing in for t
      asked for some payment history first.
    - If `launch` fails with a quota error that names a disk (Hyperdisk Balanced capacity), ask
      for that quota the same way.
-   - `python -m tools.cloud check` shows the C4A quota and how much of it is used. It looks for a
-     quota called `C4A_CPUS`, which follows Google's naming for the other families but hasn't
-     been checked on a real project. If `check` says it found none, read the Quotas page.
+   - `python -m tools.cloud check` shows the C4A quota. It first looks for `C4A_CPUS` in
+     `gcloud compute regions describe` (Google's naming for older families, with its usage),
+     which probably isn't there. Then it reads the "CPUs per VM family" quota's limit through
+     the Cloud Quotas API (`gcloud beta quotas info describe
+     CPUS-PER-VM-FAMILY-per-project-region --service=compute.googleapis.com`, or `... list`),
+     which has the limit but not the usage. If neither works it prints a "?" line naming the
+     quota, so read the Quotas page. The Cloud Quotas path is tested on Google's documented
+     format only, not on a real project.
 
 5. **The settings file.**
 
@@ -452,9 +462,11 @@ That trains for about 17 minutes and writes a 100 MB checkpoint every minute. Th
 - **Nothing here has run on real Google Cloud yet.** Every gcloud flag was checked offline against
   the help of gcloud 570. Not checked: the exact output of `gcloud storage ls -l` (the supervisor
   reads it to list the checkpoints), the field names `gcloud storage buckets describe` returns
-  (for check's soft delete and location lines), the name of the C4A quota, the Hyperdisk price,
-  and whether the beta 2-minute notice works on C4A. The cheap real test covers all but the last
-  two.
+  (for check's soft delete and location lines), what the Cloud Quotas API prints for the C4A
+  quota on a real project, and whether the beta 2-minute notice works on C4A. The cheap real
+  test covers the first two. Read in the console on 27 Nov 2026: the C4A quota's name ("CPUs
+  per VM family", vm_family C4A), the C4A prices and the Hyperdisk Balanced prices
+  (`settings.example.env`).
 - **`recover` runs on your computer.** If the computer sleeps or loses its network, nothing starts
   the machine again. The run is safe meanwhile (a stopped machine, the checkpoints in the bucket,
   only the disk billing), but it doesn't go on. Run `recover` under `caffeinate -i`, on power,

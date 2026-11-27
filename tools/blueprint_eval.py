@@ -22,8 +22,8 @@ For the files given (sorted by the iterations in their headers):
    (``log.jsonl``) the hours left.
 
 Results go to ``--out``: ``lbr.jsonl``, ``deals/``, ``h2h.jsonl``, ``b0/``, and
-``summary.json`` with ``summary.md``, which ends with the readings of the Phase 6 gate under
-each wording (docs/research/runs/phase6/README.md, "The gate"). A measurement already in
+``summary.json`` with ``summary.md``, which ends with the Phase 6 gate's reading
+(docs/research/runs/phase6/README.md, "The gate"). A measurement already in
 ``--out`` with the same settings is not run again, so the command can be stopped and run
 again, and run again with more files.
 
@@ -155,44 +155,43 @@ def append_jsonl(path: str, obj: dict) -> None:
 
 def gate_readings(files: list[dict], lbr: dict, lbr_pairs: dict, h2h: dict, b0: dict,
                   settings: list[str]) -> dict:
-    """What each wording of the Phase 6 gate would say about these measurements.
+    """The Phase 6 gate (Kevin, 27 Nov 2026; docs/research/runs/phase6/README.md, "The gate"):
 
-    (a) as written: LBR falls at every checkpoint (each file's LBR below the one before);
-    (b) the last file beats the first head to head by 2.5 SE;
-    (c) LBR with menu bets only (fcpa) falls from the first file to the last;
-    and in every wording: the blueprint beats B0 heads-up by 2.5 SE.
-    Each reading gives the numbers behind it, so a stricter or looser reading (falls by 2.5
-    SE, falls at all) can be made from the same summary."""
+    1. the last file beats the first head to head by 2.5 SE (``h2h``, files 0 and n-1);
+    2. the blueprint (the last file) beats B0 heads-up by 2.5 SE.
+
+    It passes when both do; None while either is unmeasured. LBR at each setting is reported
+    beside it, not pass or fail: the first and last values, their paired difference, and how
+    many steps from one file to the next fell or rose by 2.5 SE."""
     n = len(files)
     out = {}
-    a = {}
-    for s in settings:
-        steps = [lbr_pairs.get((s, i, j)) for i, j in pairs(n) if j == i + 1]
-        steps = [x for x in steps if x]
-        a[s] = {"steps": len(steps),
-                "fell": sum(1 for x in steps if x["difference"] < 0),
-                "fell_by_2_5_se": sum(1 for x in steps if x["difference"] < 0
-                                      and abs(x["z"]) >= Z),
-                "rose_by_2_5_se": sum(1 for x in steps if x["difference"] > 0
-                                      and abs(x["z"]) >= Z)}
-        a[s]["every_step_fell"] = bool(steps) and a[s]["fell"] == len(steps)
-    out["a_lbr_falls_at_every_checkpoint"] = a
     last_first = h2h.get((0, n - 1)) if n >= 2 else None
-    out["b_last_beats_first_by_2_5_se"] = None if not last_first else {
+    out["h2h_last_beats_first"] = None if not last_first else {
+        "first": files[0]["label"], "last": files[-1]["label"],
         "bb_per_100": last_first["bb_per_100"], "se": last_first["se"],
         "z": z_of(last_first["bb_per_100"], last_first["se"]),
         "passes": (z_of(last_first["bb_per_100"], last_first["se"]) or 0) >= Z}
-    menu = next((s for s in settings if s.startswith("fcpa")), None)
-    c = lbr_pairs.get((menu, 0, n - 1)) if menu and n >= 2 else None
-    out["c_lbr_menu_bets_falls_first_to_last"] = None if not c else {
-        "setting": menu, "first": lbr.get((menu, 0)), "last": lbr.get((menu, n - 1)),
-        "difference": c["difference"], "se": c["std_err"], "z": c["z"],
-        "falls": c["difference"] < 0, "falls_by_2_5_se": c["difference"] < 0 and abs(c["z"]) >= Z}
     last_b0 = b0.get(n - 1)
-    out["b0_beaten_by_2_5_se"] = None if not last_b0 else {
+    out["b0_beaten"] = None if not last_b0 else {
+        "file": files[-1]["label"],
         "bb_per_100": last_b0["blueprint_bb_per_100"], "se": last_b0["se"],
         "z": z_of(last_b0["blueprint_bb_per_100"], last_b0["se"]),
         "passes": (z_of(last_b0["blueprint_bb_per_100"], last_b0["se"]) or 0) >= Z}
+    parts = (out["h2h_last_beats_first"], out["b0_beaten"])
+    out["passes"] = None if any(x is None for x in parts) else all(x["passes"] for x in parts)
+    reported = {}
+    for s in settings:
+        steps = [lbr_pairs.get((s, i, j)) for i, j in pairs(n) if j == i + 1]
+        steps = [x for x in steps if x]
+        c = lbr_pairs.get((s, 0, n - 1)) if n >= 2 else None
+        reported[s] = {
+            "first": lbr.get((s, 0)), "last": lbr.get((s, n - 1)) if n else None,
+            "difference": c["difference"] if c else None, "se": c["std_err"] if c else None,
+            "z": c["z"] if c else None, "steps": len(steps),
+            "fell": sum(1 for x in steps if x["difference"] < 0),
+            "fell_by_2_5_se": sum(1 for x in steps if x["difference"] < 0 and abs(x["z"]) >= Z),
+            "rose_by_2_5_se": sum(1 for x in steps if x["difference"] > 0 and abs(x["z"]) >= Z)}
+    out["lbr_reported"] = reported
     return out
 
 
@@ -557,24 +556,28 @@ def markdown(s: dict) -> str:
                          f"pauses at each stage.")
             out.append(line)
     g = s["gate"]
-    out += ["", "## The gate under each wording", ""]
-    for setting, a in g["a_lbr_falls_at_every_checkpoint"].items():
-        out.append(f"- (a) as written, LBR falls at every checkpoint, {setting}: fell at "
-                   f"{a['fell']} of {a['steps']} steps ({a['fell_by_2_5_se']} by 2.5 SE; it rose by "
-                   f"2.5 SE at {a['rose_by_2_5_se']}): {'yes' if a['every_step_fell'] else 'no'}")
-    b = g["b_last_beats_first_by_2_5_se"]
-    out.append("- (b) the last file beats the first head to head by 2.5 SE: " + (
-        "not measured" if not b else f"{fmt(b['bb_per_100'], 2)} +- {fmt(b['se'], 2, False)} bb/100, "
-        f"z {fmt(b['z'], 2)}: {'yes' if b['passes'] else 'no'}"))
-    c = g["c_lbr_menu_bets_falls_first_to_last"]
-    out.append("- (c) LBR with menu bets only falls from the first file to the last: " + (
-        "not measured" if not c else f"{c['setting']} {fmt(c['first'])} to {fmt(c['last'])}, "
-        f"difference {fmt(c['difference'])} +- {fmt(c['se'], sign=False)} (z {fmt(c['z'], 2)}): "
-        f"{'yes' if c['falls'] else 'no'}{', by 2.5 SE' if c['falls_by_2_5_se'] else ''}"))
-    d = g["b0_beaten_by_2_5_se"]
-    out.append("- in every wording, the blueprint beats B0 heads-up by 2.5 SE: " + (
-        "not measured" if not d else f"{fmt(d['bb_per_100'])} +- {fmt(d['se'], sign=False)} bb/100, "
-        f"z {fmt(d['z'], 2)}: {'yes' if d['passes'] else 'no'}"))
+    out += ["", "## The gate", "",
+            "The last file beats the first head to head by 2.5 SE, and beats B0 heads-up by 2.5 SE "
+            "(Kevin, 27 Nov 2026). LBR is reported, not pass or fail.", ""]
+    h = g["h2h_last_beats_first"]
+    out.append("- Head to head, the last file against the first: " + (
+        "not measured" if not h else f"{h['last']} against {h['first']}, "
+        f"{fmt(h['bb_per_100'], 2)} +- {fmt(h['se'], 2, False)} bb/100, z {fmt(h['z'], 2)}: "
+        f"{'passes' if h['passes'] else 'does not pass'}"))
+    d = g["b0_beaten"]
+    out.append("- B0 heads-up: " + (
+        "not measured" if not d else f"{d['file']} {fmt(d['bb_per_100'])} +- "
+        f"{fmt(d['se'], sign=False)} bb/100, z {fmt(d['z'], 2)}: "
+        f"{'passes' if d['passes'] else 'does not pass'}"))
+    out.append("- The gate: " + ("not measured yet" if g["passes"] is None else
+                                 "passes" if g["passes"] else "does not pass"))
+    for setting, r in g["lbr_reported"].items():
+        if r["difference"] is None:
+            continue
+        out.append(f"- Reported: LBR {setting} from {fmt(r['first'])} to {fmt(r['last'])} bb/100, "
+                   f"last minus first {fmt(r['difference'])} +- {fmt(r['se'], sign=False)} "
+                   f"(z {fmt(r['z'], 2)}); of {r['steps']} steps it fell at {r['fell']}, by 2.5 SE "
+                   f"at {r['fell_by_2_5_se']}, and rose by 2.5 SE at {r['rose_by_2_5_se']}")
     return "\n".join(out) + "\n"
 
 
@@ -595,6 +598,8 @@ def main(argv=None) -> int:
                          "to load a pair of files)")
     ap.add_argument("--b0-deals", type=int, default=4000, help="deals; each played twice")
     ap.add_argument("--b0-processes", type=int, default=os.cpu_count() or 1)
+    ap.add_argument("--b0-seed", type=int, default=B0_SEED,
+                    help="the first process's seed; the others take the next ones")
     ap.add_argument("--b0", choices=("last", "all", "none"), default="last")
     ap.add_argument("--blueprint", default=BLUEPRINT, help="the blueprint binary")
     ap.add_argument("--skip", default="", help="lbr, h2h or b0, comma-separated")
@@ -608,7 +613,8 @@ def main(argv=None) -> int:
         skip += ("b0",)
     runner = Runner(a.blueprint, os.path.expanduser(a.tables) if a.tables else None)
     evaluate(a.strategies, a.out, runner, [x for x in a.lbr.split(",") if x], a.lbr_hands,
-             a.h2h_deals, a.b0_deals, a.b0_processes, a.b0, a.stages, a.log, skip=skip)
+             a.h2h_deals, a.b0_deals, a.b0_processes, a.b0, a.stages, a.log,
+             b0_seed=a.b0_seed, skip=skip)
     return 0
 
 

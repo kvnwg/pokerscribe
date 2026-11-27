@@ -38,8 +38,8 @@ SPEC = {
                             "(default: ZONE only)"),
     "INSTANCE_NAME": ("str", None, "machine name (default: ps-<RUN_NAME>)"),
     # the machine
-    "MACHINE_TYPE": ("str", "c4a-highmem-64", "machine type (c4a-highmem-64, or "
-                                              "c4a-highcpu-64: the same 64 cores, 128 GB)"),
+    "MACHINE_TYPE": ("str", "c4a-highcpu-64", "machine type (c4a-highcpu-64: 64 cores, 128 "
+                                              "GB; or c4a-highmem-64: the same cores, 512 GB)"),
     "PROVISIONING": ("str", "SPOT", "SPOT or STANDARD (on-demand)"),
     "PREEMPTION_NOTICE_SECONDS": ("int", 120, "Spot only: 120 asks Google for 2 minutes' notice "
                                               "before the 30-second stop (uses gcloud beta); "
@@ -59,9 +59,16 @@ SPEC = {
     # prices and the cap
     "SPOT_PRICE_PER_HOUR": ("float", None, "machine price per hour, Spot, USD"),
     "STANDARD_PRICE_PER_HOUR": ("float", None, "machine price per hour, on-demand, USD"),
-    "IP_PRICE_PER_HOUR": ("float", 0.005, "external IPv4 address, per hour while running"),
-    "DISK_PRICE_PER_GB_MONTH": ("float", 0.10, "boot disk, per GB per month (billed while "
+    "IP_PRICE_PER_HOUR": ("float", 0.005, "external IPv4 address of an on-demand machine, per "
+                                          "hour while running"),
+    "SPOT_IP_PRICE_PER_HOUR": ("float", 0.0025, "external IPv4 address of a Spot machine, per "
+                                                "hour while running"),
+    "DISK_PRICE_PER_GB_MONTH": ("float", 0.08, "boot disk, per GB per month (billed while "
                                                "the disk exists, stopped or not)"),
+    "DISK_IOPS_PRICE_PER_MONTH": ("float", 0.005, "Hyperdisk Balanced: each provisioned IOPS "
+                                                  "above the free 3,000, per month"),
+    "DISK_THROUGHPUT_PRICE_PER_MONTH": ("float", 0.04, "Hyperdisk Balanced: each provisioned "
+                                                       "MiB/s above the free 140, per month"),
     "BUDGET_USD": ("float", None, "hard cap: the machine stops when the estimated cost "
                                   "reaches this"),
     "BUDGET_MARGIN_MINUTES": ("float", 15.0, "the supervisor stops the trainer this many "
@@ -110,6 +117,10 @@ SPEC = {
 
 # Machine types whose size is known without asking Google: (vCPUs, memory in GB). C4A comes
 # with 2 GB a vCPU (highcpu), 4 (standard) or 8 (highmem). `check` asks Google for any type.
+# Hyperdisk Balanced's baseline, included in the price per GB.
+FREE_IOPS = 3000
+FREE_MBPS = 140
+
 KNOWN_MACHINES = {f"c4a-{kind}-{n}": (n, n * per) for kind, per in
                   (("highcpu", 2), ("standard", 4), ("highmem", 8))
                   for n in (1, 2, 4, 8, 16, 32, 48, 64, 72)}
@@ -214,13 +225,26 @@ class Settings:
 
     @property
     def ip_price(self) -> float:
-        return float(self.values["IP_PRICE_PER_HOUR"] or 0) if self.values["EXTERNAL_IP"] \
-            else 0.0
+        if not self.values["EXTERNAL_IP"]:
+            return 0.0
+        return float(self.values["SPOT_IP_PRICE_PER_HOUR" if self.spot
+                                 else "IP_PRICE_PER_HOUR"] or 0)
 
     @property
     def disk_price_per_hour(self) -> float:
-        return float(self.values["DISK_SIZE_GB"]) * float(
-            self.values["DISK_PRICE_PER_GB_MONTH"] or 0) / 730.0
+        """The disk's size, and on Hyperdisk Balanced the IOPS and throughput provisioned
+        above the free baseline (3,000 IOPS, 140 MiB/s), by the hour."""
+        month = float(self.values["DISK_SIZE_GB"]) * float(
+            self.values["DISK_PRICE_PER_GB_MONTH"] or 0)
+        if (self.values.get("DISK_TYPE") or "") == "hyperdisk-balanced":
+            iops, mbps = self.values.get("DISK_IOPS"), self.values.get("DISK_THROUGHPUT_MBPS")
+            if iops:
+                month += max(0, int(iops) - FREE_IOPS) * float(
+                    self.values["DISK_IOPS_PRICE_PER_MONTH"] or 0)
+            if mbps:
+                month += max(0, int(mbps) - FREE_MBPS) * float(
+                    self.values["DISK_THROUGHPUT_PRICE_PER_MONTH"] or 0)
+        return month / 730.0
 
     @property
     def price_per_hour(self) -> float:

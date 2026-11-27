@@ -914,8 +914,19 @@ def check(ctx: Ctx) -> int:
         ok(lim >= need, f"{family} CPU quota in {s.REGION} has room for {need} vCPUs",
            "request it: tools/cloud/README.md, Setup step 4")
     else:
-        ctx.out(f"  ?     no {family}_CPUS quota listed by gcloud for {s.REGION}: check the "
-                f"Quotas page (README, Setup step 4)")
+        # Google lists this quota as "CPUs per VM family" (vm_family C4A), which `regions
+        # describe` may not show. The Cloud Quotas API has its limit, not its usage.
+        vq = gce.vm_family_quota(ctx.gcloud, s.REGION, family)
+        if vq is not None:
+            ok(vq["limit"] >= need, f"{family} CPU quota (CPUs per VM family) in {s.REGION} is "
+                                    f"{vq['limit']:g}, room for {need} vCPUs if no other "
+                                    f"{family} machine runs (usage not read)",
+               "request it: tools/cloud/README.md, Setup step 4")
+        else:
+            ctx.out(f"  ?     couldn't read the {family} CPU quota: on the Quotas page it is "
+                    f"\"CPUs per VM family\", vm_family {family}, region {s.REGION} "
+                    f"({gce.VM_FAMILY_METRIC}); it needs room for {need} (README, Setup "
+                    f"step 4)")
     allreg = [q for q in qs if q["metric"] == "CPUS_ALL_REGIONS"]
     if allreg:
         q = allreg[0]
