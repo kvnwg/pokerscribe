@@ -274,7 +274,7 @@ def test_leftovers_lists_what_costs_money(tmp_path):
     control.print_leftovers(ctx)
     text = "\n".join(out)
     assert "stopped: its disks still bill" in text and "attached to nothing" in text
-    assert "about $20.00/month" in text                         # 200 GB at $0.10
+    assert "about $16.00/month" in text                         # 200 GB at $0.08
     assert "static IP" in text and "5.00 GB stored" in text
     assert text.count("(this run)") == 3                        # machine, disk, bucket
 
@@ -315,24 +315,145 @@ def test_check_points_at_what_to_fix(tmp_path):
     assert "3 thing(s) to fix" in text
 
 
+def check_answers(memory_mb):
+    return {
+        ("config", "get-value", "account"): (0, "someone\n"),
+        ("projects", "describe", "test-project"): (0, '{"projectId": "test-project"}'),
+        ("services", "list", "--enabled"): (0, json.dumps(
+            [{"config": {"name": "compute.googleapis.com"}},
+             {"config": {"name": "storage.googleapis.com"}}])),
+        ("compute", "machine-types", "describe"): (
+            0, json.dumps({"guestCpus": 64, "memoryMb": memory_mb})),
+        ("compute", "regions", "describe"): (0, json.dumps({"quotas": [
+            {"metric": "C4A_CPUS", "limit": 72.0, "usage": 0.0},
+            {"metric": "CPUS", "limit": 100.0, "usage": 0.0}]})),
+        ("compute", "project-info", "describe"): (0, json.dumps({"quotas": [
+            {"metric": "CPUS_ALL_REGIONS", "limit": 72.0, "usage": 0.0}]})),
+        ("beta", "compute", "instances"): (0, "... --preemption-notice-duration ..."),
+        ("storage", "buckets", "describe"): (0, json.dumps(
+            {"location": "US-CENTRAL1", "soft_delete_policy": {"retentionDurationSeconds": "0"}})),
+    }
+
+
+def run_check(s, answers):
+    def runner(args):
+        for k, (rc, text) in answers.items():
+            if tuple(args[:len(k)]) == k:
+                return rc, text, ""
+        return 1, "", "not found"
+
+    out = []
+    ctx = control.Ctx(s, gce.Gcloud(s.PROJECT, runner=runner), None, out=out.append)
+    return control.check(ctx), "\n".join(out)
+
+
+def test_check_on_c4a_highcpu_64_with_the_phase6_sizes(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 2_000_000)
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64", SPOT_PRICE_PER_HOUR="1.3146",
+                      STANDARD_PRICE_PER_HOUR="2.4243", TRAINER_MEMORY_GB="7.4",
+                      CHECKPOINT_GB="4.9", ARTIFACTS_GB="7", DISK_SIZE_GB="80",
+                      TRAINER_FILES=str(tables))
+    rc, text = run_check(s, check_answers(131072))
+    assert rc == 0, text
+    assert "c4a-highcpu-64 exists in us-central1-a (64 vCPUs, 128 GB)" in text
+    assert "ok    the trainer's 7.4 GB fits c4a-highcpu-64's 128 GB in us-central1-a" in text
+    assert "ok    disk 80 GB holds 4 checkpoints of 4.9 GB, 7 GB of artifacts" in text
+    assert "TRAINER_FILES: 1 file(s), 2 MB" in text
+    assert "$1.3" in text and "all checks passed" in text
+    # A trainer too big for the machine Google describes is a thing to fix.
+    big = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64", TRAINER_MEMORY_GB="120")
+    rc, text = run_check(big, check_answers(131072))
+    assert rc == 1 and "does not fit c4a-highcpu-64 (128 GB)" in text
+    assert "FIX   the trainer's 120 GB fits c4a-highcpu-64's 128 GB" in text
+
+
+def test_check_reads_the_c4a_quota_as_cpus_per_vm_family(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    answers = check_answers(131072)
+    # As on Kevin's project: no C4A_CPUS in regions describe, only the plain CPU quotas.
+    answers[("compute", "regions", "describe")] = (0, json.dumps({"quotas": [
+        {"metric": "CPUS", "limit": 100.0, "usage": 0.0}]}))
+    quota = {"quotaId": "CPUS-PER-VM-FAMILY-per-project-region",
+             "metric": "compute.googleapis.com/cpus_per_vm_family",
+             "dimensionsInfos": [{"dimensions": {"region": "us-central1", "vm_family": "C4A"},
+                                  "details": {"value": "64"}}]}
+    answers[("beta", "quotas", "info", "describe")] = (0, json.dumps(quota))
+    rc, text = run_check(s, answers)
+    assert rc == 0, text
+    assert "ok    C4A CPU quota (CPUs per VM family) in us-central1 is 64, room for 64" in text
+    # Too small is a thing to fix.
+    quota["dimensionsInfos"][0]["details"]["value"] = "32"
+    answers[("beta", "quotas", "info", "describe")] = (0, json.dumps(quota))
+    rc, text = run_check(s, answers)
+    assert rc == 1 and "FIX   C4A CPU quota (CPUs per VM family) in us-central1 is 32" in text
+    # describe fails, list has it.
+    del answers[("beta", "quotas", "info", "describe")]
+    quota["dimensionsInfos"][0]["details"]["value"] = "72"
+    answers[("beta", "quotas", "info", "list")] = (0, json.dumps([quota]))
+    rc, text = run_check(s, answers)
+    assert rc == 0 and "is 72, room for 64" in text
+    # The API off or another format: the "?" line naming the quota, and no failure.
+    answers[("beta", "quotas", "info", "list")] = (1, "")
+    rc, text = run_check(s, answers)
+    assert rc == 0, text
+    assert '?     couldn\'t read the C4A CPU quota: on the Quotas page it is "CPUs per VM ' \
+           'family", vm_family C4A, region us-central1' in text
+    answers[("beta", "quotas", "info", "list")] = (0, "not json")
+    rc, text = run_check(s, answers)
+    assert rc == 0 and "couldn't read the C4A CPU quota" in text
+
+
+def test_artifacts_lists_and_downloads(tmp_path):
+    ctx, _fake, out = make_ctx(tmp_path)
+    assert control.artifacts(ctx) == 1 and "no artifacts" in out[-1]
+    ctx.store.put_bytes("artifacts/strategy-1000000.bps", b"a" * 3000)
+    ctx.store.put_bytes("artifacts/strategy-2000000.bps", b"b" * 3000)
+    ctx.store.put_bytes("artifacts/stages.jsonl", b'{"iterations": 1000000}\n')
+    out.clear()
+    assert control.artifacts(ctx) == 0
+    assert "3 artifact(s)" in out[0] and any("strategy-2000000.bps" in x for x in out)
+    dest = tmp_path / "got"
+    assert control.artifacts(ctx, download=str(dest), only="strategy-*") == 0
+    assert sorted(os.listdir(dest)) == ["strategy-1000000.bps", "strategy-2000000.bps"]
+    assert "downloaded 2" in out[-1]
+    ctx.store.put_bytes("artifacts/strategy-4000000.bps", b"c" * 3000)
+    ctx.store.put_bytes("artifacts/stages.jsonl", b'{"iterations": 1000000}\n{"x": 1}\n')
+    assert control.artifacts(ctx, download=str(dest)) == 0
+    assert "downloaded 2" in out[-1] and "(2 were there already)" in out[-1]
+    assert (dest / "stages.jsonl").read_text().count("\n") == 2
+    assert not [n for n in os.listdir(dest) if n.endswith(".part")]
+
+
 # --- whole simulated runs ------------------------------------------------------------------------
 
 def simulation(tmp_path, iterations=400):
+    """The trainer holds halfway while tmp_path/hold exists (fake_trainer.py, hold_at), so a
+    test's preemption always comes halfway, however fast the machine. preempt_halfway()
+    removes the file once the first machine has stopped."""
     store_dir = str(tmp_path / "bucket" / "runs" / "hu-test")
     fake_cfg = str(tmp_path / "fake.json")
+    hold = tmp_path / "hold"
+    hold.write_text("")
     with open(fake_cfg, "w") as f:
         json.dump({"iterations": iterations, "iteration_seconds": 0.01,
-                   "checkpoint_seconds": 0.3, "checkpoint_bytes": 16384}, f)
+                   "checkpoint_seconds": 0.3, "checkpoint_bytes": 16384,
+                   "hold_at": iterations // 2, "hold_file": str(hold)}, f)
     fake = FakeCompute(store_dir=store_dir, root=str(tmp_path), fake_cfg=fake_cfg)
     ctx, fake, out = make_ctx(tmp_path, fake=fake, BUDGET_USD="100")
     write_json(ctx.store, BUNDLE + "manifest.json", {"version": "v1"})
     return ctx, fake, out
 
 
-def halfway(ctx, iterations):
+def preempt_halfway(ctx, fake, tmp_path, iterations, name="ps-hu-test"):
+    """Waits until the trainer is halfway with a checkpoint in the bucket, then Google takes
+    the machine (preempt waits for its processes to exit) and the hold is lifted."""
     local_test.wait_for(
         lambda: ((read_json(ctx.store, STATUS) or {}).get("progress", {}).get("iterations") or 0)
         >= iterations // 2 and remote_checkpoints(ctx.store), 60, "halfway")
+    fake.preempt(name)
+    (tmp_path / "hold").unlink()
 
 
 def check_finished(ctx, disk_dirs, iterations):
@@ -353,8 +474,7 @@ def test_simulated_preemption_restarts_the_same_machine(tmp_path):
     ctx, fake, out = simulation(tmp_path)
     try:
         control.create_machine(ctx, 0.0, "v1")
-        halfway(ctx, 400)
-        fake.preempt("ps-hu-test")
+        preempt_halfway(ctx, fake, tmp_path, 400)
         assert control.recover(ctx, once=True) == 0, out      # sees the preemption, starts
         assert fake.verbs()[-1] == "start"
         fake.wait_stopped("ps-hu-test")                       # the run finishes, powers off
@@ -371,8 +491,7 @@ def test_simulated_preemption_with_the_machine_deleted_makes_a_new_one(tmp_path)
     ctx, fake, out = simulation(tmp_path)
     try:
         control.create_machine(ctx, 0.0, "v1")
-        halfway(ctx, 400)
-        fake.preempt("ps-hu-test")
+        preempt_halfway(ctx, fake, tmp_path, 400)
         del fake.instances["ps-hu-test"]                      # termination action DELETE
         assert control.recover(ctx, once=True) == 0, out
         assert fake.verbs()[-1] == "create"

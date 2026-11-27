@@ -299,6 +299,65 @@ def leftovers(gcloud: Gcloud, bucket: str | None, disk_per_gb_month: float,
     return rows
 
 
+# The C4A quota as the console shows it: "CPUs per VM family", vm_family C4A, per region.
+VM_FAMILY_METRIC = "compute.googleapis.com/cpus_per_vm_family"
+VM_FAMILY_QUOTA_ID = "CPUS-PER-VM-FAMILY-per-project-region"
+
+
+def parse_vm_family_quota(info, region: str, family: str) -> dict | None:
+    """The limit of the CPUs-per-VM-family quota for ``family`` in ``region``, from the Cloud
+    Quotas API's QuotaInfo (``gcloud beta quotas info describe`` gives one, ``... list`` a
+    list of them). Each QuotaInfo has ``metric``, ``quotaId`` and ``dimensionsInfos``: a list
+    of ``{"dimensions": {"region": ..., "vm_family": ...}, "details": {"value": "64"}}``,
+    where an entry with fewer dimensions is the default for the rest. The most specific entry
+    that matches wins; a value of -1 means no limit. None when nothing matches or the format
+    is not the one expected: the caller then says it couldn't read the quota."""
+    infos = info if isinstance(info, list) else [info]
+    best = None
+    for q in infos:
+        if not isinstance(q, dict):
+            continue
+        if q.get("metric") != VM_FAMILY_METRIC and \
+                str(q.get("quotaId", "")).upper() != VM_FAMILY_QUOTA_ID.upper():
+            continue
+        for d in q.get("dimensionsInfos") or []:
+            if not isinstance(d, dict):
+                continue
+            dims = d.get("dimensions") or {}
+            if not isinstance(dims, dict):
+                continue
+            if "region" in dims and str(dims["region"]).lower() != region.lower():
+                continue
+            if "vm_family" in dims and str(dims["vm_family"]).upper() != family.upper():
+                continue
+            try:
+                value = float((d.get("details") or {}).get("value"))
+            except (TypeError, ValueError):
+                continue
+            rank = ("region" in dims) + 2 * ("vm_family" in dims)
+            if best is None or rank > best[0]:
+                best = (rank, {"limit": float("inf") if value < 0 else value,
+                               "dimensions": dims, "quota_id": q.get("quotaId")})
+    return best[1] if best else None
+
+
+def vm_family_quota(gcloud: Gcloud, region: str, family: str) -> dict | None:
+    """The CPUs-per-VM-family quota's limit through the Cloud Quotas API (needs
+    cloudquotas.googleapis.com and gcloud beta), or None. Usage is not part of that API."""
+    for args in (["beta", "quotas", "info", "describe", VM_FAMILY_QUOTA_ID,
+                  "--service=compute.googleapis.com"],
+                 ["beta", "quotas", "info", "list", "--service=compute.googleapis.com"]):
+        try:
+            info = gcloud(args, json_out=True, mutating=False, check=False)
+        except GcloudError:      # not JSON
+            continue
+        if info:
+            q = parse_vm_family_quota(info, region, family)
+            if q is not None:
+                return q
+    return None
+
+
 def quotas(gcloud: Gcloud, region: str) -> list[dict]:
     """The region's and the project's CPU quotas (metric, limit, usage)."""
     out = []

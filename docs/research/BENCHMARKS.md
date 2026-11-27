@@ -268,7 +268,12 @@ Arm.
 ### Hourly prices (USD, Linux, no tax)
 
 AWS: us-east-1, from instances.vantage.sh, which republishes AWS price data, read 26 Nov 2026
-[C1]. GCP: us-central1, from gcloud-compute.com, data last updated 22 Nov 2026 [C4]. Hetzner:
+[C1]. GCP: us-central1, from Google's Spot and general-purpose pricing pages, read 27 Nov 2026
+[C13] (the console's estimate for c4a-highcpu-64 agreed, about $1.45 Spot; gcloud-compute.com's
+data of 22 Nov 2026 [C4] had c4a-highcpu-64 at 2.4243 and 1.3146 and c4a-highmem-64 at 3.7722 and
+2.0461, about 9% under Google's Spot prices). A Spot machine's external IPv4 address adds
+$0.0025 an hour ($0.005 on demand), and Hyperdisk Balanced costs $0.000109589 per GiB an hour
+(about $0.08 a month), 27 Nov 2026 [C13]. Hetzner:
 Falkenstein, Nuremberg or Helsinki, from Hetzner's own price API, with the required primary IPv4
 included, excluding VAT, read 26 Nov 2026 [C7]. Spot prices move hour to hour; these are one
 reading.
@@ -280,7 +285,7 @@ reading.
 | AWS c7a.16xlarge | AMD EPYC Genoa | 64 | 128 GiB | 3.284 | 1.219 |
 | AWS c8a.16xlarge | AMD EPYC Turin | 64 | 128 GiB | 3.449 | 1.050 |
 | AWS c8g.16xlarge | Graviton4 (Arm) | 64 | 128 GiB | 2.552 | 0.992 |
-| GCP c4a-highcpu-64 | Axion (Arm) | 64 | 128 GB | 2.4243 | 1.3146 |
+| GCP c4a-highcpu-64 | Axion (Arm) | 64 | 128 GB | 2.42432 | 1.445888 |
 | Hetzner AX162-1 | AMD EPYC 9454P | 48 | 128 GB | 1.1602 (€0.984) + $359 setup | none |
 
 64 cores, about 512 GB:
@@ -290,7 +295,7 @@ reading.
 | AWS r7a.16xlarge | AMD EPYC Genoa | 64 | 512 GiB | 4.869 | 1.009 |
 | AWS r8a.16xlarge | AMD EPYC Turin | 64 | 512 GiB | 5.112 | 3.036 |
 | AWS r8g.16xlarge | Graviton4 (Arm) | 64 | 512 GiB | 3.770 | 1.244 |
-| GCP c4a-highmem-64 | Axion (Arm) | 64 | 512 GB | 3.7722 | 2.0461 |
+| GCP c4a-highmem-64 | Axion (Arm) | 64 | 512 GB | 3.77216 | 2.250752 |
 | Hetzner AX162-3 | AMD EPYC 9454P | 48 | 512 GB | 3.0432 (€2.5625) + $949 setup | none |
 
 Hetzner details: the AX162-1 is $724 (€614) a month with a $359 (€304) setup fee; the AX162-3 is
@@ -311,18 +316,18 @@ price, plus Hetzner's setup fee. Storage and network are left out.
 | AWS c7a.16xlarge | 128 GiB | $36 | $13 | $636 | $236 |
 | AWS c8a.16xlarge | 128 GiB | $38 | $11 | $668 | $203 |
 | AWS c8g.16xlarge | 128 GiB | $28 | $11 | $494 | $192 |
-| GCP c4a-highcpu-64 | 128 GB | $27 | $14 | $470 | $255 |
+| GCP c4a-highcpu-64 | 128 GB | $27 | $16 | $470 | $280 |
 | Hetzner AX162-1 | 128 GB | $376 | none | $659 | none |
 | AWS r7a.16xlarge | 512 GiB | $53 | $11 | $943 | $195 |
 | AWS r8a.16xlarge | 512 GiB | $56 | $33 | $990 | $588 |
 | AWS r8g.16xlarge | 512 GiB | $41 | $14 | $730 | $241 |
-| GCP c4a-highmem-64 | 512 GB | $41 | $22 | $731 | $396 |
+| GCP c4a-highmem-64 | 512 GB | $41 | $25 | $731 | $436 |
 | Hetzner AX162-3 | 512 GB | $995 | none | $1,737 | none |
 
 Reading the table:
 
 - Modicum needed 16 GB [P1], so the heads-up run fits the 128 GB machines: about $27 to $38
-  on-demand, $11 to $14 spot.
+  on-demand, $11 to $16 spot.
 - Pluribus needed under 512 GB [P3], so the six-max run needs the 512 GB row: about $730 to $990
   on-demand, $195 to $590 spot. Hetzner costs more here only because of the $949 setup fee; its
   hourly part is $788.
@@ -397,3 +402,7 @@ Prices and hardware
   96 threads: WikiChip on the EPYC 9454 family https://en.wikichip.org/wiki/amd/epyc/9454
 - [C11] Achromatic, "Hetzner Server Comparison", 4 Nov 2024. https://www.achromatic.dev/blog/hetzner-server-comparison
 - [C12] Google Cloud, Spot VMs. https://docs.cloud.google.com/compute/docs/instances/spot
+- [C13] Google Cloud, VM instance pricing (general-purpose machines, external IP addresses),
+  Spot VM pricing and Hyperdisk pricing, us-central1, read 27 Nov 2026.
+  https://cloud.google.com/compute/vm-instance-pricing , https://cloud.google.com/spot-vms/pricing ,
+  https://cloud.google.com/compute/disks-image-pricing

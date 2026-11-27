@@ -1,0 +1,12 @@
+config: /opt/pscloud/bundle/files/k200 -> ~/abstraction/k200
+machine 1: fresh start (engine/target/release/blueprint --threads 4)
+machine 1: 2 stage(s) in the bucket (2,000,000 iterations), trainer at 2,000,000; SIGTERM to every process (Google stops the machine)
+machine 1: trainer saved at iteration 2,038,070 and exited 75; stopped 12.7 s after SIGTERM; 3 checkpoint(s) and 4 artifact(s) in the bucket
+machine 2: new machine, empty disk
+machine 2: checkpoint and artifacts put back, trainer resumed at 2,038,070 after 15.0 s
+machine 2: 4 stages in the bucket; writing the stop marker (python -m tools.cloud stop)
+machine 2: stopped 13.5 s after the marker, saved at 8,033,450; state stopped
+stages: 1,000,000, 2,000,000, 4,000,000, 8,000,000; the first after the resume was compared with strategy-2000000.bps
+bucket: 14.59 GB; whole rehearsal 19.2 min
+rehearsal passed; files kept in <scratchpad>/rehearsal
+exit 0

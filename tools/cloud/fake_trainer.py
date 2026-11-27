@@ -22,6 +22,17 @@ The config is JSON; every field is optional:
      "progress_every": 10, "crash_at": null, "stop_exit_code": 75}
 
 ``crash_at`` makes a fresh (not resumed) run exit 3 at that iteration, to test crash restarts.
+``stage_every`` (off by default) writes a result at every multiple of that many iterations,
+as the blueprint trainer writes its strategy files: ``stage-<i>.bps`` (written whole, then
+renamed) and a line appended to ``stages.jsonl``, which says whether the stage before is on
+the disk (on a new machine it is only there if the supervisor put it back).
+
+``hold_at`` with ``hold_file`` (off by default) makes a test's "halfway" happen before the run
+can finish, however fast the machine: at iteration ``hold_at`` (after its progress line and
+stage), if ``hold_file`` exists, the trainer saves a checkpoint, prints
+``{"event": "holding", ...}`` and waits while the file is there, until SIGTERM (then it saves
+and exits as usual). A run resumed at ``hold_at`` or later never reaches it again, so never
+holds.
 """
 from __future__ import annotations
 
@@ -46,6 +57,9 @@ DEFAULTS = {
     "progress_every": 10,
     "crash_at": None,
     "stop_exit_code": 75,
+    "stage_every": None,
+    "hold_at": None,
+    "hold_file": None,
 }
 
 
@@ -95,6 +109,14 @@ def save(path: str, data: bytes, save_seconds: float) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def stage(ckdir: str, i: int, every: int, digest: str) -> None:
+    """A stage result: a file of its own and a line in stages.jsonl."""
+    save(os.path.join(ckdir, f"stage-{i}.bps"), f"{i} {digest}\n".encode(), 0.0)
+    before = os.path.exists(os.path.join(ckdir, f"stage-{i - every}.bps")) if i > every else None
+    with open(os.path.join(ckdir, "stages.jsonl"), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"iterations": i, "previous_on_disk": before}) + "\n")
 
 
 def say(obj: dict) -> None:
@@ -149,6 +171,17 @@ def main(argv=None) -> int:
         i += 1
         if i % int(cfg["progress_every"]) == 0:
             say({"iterations": i, "target_iterations": target})
+        if cfg["stage_every"] and i % int(cfg["stage_every"]) == 0:
+            stage(args.checkpoint_dir, i, int(cfg["stage_every"]), digest)
+        hold = cfg["hold_file"]
+        if cfg["hold_at"] is not None and i == int(cfg["hold_at"]) and hold and \
+                os.path.exists(hold):
+            save(path, encode(i, digest, target, int(cfg["checkpoint_bytes"])),
+                 float(cfg["save_seconds"]))
+            last_save = time.monotonic()
+            say({"event": "holding", "iterations": i, "target_iterations": target})
+            while os.path.exists(hold) and not stop["flag"]:
+                time.sleep(0.01)
         if stop["flag"]:
             save(path, encode(i, digest, target, int(cfg["checkpoint_bytes"])),
                  float(cfg["save_seconds"]))

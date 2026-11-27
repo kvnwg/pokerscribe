@@ -546,19 +546,22 @@ def _button_fill(label: str) -> Tuple[int, int, int]:
     return (58, 76, 168)
 
 
-def _button_column(d: ImageDraw.ImageDraw, lay: Layout, labels: List[str], bold) -> None:
+def _button_column(d: ImageDraw.ImageDraw, lay: Layout, labels: List[str], bold) -> List[tuple]:
     """Buttons stacked at the right edge, raise on top and fold at the bottom."""
     W, H, ts = lay.width, lay.height, lay.text_size
     bw = int(max(ts * 6.5, max(bold.getlength(b) for b in labels) + 1.4 * ts))
     bh = int(ts * 2.6)
     x = W - 20 - bw
+    drawn = []
     for k, label in enumerate(reversed(labels)):
         y = H - 20 - (len(labels) - k) * (bh + 12)
         d.rounded_rectangle([x, y, x + bw, y + bh], radius=8, fill=_button_fill(label), outline=(20, 20, 30), width=2)
         d.text((x + bw / 2, y + bh / 2), label, font=bold, fill=(250, 250, 250), anchor="mm")
+        drawn.append((label, (x, y, bw, bh)))
+    return drawn
 
 
-def _button_bar(d: ImageDraw.ImageDraw, lay: Layout, labels: List[str], bold) -> None:
+def _button_bar(d: ImageDraw.ImageDraw, lay: Layout, labels: List[str], bold) -> List[tuple]:
     """Buttons side by side across the whole bottom edge (phones)."""
     W, H, ts = lay.width, lay.height, lay.text_size
     n = len(labels)
@@ -566,11 +569,14 @@ def _button_bar(d: ImageDraw.ImageDraw, lay: Layout, labels: List[str], bold) ->
     bw = (W - 32 - (n - 1) * gap) / n
     bh = int(ts * 2.3)
     y = H - bh - 18
+    drawn = []
     for k, label in enumerate(labels):
         x = 16 + k * (bw + gap)
         d.rounded_rectangle([x, y, x + bw, y + bh], radius=bh // 2, fill=_button_fill(label), outline=(240, 200, 80),
                             width=2)
         d.text((x + bw / 2, y + bh / 2), label, font=bold, fill=(250, 250, 250), anchor="mm")
+        drawn.append((label, (x, y, bw, bh)))
+    return drawn
 
 
 def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
@@ -588,7 +594,8 @@ def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
     d.ellipse([fx0 * W - rim, fy0 * H - rim, fx1 * W + rim, fy1 * H + rim], fill=lay.felt_edge)
     d.ellipse([fx0 * W, fy0 * H, fx1 * W, fy1 * H], fill=lay.felt)
     cx, cy = (fx0 + fx1) / 2 * W, (fy0 + fy1) / 2 * H
-    meta: dict = {"plates": [], "board_boxes": [], "hero_boxes": []}
+    # buttons: (label as drawn, (x, y, w, h)) for each action button, for clicks to be checked against
+    meta: dict = {"plates": [], "board_boxes": [], "hero_boxes": [], "buttons": []}
 
     # header
     if lay.header:
@@ -749,9 +756,9 @@ def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
     if view.buttons:
         labels = [b.upper() for b in view.buttons] if lay.upper_buttons else list(view.buttons)
         if lay.buttons_style == "column":
-            _button_column(d, lay, labels, bold)
+            meta["buttons"] = _button_column(d, lay, labels, bold)
         elif lay.buttons_style == "bar":
-            _button_bar(d, lay, labels, bold)
+            meta["buttons"] = _button_bar(d, lay, labels, bold)
         else:
             bw = int(max(lay.text_size * 6.2, max(font.getlength(b) for b in labels) + lay.text_size))
             bh = int(lay.text_size * 2.1)
@@ -766,6 +773,7 @@ def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
                     d.rounded_rectangle([bx, y, bx + bw, y + bh], radius=6, fill=(60, 60, 58), outline=(140, 140, 135),
                                         width=2)
                 d.text((bx + bw / 2, y + bh / 2), label, font=font, fill=(235, 235, 230), anchor="mm")
+                meta["buttons"].append((label, (bx, y, bw, bh)))
             if lay.sizing_buttons:
                 sw = int(lay.text_size * 3.6)
                 sx0 = W - 24 - 4 * (sw + 8)
@@ -799,6 +807,7 @@ def render(view: TableView, lay: Layout) -> Tuple[np.ndarray, dict]:
         arr = cv2.resize(arr, None, fx=lay.scale, fy=lay.scale, interpolation=cv2.INTER_AREA)
         k = lay.scale
         meta["plates"] = [(x * k, y * k, w * k, h * k) for x, y, w, h in meta["plates"]]
+        meta["buttons"] = [(label, (x * k, y * k, w * k, h * k)) for label, (x, y, w, h) in meta["buttons"]]
     if lay.jpeg_quality:
         ok, enc = cv2.imencode(".jpg", arr, [cv2.IMWRITE_JPEG_QUALITY, lay.jpeg_quality])
         arr = cv2.imdecode(enc, cv2.IMREAD_COLOR)

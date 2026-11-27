@@ -1,0 +1,18 @@
+{
+ "spec": {
+  "stack_bb": 200,
+  "menu": "rich",
+  "abstraction": "/opt/pscloud/bundle/files/k200",
+  "training": {
+   "seed": 1,
+   "threads": 64,
+   "compact_scale": 100.0,
+   "regret_floor": -3100000.0,
+   "linear": [1750000, 70000000],
+   "pruning": {"warmup": 35000000, "threshold": -3000000.0, "probability": 0.95}
+  }
+ },
+ "until": 8192000000,
+ "every_minutes": 30,
+ "strategies": {"first": 1000000, "factor": 2}
+}

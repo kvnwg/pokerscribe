@@ -20,6 +20,10 @@ Off your turn: whether it shows a move instead of WAIT.
 
 --drop skips that share of the pictures between your turns (missed captures). Examples of
 every kind of mistake are saved to --out with the picture, so they can be replayed.
+
+--interact plays your moves through app/interact (a plan per move, carried out by its runner on
+the simulator's buttons, tools/interact_backends.py) instead of making them directly. The game
+is the same either way; any move the runner fails to make is counted ("interaction failed").
 """
 from __future__ import annotations
 
@@ -356,6 +360,23 @@ def judge_decision(rep: Report, img, h: Hand, adv, ref) -> None:
 
 
 # ------------------------------------------------------------------- play
+def applied_move(h: Hand, kind: str, to: float) -> Tuple[str, float]:
+    """The move act() really makes from (kind, to): a fold when checking is free is a check, a
+    raise is at least the minimum and at most your chips, and a raise you can't make is a call."""
+    s = h.seats[0]
+    to_call = h.current - s.bet
+    if kind == "fold" and to_call <= 0:
+        return "check", 0.0
+    if kind == "check" and to_call > 0:
+        return "fold", 0.0
+    if kind == "raise":
+        to = min(max(to, h.current + h.min_raise), s.stack + s.bet)
+        if to <= h.current:
+            return "call", 0.0
+        return ("bet" if h.current == 0 else "raise"), to
+    return kind, 0.0
+
+
 def hero_move(h: Hand, adv) -> Tuple[str, float]:
     """What the hero does when following the instruction (as tools/simulate.py)."""
     s = h.seats[0]
@@ -374,7 +395,8 @@ def hero_move(h: Hand, adv) -> Tuple[str, float]:
 
 
 class Run:
-    def __init__(self, lay: Layout, seed: int, out: Optional[str], drop: float, players: int = 6):
+    def __init__(self, lay: Layout, seed: int, out: Optional[str], drop: float, players: int = 6,
+                 interact: bool = False):
         self.lay = lay
         self.table = Table(seed, players=players)
         self.rep = Report(lay.name, out, lay.unit)
@@ -382,6 +404,38 @@ class Run:
         self.scribe = Scribe(self.learned)
         self.drop = drop
         self.rng = random.Random(seed * 13 + 5)
+        self.runner = self.buttons = None
+        if interact:
+            from app.interact import Runner, Settings
+            from tools.interact_backends import SimBackend
+
+            self.buttons = SimBackend()
+            log = os.path.join(out, "interact.jsonl") if out else None
+            self.runner = Runner(self.buttons, Settings(call_timeout=10.0, verify_timeout=1.0, log_path=log))
+
+    def hero_plays(self, h: Hand, img, kind: str, to: float) -> None:
+        """Your move: made directly, or through app/interact with --interact."""
+        if self.runner is None:
+            act(h, 0, kind, to)
+            return
+        from app.interact import PlanError, plan_for_move
+        from tools.interact_backends import TURN_OVER
+
+        move, amount = applied_move(h, kind, to)
+        self.buttons.open_turn(h)
+        self.rep.c["moves through app/interact"] += 1
+        made = self.buttons.moves
+        try:
+            # repr: the amount typed is read back as exactly the same number
+            plan = plan_for_move(move, amount, self.buttons.targets(), expect=TURN_OVER, money=repr)
+            out = self.runner.run(plan)
+            problem = "" if out.ok else f"{plan.label}: {out.status}, {out.reason}"
+        except PlanError as exc:
+            problem = f"{move} {amount:g}: {exc}"
+        if problem:
+            self.rep.bad("interaction failed", img, problem)
+            if self.buttons.moves == made:
+                act(h, 0, kind, to)  # the self-test makes the move itself, so the game goes on
 
     def frame(self, h: Hand, acting: Optional[int], phase: str = "play", shown: bool = False, must: bool = False):
         view = view_of(h, acting, self.table.hand_no, self.lay, phase, shown)
@@ -429,10 +483,11 @@ class Run:
                         adv = scaled(adv, self.lay.unit)
                         judge_decision(self.rep, img, h, adv, ref)
                     kind, to = hero_move(h, adv)
+                    self.hero_plays(h, img, kind, to)
                 else:
                     kind, to = bot_decide(h, i, self.rng)
                     to = float(round(to))  # play chips: whole amounts
-                act(h, i, kind, to)
+                    act(h, i, kind, to)
                 moved = True
             if not moved:
                 return
@@ -494,8 +549,12 @@ class Run:
         self.frame(h, None, shown=len(h.active()) > 1)  # the pot goes to the winner
 
     def go(self, hands: int) -> Report:
-        for _ in range(hands):
-            self.play_hand()
+        try:
+            for _ in range(hands):
+                self.play_hand()
+        finally:
+            if self.runner is not None:
+                self.runner.close()
         return self.rep
 
 
@@ -504,7 +563,7 @@ ORDER = ["seat not found", "extra seat", "stack wrong", "bet wrong", "in hand wr
          "hero card wrong", "board card wrong", "board count wrong", "pot wrong", "acting seat wrong",
          "acting seat when nobody acts", "your turn missed",
          "to call wrong", "their turn read as yours", "no instruction on your turn", "different instruction",
-         "different amount"]
+         "different amount", "interaction failed"]
 
 
 def summary(rep: Report) -> str:
@@ -520,6 +579,9 @@ def summary(rep: Report) -> str:
                      f"{c['their turns']}")
     lines.append(f"   stacks unknown: {c['stack unknown']}, to call unknown: {c['to call unknown']}, "
                  f"acting seat not read: {c['acting seat not read']}/{c['turns shown']}")
+    if c["moves through app/interact"]:
+        lines.append(f"   moves made through app/interact: {c['moves through app/interact'] - c['interaction failed']}/"
+                     f"{c['moves through app/interact']}")
     kinds = [k for k in ORDER if c[k]] + sorted(k for k in c if k.startswith("never-wrong") and c[k])
     for k in kinds:
         lines.append(f"   {k}: {c[k]}")
@@ -539,6 +601,7 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="folder for examples of mistakes (pictures and a log)")
     ap.add_argument("--players", type=int, default=6, help="players at the table (layouts with fewer seat spots "
                                                           "are skipped)")
+    ap.add_argument("--interact", action="store_true", help="make your moves through app/interact's runner")
     args = ap.parse_args()
     lays = layouts()
     for name in args.layouts.split(","):
@@ -548,7 +611,7 @@ def main() -> None:
             print(f"== {name}: skipped, it has seats for {len(lays[name].slots)} players")
             continue
         out = os.path.join(args.out, name) if args.out else None
-        rep = Run(lay, args.seed, out, args.drop, args.players).go(args.hands)
+        rep = Run(lay, args.seed, out, args.drop, args.players, args.interact).go(args.hands)
         print(summary(rep))
         print(f"   ({time.time() - t0:.0f} s)")
         sys.stdout.flush()

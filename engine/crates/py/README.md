@@ -235,7 +235,7 @@ same thing:
 | --- | --- |
 | `fold`, `call`, `raise`, `minraise`, `jam`, `random`, `tag`, `tag-loose` | The arena's test bots (`engine/crates/arena/README.md`, "Test bots"), arena `Player`s |
 | `lbr-fold`, `lbr-call`, `lbr-jam`, `lbr-call-or-raise`, `lbr-random` | LBR's chumps (`engine/crates/lbr/src/chumps.rs`): always fold, always check or call, always all in, call or raise half and half, and fold, call or raise with equal chances. They are `Strategy`s, played through the adapter below |
-| `blueprint:<file>` | The blueprint in that strategy file (`engine/crates/blueprint`), with the bucket tables it was trained with (the directory the file records). A `Strategy`, played through the adapter below. Seat it at the stacks and blinds it was trained for: `blueprint info <file>` shows them. A file that can't be loaded is a `ValueError` naming it. `agents()` doesn't list it, since the name holds a path |
+| `blueprint:<file>` | The blueprint in that strategy file (`engine/crates/blueprint`), with the bucket tables it was trained with (the directory the file records). `blueprint:<file>?tables=<dir>` reads the tables from `dir` instead, for a file trained on another machine (they must be the same tables: the file's checksums are checked). A `Strategy`, played through the adapter below. Seat it at the stacks and blinds it was trained for: `blueprint info <file>` shows them. A file that can't be loaded is a `ValueError` naming it. `agents()` doesn't list it, since the name holds a path |
 
 **The hook for new agents** is `rust_agent` in `src/agents.rs`. A Rust agent becomes
 playable from Python, B0 included, with one line there:

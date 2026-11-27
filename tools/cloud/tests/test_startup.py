@@ -113,6 +113,24 @@ def test_first_and_second_boot_copy_mode(tmp_path):
     assert box.log("systemctl.log")[-1] == "start --no-block pscloud-trainer.service"
 
 
+def test_trainer_files_are_installed_under_bundle_files(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 5000)
+    (tables / "turn.abs").write_bytes(b"t" * 50)
+    s = make_settings(tmp_path, TRAINER_FILES=str(tables))
+    box = Sandbox(tmp_path, s)
+    m = box.publish()
+    assert m["extra_files"] == ["files/k200/river.abs", "files/k200/turn.abs"]
+    p = box.run()
+    assert p.returncode == 0, p.stderr
+    got = box.root / "opt" / "pscloud" / "bundle" / "files" / "k200"
+    assert (got / "river.abs").read_bytes() == b"r" * 5000
+    assert (got / "turn.abs").read_bytes() == b"t" * 50
+    assert not list(got.glob("*.part"))
+    assert "installed 2 trainer file(s)" in p.stderr
+
+
 def test_build_mode_builds_once_per_run(tmp_path):
     eng = tmp_path / "engine"
     (eng / "crates" / "trainer" / "src").mkdir(parents=True)

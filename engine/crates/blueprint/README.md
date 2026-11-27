@@ -53,13 +53,14 @@ A run is a spec (JSON) and a directory:
 | Command | What it does |
 | --- | --- |
 | `train --spec F --dir D --until N [--every-minutes M] [--threads T]` | Trains the run in `D` to `N` iterations in all, resuming its checkpoint if there is one (the spec must be the same, apart from the threads), saving every `M` minutes and on SIGTERM, then writes `strategy-N.bps`, `latest.txt` and a line in `stages.jsonl` |
-| `lbr --strategy F [--settings LIST] [--hands N] [--seed S] [--deals DIR] [--small-bets smallest\|check-or-call]` | LBR against a strategy file, on every core. `LIST` is short names (`fc14`, `fc34`, `fcpa14`, `fcpa34`, `b56_14`, `b56_34`) or `paper` |
+| `lbr --strategy F[,F...] [--label L[,L...]] [--settings LIST] [--hands N] [--seed S] [--deals DIR] [--small-bets smallest\|check-or-call]` | LBR against strategy files, one after the other, on every core. `LIST` is short names (`fc14`, `fc34`, `fcpa14`, `fcpa34`, `b56_14`, `b56_34`) or `paper`. Several files in one call share LBR's exact preflop win probabilities, which take minutes the first time (3.5 minutes on 4 cores here) |
 | `reference --stack BB ...` | The same for always call, random action and random kind of action |
 | `compare --a DEALS --b DEALS` | The difference between two matches on the same deals, with its paired standard error |
 | `gate --plan F` | A whole gate plan in one process (`src/gate.rs`): stages, LBR after each, a stop rule, a final measurement. Started again, it carries on where it stopped |
 | `bench --spec F [--seconds S] [--warmup S] [--threads 1,2,4]` | Training speed and memory |
 | `size --stack BB --menu NAME --buckets B` | Information sets and regret slots of a game, without building it |
 | `info F` | A strategy file's header |
+| `export (--config F \| --spec F) --checkpoint C --out S [--tables DIR]` | The strategy file of any saved checkpoint, off the machine that trained it: the spec (a trainer config or a run's `spec.json`), the checkpoint, and the tables (`--tables`, or the directory the spec names) |
 | `--config F --checkpoint-dir D [--resume] [--threads T]` | The trainer contract of `tools/cloud` (below) |
 
 Every command prints one JSON object per result. Menus by name: `abstract_game`'s
@@ -123,12 +124,33 @@ and memory). On SIGTERM it saves, prints `{"event": "saved on SIGTERM", ...}` an
 75; with `--resume` it carries on from the checkpoint; at `N` it writes `strategy.bps` and
 exits with 0. `--resume` with no checkpoint is an error, not a fresh start.
 
+With `"strategies": {"first": F, "factor": K}` in `trainer.json` it also writes the strategy at
+fixed stages, `F`, `F x K`, `F x K x K`, ... and `N`, as `strategy-<iterations>.bps` in `DIR`
+(the last one is also `strategy.bps`, a hard link). A session never runs past the next stage.
+At each stage a line goes to `stages.jsonl` in `DIR` (and to standard output) with:
+
+- `change` and `change_from`: how far the average strategy moved since the latest earlier
+  stage file in `DIR` (`StrategyFile::change_from`, each information set weighted by how often
+  it is reached). It needs the solver's weights, so it is measured here, when the file is
+  written, not afterwards; on a new machine `tools/cloud` puts the earlier files back first.
+- `regrets`: by street, the share of regret slots below -1,000, -10,000, -100,000 and
+  -1,000,000 big blinds, below the pruning threshold and at the floor, and the lowest;
+- `pruning`: the solver's counters (traversals and actions pruned, states visited);
+- the time the export and the measures took, and the process's memory.
+
+A stop between a stage's save and its file is caught up when the run resumes. The streaming
+export (`Mccfr::for_each_set`, no copy of the tables) needs about 1.3 GB on top of the run, so
+the Phase 6 game peaks at about 8 GB.
+
 Checked end to end with the real supervisor (`docs/research/runs/phase5_gate/cloud_local_test.py`):
 machine 1 trains, every process gets SIGTERM, the trainer saves at 2,558,692 iterations and
 the supervisor uploads it; machine 2 starts with an empty disk, downloads it, resumes at
-exactly 2,558,692 and finishes; the run's state is "done". The tables are not part of the
-bundle: they are built on the machine (8 minutes for 200 buckets on 4 cores) or copied, at
-the path the spec names.
+exactly 2,558,692 and finishes; the run's state is "done". The Phase 6 run copies the tables
+in the bundle (`TRAINER_FILES`, at `/opt/pscloud/bundle/files/k200`), and its dress rehearsal
+on this machine (`docs/research/runs/phase6/README.md`) runs the stages through a SIGTERM, a
+new machine and a stop. `tests/tables.rs` checks the stages on a small game: a SIGTERM after
+the first stage, a resume, every stage once, the change measured from the second on, pruning
+counted, and `export` from the last checkpoint giving the same strategy.
 
 ## The strategy file
 
@@ -259,8 +281,9 @@ and the caveats are in `docs/research/experiments.md`, "Phase 6 projection".
 - **Size**: 97.2M information sets, 251.7M slots.
 - **Memory**: a 5.2 GB table in a fresh run, 7.3 GB after a resume; the process 6.4 to 7.4 GB
   here; a 4.9 GB checkpoint and a 0.5 GB strategy file. The 512 GB of a c4a-highmem-64 is about
-  60 times that. A c4a-highcpu-64 (the same 64 cores, 128 GB) is enough, at $1.31 an hour spot
-  against $2.05.
+  60 times that. A c4a-highcpu-64 (the same 64 cores, 128 GB) is enough, at $1.45 an hour spot
+  against $2.25 (Google's prices, 27 Nov 2026; the projection used $1.31 and $2.05). The run's
+  plan: `docs/research/runs/phase6/README.md`.
 - **Hours on 64 threads**: at the central speed, 2.5 (a power law in iterations fitted to the
   gate's runs) to 13.9 (states per information set as at 20bb), about $5 to $28 spot. Across all
   the ranges, 0.5 to 47 hours ($96 at the high end).
