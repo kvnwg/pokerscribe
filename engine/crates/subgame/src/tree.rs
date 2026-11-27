@@ -185,7 +185,15 @@ impl Tree {
             },
         };
         b.street(&ctx, String::new(), OOP, [0.0, 0.0], 0, false);
-        let nodes = b.nodes;
+        Tree::from_parts(b.nodes, runouts)
+    }
+
+    /// A tree built elsewhere (the search crate builds trees from real hands, with actions
+    /// the size rules don't make). `nodes` must follow this module's layout: parents before
+    /// children, each subtree the `size` nodes starting at its root, node 0 the start of the
+    /// spot, and on a turn spot one branch per entry of `runouts` at every chance node, in
+    /// that order, each with its `runout` index. Keys must be unique among decision nodes.
+    pub fn from_parts(nodes: Vec<Node>, runouts: Vec<Option<Card>>) -> Tree {
         let decision_order = decision_order(&nodes);
         let by_key = decision_order
             .iter()
