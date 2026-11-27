@@ -444,7 +444,7 @@ decision after the flop, and against call every hand reaches the river. Four thr
 | `src/luck.rs` | `Scorer`, `HandRecord`, `ActualChips`, `AllInEquity` |
 | `src/report.rs` | `MatchReport`, its JSON and its text table |
 | `src/bots.rs` | The test bots, the Chen score, hand strength |
-| `src/ranker.rs` | `EvalRanker`: the `eval` crate behind nlhe's `HandRanker` |
+| `src/ranker.rs` | `EvalRanker` (nlhe's own, the `eval` crate behind its `HandRanker`, re-exported) and `to_eval`, an nlhe card as an `eval` card |
 | `src/bin/arena.rs` | The command line |
 | `examples/variance.rs`, `examples/speed.rs` | The tables above |
 | `tests/` | `matches.rs` and `equity.rs` |

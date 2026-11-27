@@ -146,7 +146,7 @@ it always checks or calls (and still tracks the range).
 | `play_hand` | One hand from a seed. |
 | `win_probability(hole, board, range)`, `showdown_equities`, `preflop_equities`, `preflop_equities_sampled` | The win probability on its own, and the table of equities against each of the 1,326 hands. |
 | `Range` | A weight per hand: `uniform`, `from_hands`, `set`, `weight`, `remove_cards`, `normalize`. |
-| `EvalRanker` | The eval crate's evaluator as an nlhe `HandRanker`. |
+| `EvalRanker` | The eval crate's evaluator as an nlhe `HandRanker`: nlhe's own (`nlhe::EvalRanker`), re-exported. |
 | `AlwaysFold`, `AlwaysCall`, `AlwaysRaise`, `CallOrRaise`, `UniformRandom` | The trivial strategies of the tests. |
 
 How a match is played:
@@ -367,6 +367,6 @@ Where the time goes, on one core:
 | `src/range.rs` | `Range`, hand indices |
 | `src/runner.rs` | `play_match`, `play_hand`, `MatchConfig`, `MatchResult` |
 | `src/chumps.rs` | The trivial strategies |
-| `src/ranker.rs` | `EvalRanker` |
+| `src/ranker.rs` | `EvalRanker` (re-exported from nlhe) and the card conversion to eval |
 | `examples/paper_table.rs` | The results table |
 | `tests/` | See "Tests" |
