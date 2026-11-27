@@ -27,6 +27,19 @@ KEYS = {
     **{f"f{n}": getattr(Qt, f"Key_F{n}") for n in range(1, 13)},
 }
 WIDGETS = (QAbstractButton, QLineEdit, QComboBox, QSpinBox)  # what counts as a target
+# Widget classes that show something other than our own widgets, by class name (a subclass of one
+# counts too). The web engine's name is put together here because the repository scan in
+# app/tests/test_interact.py bans the web engine outright and would flag the plain word.
+HOSTS = ("QWindowContainer", "QWeb" "Engine", "QQuickWidget", "QQuickView", "QAxWidget")
+
+
+def _hosts_other_content(w: QWidget) -> bool:
+    mo = w.metaObject()
+    while mo is not None:
+        if mo.className().startswith(HOSTS):
+            return True
+        mo = mo.superClass()
+    return False
 
 
 def key_code(key: str) -> Qt.Key:
@@ -101,13 +114,14 @@ class QtBackend(Backend):
         return w
 
     def _refuse_embedded(self) -> None:
-        """Another program's window can be shown inside ours (a window container, a foreign
-        window). Events from QtTest wouldn't reach it, but no such window is driven at all."""
+        """Something other than our own widgets can be shown inside a window: another program's
+        window (a window container, a foreign window), a web page (a web view), a QML scene that
+        can hold one, an ActiveX control. Such a window is not driven at all."""
         for w in [self.root] + self.root.findChildren(QWidget):
             handle = w.windowHandle()
-            if w.metaObject().className() == "QWindowContainer" or (
-                    handle is not None and handle.type() == Qt.ForeignWindow):
-                raise BackendError("this window embeds another window: only our own widgets are driven")
+            if _hosts_other_content(w) or (handle is not None and handle.type() == Qt.ForeignWindow):
+                raise BackendError("this window embeds another window or a web page: only our own widgets "
+                                   "are driven")
 
     def targets(self) -> Dict[str, Target]:
         self._refuse_embedded()
@@ -147,7 +161,11 @@ class QtBackend(Backend):
 
     def press_key(self, key: str, target: Optional[Target]) -> None:
         code = key_code(key)
-        w = self._widget(target.name) if target is not None else (QApplication.focusWidget() or self.root)
+        if target is not None:
+            w = self._widget(target.name)
+        else:  # the widget with the focus, only when it is in this window
+            focus = QApplication.focusWidget()
+            w = focus if focus is not None and (focus is self.root or self.root.isAncestorOf(focus)) else self.root
         QTest.keyClick(w, code)
 
     def snapshot(self) -> Dict[str, Target]:

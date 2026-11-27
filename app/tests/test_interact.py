@@ -8,6 +8,7 @@ import threading
 import time
 
 import pytest
+from PySide6.QtWidgets import QWidget
 
 from app.interact import (Backend, BackendError, Click, Expect, Plan, PlanError, PressKey, Runner, Settings, Step,
                           Target, TypeText, plan_for_move)
@@ -426,8 +427,20 @@ DRIVES_OTHER_PROGRAMS = [
     r"PostKeyboardEvent)\b", r"\b(SendInput|mouse_event|keybd_event|SetCursorPos)\b",
     r"\bXTestFake\w*", r"\bXWarpPointer\b", r"\b(xdotool|cliclick|osascript)\b", r"System Events",
     r"\bAXUIElement\w*", r"QCursor\s*(\(\s*\))?\s*\.\s*setPos", r"\bfromWinId\b",
+    # browsers (247 is a browser game): automation libraries, the DevTools input calls, web views
+    r"\b(import|from)\s+(playwright|selenium|pyppeteer|webdriver\w*|undetected_chromedriver|chromedriver\w*|"
+    r"splinter|helium)\b",
+    r"""(require\s*\(\s*|from\s+|import\s+)['"](@playwright/[\w-]+|playwright[\w-]*|puppeteer[\w-]*|"""
+    r"""selenium-webdriver|webdriverio|webdriver)['"]""",
+    r"\bInput\.(dispatchMouseEvent|dispatchKeyEvent|insertText|dispatchTouchEvent)\b",
+    r"\bQtWebEngine\w*", r"\bQWebEngine\w*",
 ]
-RUST_INPUT_CRATES = r"^\s*(enigo|rdev|autopilot|inputbot|mouce|winput|mouse-rs|device_query)\s*="
+RUST_INPUT_CRATES = (r"^\s*(enigo|rdev|autopilot|inputbot|mouce|winput|mouse-rs|device_query|headless_chrome|"
+                     r"chromiumoxide|fantoccini|thirtyfour)\s*=")
+# the same, as packages a requirements file installs
+INPUT_PACKAGES = (r"(?im)^\s*(pyautogui|pynput|pydirectinput|pywinauto|autopy|keyboard|mouse|evdev|python-uinput|"
+                  r"python-xlib|pywin32|pyobjc-framework-quartz|playwright|selenium|pyppeteer|"
+                  r"undetected-chromedriver|webdriver-manager|pyside6-addons|pyqt6-webengine)\b")
 SKIP_DIRS = {".git", ".venv", "node_modules", "target", "__pycache__", "venv312"}
 
 
@@ -457,6 +470,10 @@ def test_nothing_in_the_repository_can_drive_another_program():
     for path in repo_files(("Cargo.toml",)):
         m = re.search(RUST_INPUT_CRATES, open(path).read(), re.M)
         assert m is None, f"{os.path.relpath(path, ROOT)}: {m.group(0).strip()!r} is an input crate"
+    for path in repo_files((".txt",)):
+        if os.path.basename(path).startswith("requirements"):
+            m = re.search(INPUT_PACKAGES, open(path).read())
+            assert m is None, f"{os.path.relpath(path, ROOT)}: {m.group(0).strip()!r} can drive another program"
     assert scanned > 200  # the walk really covered the repository
 
 
@@ -467,12 +484,103 @@ def test_the_scan_would_catch_each_way_in():
                  "CGEventCreateMouseEvent(None, 1, (5, 5), 0)", "user32.SendInput(1, x, 28)", "XTestFakeButtonEvent(d)",
                  "subprocess.run(['xdotool', 'click', '1'])", "os.system('osascript -e x')",
                  'tell application "System Events" to click', "QCursor.setPos(10, 10)", "QWindow.fromWinId(wid)",
-                 "AXUIElementPerformAction(e, a)"):
+                 "AXUIElementPerformAction(e, a)",
+                 # browsers
+                 "from playwright.sync_api import sync_playwright", "import selenium", "from selenium import webdriver",
+                 "import pyppeteer", "import undetected_chromedriver as uc", "import webdriver_manager",
+                 "const puppeteer = require('puppeteer');", "import { chromium } from 'playwright';",
+                 "import { test } from '@playwright/test'", "const { Builder } = require('selenium-webdriver')",
+                 "import { remote } from 'webdriverio'", "await cdp.send('Input.dispatchMouseEvent', e)",
+                 "client.send('Input.dispatchKeyEvent', k)", "page.send('Input.insertText', t)",
+                 "from PySide6.QtWebEngineWidgets import QWebEngineView", "view = QWebEngineView()"):
         assert any(re.search(p, line) for p in DRIVES_OTHER_PROGRAMS), line
-    assert re.search(RUST_INPUT_CRATES, 'enigo = "0.2"', re.M)
+    for crate in ("enigo", "rdev", "headless_chrome", "chromiumoxide", "fantoccini", "thirtyfour"):
+        assert re.search(RUST_INPUT_CRATES, f'{crate} = "1"', re.M), crate
+    for package in ("pyautogui>=0.9", "playwright", "selenium==4.1", "PySide6-Addons", "pynput"):
+        assert re.search(INPUT_PACKAGES, f"numpy\n{package}\n"), package
+    assert not re.search(INPUT_PACKAGES, "PySide6-Essentials>=6.6\nocrmac>=1.0\nkeyring>=24\n")
     # what the app itself does is not caught: its own cursor shape, the screen-capture permission
     assert not any(re.search(p, "self.setCursor(QCursor(Qt.CrossCursor))") for p in DRIVES_OTHER_PROGRAMS)
     assert not any(re.search(p, "_core_graphics().CGPreflightScreenCaptureAccess") for p in DRIVES_OTHER_PROGRAMS)
+
+
+# Widgets named like Qt's web view and its QML and ActiveX hosts: Qt reports the same class names
+# for them (the real web engine is never imported anywhere in the repository). At the top level,
+# since a class made inside a function gets a longer name.
+class QWebEngineView(QWidget):
+    pass
+
+
+class Page(QWebEngineView):  # a subclass of one counts too
+    pass
+
+
+class QQuickWidget(QWidget):
+    pass
+
+
+class QAxWidget(QWidget):
+    pass
+
+
+def test_a_web_view_or_qml_scene_in_our_window_is_refused(qapp):
+    from PySide6.QtWidgets import QPushButton
+
+    from app.interact.qt import QtBackend
+
+    for host in (QWebEngineView, Page, QQuickWidget, QAxWidget):
+        w = QWidget()
+        QPushButton("Fold", w).setObjectName("fold")
+        child = host(w)  # (kept: a stand-in's class name lives in its Python object; a real one's in Qt)
+        with pytest.raises(BackendError, match="web page"):
+            QtBackend(w)
+        del child
+        w.deleteLater()
+    w = QWidget()
+    qt = QtBackend(w)  # and when one is added later
+    child = QWebEngineView(w)
+    with pytest.raises(BackendError, match="web page"):
+        qt.targets()
+    del child
+    w.deleteLater()
+
+
+def test_a_key_without_a_target_stays_in_our_window(qapp, monkeypatch):
+    """With no target, a key goes to the widget with the focus only if it is in the window
+    driven; focus in another window of ours sends it to the window itself."""
+    from PySide6.QtCore import QEvent, QObject
+    from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+
+    import app.interact.qt as qtmod
+    from app.interact.qt import QtBackend
+
+    got = []
+
+    class Keys(QObject):
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.KeyPress:
+                got.append(obj.objectName())
+            return False
+
+    keys = Keys()
+    mine, other = QWidget(), QWidget()
+    mine.setObjectName("mine")
+    box, theirs = QLineEdit(mine), QLineEdit(other)
+    box.setObjectName("box")
+    theirs.setObjectName("theirs")
+    for w in (mine, box, theirs):
+        w.installEventFilter(keys)
+    qt = QtBackend(mine)
+    monkeypatch.setattr(qtmod.QApplication, "focusWidget", staticmethod(lambda: theirs))
+    qt.press_key("x", None)
+    assert got == ["mine"] and theirs.text() == ""
+    got.clear()
+    monkeypatch.setattr(qtmod.QApplication, "focusWidget", staticmethod(lambda: box))
+    qt.press_key("x", None)
+    assert got[0] == "box" and box.text() == "x"
+    assert QApplication.instance() is not None
+    for w in (mine, other):
+        w.deleteLater()
 
 
 def test_interact_is_independent_of_the_poker_engine():

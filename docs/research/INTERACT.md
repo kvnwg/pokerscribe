@@ -33,15 +33,25 @@ How that is enforced in code, not by convention:
   `CGEventCreate...`, `CGWarpMouseCursorPosition`, `SendInput`, `mouse_event`, `SetCursorPos`,
   `XTestFake...`), the command-line tools (`xdotool`, `cliclick`, `osascript`), AppleScript's
   System Events, accessibility actions (`AXUIElement...`), `QCursor.setPos` and
-  `QWindow.fromWinId`; and any Rust input crate (enigo, rdev, autopilot and others) in a
-  `Cargo.toml`. `test_the_scan_would_catch_each_way_in` checks the scan catches each of those,
-  and doesn't catch what the app does itself (its own cursor shape, the screen-capture
-  permission check).
+  `QWindow.fromWinId`. Browsers too, since 247 is a browser game: browser automation in Python,
+  JavaScript or TypeScript (playwright, selenium, pyppeteer, puppeteer, webdriver and the like),
+  the Chrome DevTools input calls (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`,
+  `Input.insertText`) and Qt's web engine (`QtWebEngine...`, `QWebEngine...`). It also fails on
+  any Rust input or browser crate (enigo, rdev, autopilot, headless_chrome, chromiumoxide,
+  fantoccini, thirtyfour and others) in a `Cargo.toml`, and on any of those packages in a
+  requirements file (and on PySide6-Addons, the Qt build that ships the web engine).
+  `test_the_scan_would_catch_each_way_in` checks the scan catches each of those, and doesn't
+  catch what the app does itself (its own cursor shape, the screen-capture permission check,
+  its own requirements).
 - `test_interact_drives_nothing_outside_our_own_programs` fails if `app/interact` or its
   backends import ctypes or subprocess at all.
 - `QtBackend` takes only a QWidget, and refuses (at the start and on every look at its targets)
-  a window that embeds another window: a window container, or a foreign window made from
-  another program's window id (`test_a_window_holding_another_window_is_refused`).
+  a window holding anything but our own widgets: a window container or a foreign window made
+  from another program's window id (`test_a_window_holding_another_window_is_refused`), a web
+  view, a QML scene that could host one, or an ActiveX control, a subclass of one included
+  (`test_a_web_view_or_qml_scene_in_our_window_is_refused`). A key with no target goes to the
+  widget with the focus only if it is in the window driven, else to the window itself
+  (`test_a_key_without_a_target_stays_in_our_window`).
 - The import test keeps the framework and the poker engine apart, both ways: the advice, the
   solver and the reader can't use it.
 
