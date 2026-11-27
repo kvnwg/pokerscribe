@@ -318,8 +318,9 @@ preflop classes, then the 9 hand categories), so they need no built tables:
   refuses another spec and other tables; the cloud trainer keeps its contract (progress lines,
   75 on SIGTERM, `--resume`, 0 and a strategy at the end); a small gate plan trains in stages,
   logs everything, stops by its rule, and reads its results back when started again. Without
-  `BLUEPRINT_TABLES` these three pass without checking anything, so the nightly run of the
-  ignored tests stays green.
+  `BLUEPRINT_TABLES` these three pass without checking anything. The nightly "Rust slow tests"
+  workflow builds k10 and k50 first (cached until `abstraction`'s code changes) and sets
+  `BLUEPRINT_TABLES` and `BLUEPRINT_OTHER_TABLES`, so it checks them.
 - Unit tests: quantizing, the spec's JSON and menus, and paired differences on the same deals.
 
 ## Layout
