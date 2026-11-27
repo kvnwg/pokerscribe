@@ -230,6 +230,8 @@ tools/               benchmarks, template builders, the simulator, paired compar
   slumbot/           heads-up benchmark against Slumbot's bot API (see tools/slumbot/README.md)
   gtowizard/         heads-up benchmark against GTO Wizard AI: benchmark only, its hands are never
                      training data (see tools/gtowizard/README.md)
+  cloud/             long training runs on a rented Google Cloud machine: launch, checkpoint
+                     sync to a bucket, Spot recovery, watch, budget cap (see tools/cloud/README.md)
 docs/research/       research report link, frozen baseline, experiment log, dataset report, book and paper notes
 ```
 
@@ -240,7 +242,7 @@ docs/research/       research report link, frozen baseline, experiment log, data
 .venv/bin/python -m pytest
 ```
 
-The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the simulator's measurement tools (the luck adjustment averages exactly zero, duplicate deals, identical results when split over processes, the weakness report, the heads-up rules), the AI providers against a mock server, and full runs through the real window in both views, including watch mode.
+The suite covers region selection, capture coordinates, card recognition, OCR, layout analysis on whole tables, learning from corrections, the text format, the privacy check, local maths, the advice in many preflop and postflop spots, the hand tracker, the decision benchmark, the simulator's measurement tools (the luck adjustment averages exactly zero, duplicate deals, identical results when split over processes, the weakness report, the heads-up rules), the AI providers against a mock server, and full runs through the real window in both views, including watch mode. The cloud tools (`tools/cloud`) are tested without the cloud: a fake trainer, a local folder for the bucket, a fake gcloud, and simulated Spot preemptions.
 
 ## Checks
 
