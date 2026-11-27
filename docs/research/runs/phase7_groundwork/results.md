@@ -50,7 +50,39 @@ Why no gain is the expected first result here, not a surprise:
   bucket, so on the flop the search inherits the blueprint's card abstraction for every later
   street.
 
-LBR
+## LBR (2, 3)
+
+`search lbr`, 1,500 hands against each agent, the same deals for both (seeds 7102 and 7103), and
+`search compare` for search minus blueprint deal by deal. What LBR wins is a lower bound on how
+exploitable the agent is: lower is better for the agent, and a negative number only says LBR
+found nothing.
+
+| Setting | LBR against the blueprint | LBR against search | Search minus blueprint (paired) | z | Time (blueprint, search) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `fcpa14` (fold, call, pot, all in) | -25.1 ± 16.6 | -53.0 ± 16.2 | -27.9 ± 11.8 | -2.35 | 184 s, 601 s |
+| `b56_14` (56 bet sizes) | +118.0 ± 14.0 | +75.5 ± 14.3 | -42.5 ± 12.2 | -3.47 | 175 s, 786 s |
+
+The search agent's solves in these runs (from the rebuilt binary's report):
+
+| Setting | Flop solves (re-solves) | Turn | River | Flop solve p50, p95 | Turn | River |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `fcpa14` | 1,205 (231) | 453 (25) | 289 (8) | 450, 696 ms | 1,332, 5,827 ms | 18, 69 ms |
+| `b56_14` | 5,182 (1,026) | 1,335 (174) | 436 (29) | 122, 291 ms | 770, 4,293 ms | 11, 45 ms |
+
+- **`b56_14`**: LBR wins +118 against the blueprint (the Phase 5 gate's file: +112.3 ± 1.9), almost
+  all of it from bet sizes off the blueprint's menu, which the blueprint maps to a menu size.
+  Against search it wins 42 bb/100 less (3.5 SE): the search adds each off-menu bet to its tree
+  and solves the street again (one flop solve in five was a re-solve), which is what Phase 7's
+  search is for. It still wins +75.5: the search's later streets are solved with the blueprint's
+  menu, the flop's leaves are the blueprint's, and the opponent's range after an off-menu bet is
+  read through the blueprint's mapping.
+- **`fcpa14`**: LBR finds nothing against either at this sample (both negative); against search
+  it does 28 bb/100 worse (2.4 SE).
+- The pilots' 3 s a hand was about 5 times too slow. STARTUP
+
+Runs 7 and 8 (below) repeat both on fresh seeds with four times the hands.
+
+REPEAT
 
 ## Timing (4)
 
