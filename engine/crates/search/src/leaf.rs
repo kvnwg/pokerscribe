@@ -155,7 +155,11 @@ pub fn turn_starts<B>(bp: &blueprint::play::Blueprint<B>) -> Vec<u32>
 where
     B: Bucketer,
 {
-    let tree = bp.game().tree();
+    turn_starts_in(bp.game().tree())
+}
+
+/// The turn starts of any abstract betting tree (for sizing the tables of a bigger game).
+pub fn turn_starts_in(tree: &abstract_game::tree::BettingTree) -> Vec<u32> {
     let mut out = Vec::new();
     for id in 0..tree.len() as u32 {
         if tree.node(id).street != Street::Flop {

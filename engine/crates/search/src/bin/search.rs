@@ -188,15 +188,37 @@ fn lbr(opts: &HashMap<String, String>) {
         stack: stack_of(&bp),
         ..lbr::MatchConfig::acpc(hands, seed)
     };
-    let agent = Dyn(agent_named(&name, &strategy, settings(opts)));
+    // The search agent keeps a record of its solves, to count the re-solves LBR's bets cause.
+    let searcher = (name == "search").then(|| {
+        let mut a = SearchAgent::load(&strategy, settings(opts)).expect("the search agent loads");
+        a.keep_records = true;
+        Arc::new(a)
+    });
+    let agent = Dyn(match &searcher {
+        Some(a) => Arc::clone(a) as Arc<dyn Strategy + Send + Sync>,
+        None => agent_named(&name, &strategy, settings(opts)),
+    });
     let t0 = Instant::now();
     let deals = lbr_match(&agent, &lbr_config, &table);
     let secs = t0.elapsed().as_secs_f64();
     let r = deals.result();
+    let mut solves = serde_json::Map::new();
+    if let Some(a) = &searcher {
+        let records = a.take_records();
+        for street in [Street::Flop, Street::Turn, Street::River] {
+            let of: Vec<_> = records.iter().filter(|r| r.street == street).collect();
+            let mut ms: Vec<f64> = of.iter().map(|r| r.ms).collect();
+            solves.insert(
+                street_name(street).into(),
+                json!({"solves": of.len(), "resolves": of.iter().filter(|r| r.resolve).count(),
+                       "solve_ms_p50": percentile(&mut ms, 0.5), "solve_ms_p95": percentile(&mut ms, 0.95)}),
+            );
+        }
+    }
     println!(
         "{}",
         json!({"agent": name, "setting": setting, "paper": paper, "hands": r.hands, "seed": seed,
-               "lbr_bb_per_100": r.bb_per_100, "se": r.std_err, "seconds": secs})
+               "lbr_bb_per_100": r.bb_per_100, "se": r.std_err, "seconds": secs, "solves": solves})
     );
     let out = need(opts, "out");
     deals.save(Path::new(&out)).expect("the deals save");
@@ -517,9 +539,18 @@ fn trees(opts: &HashMap<String, String>) {
                         "flop_decisions": decisions, "flop_leaves": leaves, "turns": turns}),
         );
     }
+    // The whole abstract game's turn starts: one leaf table per start, 7 lanes of 200 x 200
+    // flop buckets in f32.
+    let root = State::new(&config, deal.clone()).unwrap();
+    let abstract_tree = abstract_game::tree::BettingTree::build(&root, &menus);
+    let starts = search::leaf::turn_starts_in(&abstract_tree).len();
+    let table_bytes = starts as u64 * search::leaf::TABLE_LANES as u64 * 200 * 200 * 4;
     println!(
         "{}",
-        serde_json::to_string_pretty(&json!({"stack_bb": bb, "lines": out})).unwrap()
+        serde_json::to_string_pretty(&json!({"stack_bb": bb, "lines": out,
+            "abstract_nodes": abstract_tree.len(), "turn_starts": starts,
+            "leaf_table_bytes_at_200_buckets": table_bytes}))
+        .unwrap()
     );
 }
 
