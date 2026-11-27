@@ -1,0 +1,46 @@
+{
+  "flop": {
+    "opponent": {
+      "decisions": 210.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.5494817375916117
+    },
+    "own": {
+      "decisions": 210.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.4826252810459525
+    }
+  },
+  "hands": 300,
+  "river": {
+    "opponent": {
+      "decisions": 85.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.5259181990177125
+    },
+    "own": {
+      "decisions": 85.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.48645926128054234
+    }
+  },
+  "seed": 7106,
+  "turn": {
+    "opponent": {
+      "decisions": 120.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.525751528510481
+    },
+    "own": {
+      "decisions": 120.0,
+      "in_range": 1.0,
+      "in_solve": 1.0,
+      "mean_weight_below": 0.47224290577668004
+    }
+  }
+}

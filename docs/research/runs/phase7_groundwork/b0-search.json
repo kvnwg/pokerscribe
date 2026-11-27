@@ -1,0 +1,110 @@
+{
+ "format": "pokerscribe-arena/1",
+ "config": {
+  "lineup": [
+   0,
+   1
+  ],
+  "stack": 2000,
+  "small_blind": 50,
+  "big_blind": 100,
+  "ante": 0,
+  "deals": 100,
+  "seed": 7107,
+  "duplicate": true,
+  "all_in_equity": true,
+  "max_runouts": 10000,
+  "shared_randomness": false,
+  "threads": 1
+ },
+ "scoring": "all-in equity (at most 10000 boards)",
+ "agents": [
+  "b0",
+  "search:/root/bp/standard-k200/strategy-64000000.bps"
+ ],
+ "players": 2,
+ "deals": 100,
+ "replays_per_deal": 2,
+ "hands": 200,
+ "adjusted_hands": 7,
+ "results": [
+  {
+   "index": 0,
+   "agent": "b0",
+   "seats": 1,
+   "hands": 200,
+   "bb_per_100": -4.704959595959597,
+   "se": 22.075932949884265,
+   "actual_bb_per_100": -24.475,
+   "actual_se": 26.981975254535456,
+   "plain_se": 32.50967535725589,
+   "illegal_actions": 0,
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 100,
+     "bb_per_100": -12.242909090909093,
+     "se": 27.129058182096305
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 100,
+     "bb_per_100": 2.8329898989898994,
+     "se": 37.89481161373185
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "agent": "search:/root/bp/standard-k200/strategy-64000000.bps",
+   "seats": 1,
+   "hands": 200,
+   "bb_per_100": 4.704959595959594,
+   "se": 22.075932949884265,
+   "actual_bb_per_100": 24.475,
+   "actual_se": 26.981975254535456,
+   "plain_se": 32.50967535725589,
+   "illegal_actions": 0,
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 100,
+     "bb_per_100": -2.8329898989898994,
+     "se": 37.89481161373185
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 100,
+     "bb_per_100": 12.242909090909091,
+     "se": 27.12905818209631
+    }
+   ]
+  }
+ ],
+ "timing": {
+  "seconds": 532.012179848,
+  "hands_per_second": 0.37593124288459256,
+  "threads": 1
+ },
+ "b0": [
+  {
+   "name": "b0",
+   "variant": null,
+   "hands": 200,
+   "instructions": 403,
+   "illegal": {},
+   "illegal_examples": [],
+   "always_wrong": {},
+   "always_wrong_examples": [],
+   "seconds": {
+    "spot": 0.03108518499720958,
+    "advice": 14.076141295002344,
+    "checks": 0.05123967299459764
+   }
+  }
+ ]
+}

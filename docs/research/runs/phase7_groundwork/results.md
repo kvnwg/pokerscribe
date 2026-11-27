@@ -2,8 +2,8 @@
 
 The runs of `README.md` (committed before they started, in 2d9a22a), on 27 Nov 2026, on this
 machine (4 cores, Intel Xeon at 2.1 GHz). Groundwork, not the Phase 7 gate: nothing here passes
-or fails. Raw outputs: the JSON files and `log.txt` next to this file (the `.deals` files of the
-LBR runs are not kept in the repository; `search compare` read them).
+or fails. Raw outputs are next to this file: the JSON reports, `log.txt` (the runs' output in order), and
+the LBR runs' `.deals` files (what each deal won, which `search compare` reads).
 
 What changed after the plan was committed, none of it in how any agent plays:
 
@@ -11,6 +11,8 @@ What changed after the plan was committed, none of it in how any agent plays:
   LBR command counts the search agent's solves and re-solves, and the trees command counts the
   abstract game's turn starts and decision points by street. The rebuilt binary repeats the
   `b56_14` pilot (seed 9105) exactly, deals file for deals file.
+- The tree files kept here (`trees-*.json`) are from the rebuilt binary: the same street trees
+  as run 4's, with the abstract game's counts added.
 - The tree sizes were also counted for the `rich` menu at 200 big blinds (the Phase 6 game),
   since the plan's `trees` runs use the standard menu. After the flop the two menus are the
   same, so the street trees are too; the abstract game, and so the leaf tables, are not.
@@ -78,7 +80,11 @@ The search agent's solves in these runs (from the rebuilt binary's report):
   read through the blueprint's mapping.
 - **`fcpa14`**: LBR finds nothing against either at this sample (both negative); against search
   it does 28 bb/100 worse (2.4 SE).
-- The pilots' 3 s a hand was about 5 times too slow. STARTUP
+- The pilots' 3 s a hand was about 5 times the full runs' 0.4 to 0.5 s. Why is not known. The
+  addendum to the plan guessed the first slow solve of each flop; that is not it, since every
+  hand has a new flop, and loading isn't in the time either. Most likely the cost per hand is very
+  uneven (a hand where LBR probes many sizes on the turn costs many turn solves), and 8 to 32
+  hands were too few to measure it.
 
 Runs 7 and 8 (below) repeat both on fresh seeds with four times the hands.
 
