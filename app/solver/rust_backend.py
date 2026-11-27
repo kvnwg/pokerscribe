@@ -7,7 +7,7 @@ solve_river here takes what app.solver.solve_river takes and returns the same
 RiverStrategy. It writes the spot as a SPOT file, runs the program `subgame-solve` on it
 and reads its RESULT back (both formats are in data/SPOT_FORMAT.md):
 
-    subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
+    subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.2]
                   [--max-iterations N] [--time-ms N] [--threads N]
 
 When the program isn't built, fails, runs out of time or answers something that doesn't
@@ -31,7 +31,9 @@ answers a pot-sized bet but not a half-pot bet (EXTENDED_SIZES is the way out).
 Only the program's command line and its two file formats are used here, nothing from the
 crate behind it (engine/crates/subgame). --target-exploitability is in percent of the pot,
 while RiverStrategy and solve_river count in shares of the pot, so 0.001 here goes out as
-0.1.
+0.1. solve_river always passes a target (the caller's, or TARGET_EXPLOITABILITY, the Python
+solver's 0.1%), so the program's own default of 0.2% applies only when run_solver is called
+with target_exploitability=None.
 """
 from __future__ import annotations
 

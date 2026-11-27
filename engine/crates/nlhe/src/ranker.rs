@@ -132,7 +132,7 @@ impl HandRanker for BruteForceRanker {
 /// Panics if a card is not in `0..52`. The seven cards must be different (the engine only
 /// passes cards from a checked [`crate::Deal`]).
 #[cfg(feature = "eval")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EvalRanker;
 
 #[cfg(feature = "eval")]

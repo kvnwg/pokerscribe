@@ -1483,7 +1483,8 @@ checks for comparison.
     bet of 2.
   - The simulator plays the minimum instead, so no result changes.
   - It isn't fixed here, because six-max play must not change. It's a plain bug fix for
-    later, with a regression test.
+    later, with a regression test. (Fixed on 27 Nov 2026: "B0 fix: no bet under the
+    minimum", below.)
 
 ### The gate, heads-up
 
@@ -1541,6 +1542,86 @@ classic (fails, at most 1.25). **The heads-up run fails**, on the CPU condition 
 - The weakness report (`tools/weakness.py`) and the luck weights' fit (`tools/luck.py fit`)
   are six-max only. The comparisons don't use the weights: they only correct board cards
   after which nobody can bet again, where the weights have no effect.
+
+## B0 fix: no bet under the minimum (27 Nov 2026)
+
+The bug the heads-up work found (above): in six-max B0 said BET 1.5 into a pot of 4 chips
+(two big blinds), under the minimum bet of one big blind (2). A plain bug fix, so regression
+tests and no simulation (CLAUDE.md). `TUNING` and `baseline_tuning.json` are unchanged.
+
+### The cause
+
+- The `stab` rule bets a third of the pot: heads-up after the flop, checked to B0 last on a
+  dry board, from a 40% chance of winning. In a pot of 4 or 5 chips a third rounds to 1.5,
+  under the big blind of 2.
+- `_aggressive` turns a size into BET x, RAISE TO x or ALL IN. It capped a size at the stack,
+  but it never raised one to the minimum.
+
+### Every bet and raise in `app/poker`
+
+Every sized bet and raise goes through `_aggressive` in `app/poker/advice.py`. The rest are
+all-ins.
+
+- Before the flop: the open (2.5 big blinds, 3 from the small blind), the raise over limpers
+  (3 big blinds plus one per limper, 3.5 plus one from the big blind), re-raises (3 or 4 times
+  the raise plus one per caller, 2.3 times cold), raising a re-raise (2.2 or 2.5 times), and
+  `eff_push` and `bully` (off). All are at least twice the bet they answer, so at or over the
+  minimum.
+- After the flop: raising a bet for value (3 times their bet, or from 2.5 times with
+  `ev_sizing`), value bets (2/3 of the pot, or `texture_sizing`, `geometric`, `ev_sizing`,
+  `bucket_sizing`), `small_bet_from` (a third), `river_ip_call_share` (half), semi-bluffs
+  (half) and `stab` (a third). The bets are shares of the pot, and the smallest pot after the
+  flop is two big blinds: half of it or more is at least the big blind, a third isn't. Of the
+  options on by default, only `stab` bets a third.
+- The river solver's bets and raises (`river_solver`, off). Its tree (`app/solver/tree.py`)
+  has no floor of one big blind for a bet, so in a tiny pot it could also say a bet under the
+  minimum.
+- A size from a big blind guessed from the pot, when the blinds weren't read ("RAISE TO
+  ABOUT 5").
+- All-ins: `_shove` and CALL ALL IN, the whole stack, which is always allowed.
+
+### The fix
+
+One last check on every instruction, after `_never_fold_a_free_check` (`_legal_size`):
+
+- A bet or raise under the minimum goes up to it, and the small print says "That's the
+  smallest bet allowed."
+- The minimum (`_min_to`): the biggest bet plus the last raise (its gap down to the next bet
+  on the table), and at least one big blind more. A first bet is at least one big blind. With
+  nothing to call, a bigger bet on screen is taken for a misread.
+- Never more than your chips. When the minimum is most of your chips the instruction is ALL
+  IN, as for any size (`ALL_IN_SHARE`). When it is more than you have, it's all in for less,
+  which is allowed.
+- A guessed size ("ABOUT") is capped at the stack but never turned into ALL IN. The random
+  spots in `test_advice_fuzz.py` found one, RAISE TO ABOUT 333 with 200 chips (a big blind of
+  133 guessed from the pot), that the cap would otherwise have made a weak all-in. Before the
+  fix it said the 333.
+- Known limit: the minimum is worked out from the bets on the table, so after an all-in that
+  wasn't a full raise it can come out a little low. The rules' raises are at least twice the
+  bet there, far above it.
+
+Tests: `app/tests/test_legal_sizes.py`. They cover the exact spot (hand 665 of the six-max
+fish247 run, 500 big blinds deep, seed 43, rebuilt as the simulator holds it), small pots,
+short stacks, raises and the minimum itself.
+
+### Check runs
+
+`simulate.check_advice` on the main tables, on the commit before the fix and on the fix,
+compared hand by hand (`runs/b0_min_bet.py`, `runs/b0_min_bet/summary.md`).
+
+| Setting | Hands | Instructions | Under the minimum, before | After | Other always-wrong, after |
+|---|---|---|---|---|---|
+| Six-max: the 11 tables at 100 and 500 big blinds, tournament and uneven stacks, seed 43 | 52000 | 73338 | 14 | 0 | none |
+| Heads-up: the 17 settings of `phase1_heads_up_b0.sh` | 33000 | 37629 | 0 | 0 | none |
+
+- Before: the 14 were all one spot. B0 was in the big blind, the small blind completed, it was
+  checked to B0 on the flop or turn, and B0 said BET 1.5 into 4 chips. That's about 1 in 5200
+  six-max instructions, on 7 of the 11 tables. There were none heads-up: there the big blind
+  acts first after the flop, and B0 never just calls from the button.
+- After: none, and no other always-wrong instruction.
+- Exactly those 14 instructions changed (BET 1.5 to BET 2), and no hand's result changed: the
+  simulator already played the minimum. So the six-max values pinned in
+  `test_six_max_unchanged_by_the_heads_up_mode` are unchanged too.
 
 ## Phase 6 groundwork: B0 against Rust agents (27 Nov 2026)
 
