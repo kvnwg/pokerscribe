@@ -234,7 +234,8 @@ for 4 times the information sets, 2.8 times the memory and 2.4 times the trainin
 Phase 6's LBR readings shouldn't be expected to show what 200 buckets buy. LBR measures the
 worst case, not play against a real opponent: if 200 buckets are to be checked before the full
 run, the cheap way is standard-k50 against standard-k200 head to head at 100 big blinds in the
-arena (both are `Strategy` agents; not done here).
+arena (both are `Strategy` agents; not done here, but done after: `../phase5_100bb_h2h/`,
+standard-k200 wins by 3.74 ± 0.48 bb/100).
 
 ## Files
 

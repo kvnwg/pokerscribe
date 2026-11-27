@@ -2390,10 +2390,36 @@ and `fc14`). Results, tables and files are in that folder (`results.md`, `checks
   over 50 (M +12.2 ± 5.0 pooled, `fcpa34` +18.5 ± 6.5), and Phase 6's LBR readings shouldn't be
   expected to show what 200 buckets buy. LBR measures the worst case, not play against a real
   opponent: if 200 buckets are to be checked before the full run, the cheap way is standard-k50
-  against standard-k200 head to head at 100 big blinds in the arena (not done). Why finer
-  buckets are more exploitable is not tested (the gate's three candidates stand).
+  against standard-k200 head to head at 100 big blinds in the arena (done after the check:
+  standard-k200 wins, below). Why finer buckets are more exploitable is not tested (the gate's
+  three candidates stand).
 - **Scale.** LBR wins 1,671.7 ± 10.9 bb/100 from always calling at 100 big blinds; the three
   blueprints give it 34% to 35% of that (33% to 40% at 20 big blinds).
+
+### Head to head: standard-k50 against standard-k200 (added after the check)
+
+Informational, not a gate run. The plan (`docs/research/runs/phase5_100bb_h2h/plan.md`) was
+committed before the main run (171028d), with the manager's rule: standard-k200 ahead by 2.5 SE
+means the extra buckets pay off in play; standard-k50 ahead by 2.5 SE is flagged before Phase
+6's full run; anything else is inconclusive. The check's final strategy files, the Rust arena
+(duplicate deals with the seats swapped, the all-in equity adjustment), 2,000,000 deals a match,
+sized from a pilot on other seeds.
+
+- **standard-k200 beats standard-k50 by 3.74 ± 0.48 bb/100 (7.7 SE)**, and by 3.74 ± 0.49 on
+  fresh deals: the extra buckets pay off in play. Nothing to flag; Phase 6's gate is unchanged.
+- **The sanity check passes**: standard-k50 beats standard-k10 by 13.28 ± 0.52 (25.7 SE), as LBR
+  found from 10 to 50. standard-k200 beats standard-k10 by 15.03 ± 0.52. Each step up in
+  buckets wins, by less each time.
+- **By seat** (each figure includes the button's advantage of about 15 bb/100): standard-k200
+  wins 19.29 ± 0.91 on the button and loses 11.81 ± 0.91 in the big blind against standard-k50.
+- **So from 50 to 200 buckets, play and LBR disagree**: LBR found standard-k200 more exploitable
+  (M +12.2 ± 5.0 pooled), yet it beats standard-k50. This supports Phase 6's 200 buckets, and
+  says again that Phase 6's LBR readings are not the value of its card abstraction. Both
+  blueprints share the menu, so the match doesn't test play against bets off it.
+- **Added after review** (not pre-registered; doesn't change the decision): the main match and
+  the replication agreed to 0.0023 bb/100, by chance. Their deals differ, and ten more fresh
+  seeds (9203 to 9212) give +2.41 to +4.33 with the spread their SEs predict (p = 0.38). Pooled
+  over 12 seeds: +3.57 ± 0.14 bb/100 (`runs/phase5_100bb_h2h/extra.md`).
 
 ## Phase 6: ready to launch (27 Nov 2026)
 
