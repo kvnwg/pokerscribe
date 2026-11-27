@@ -133,4 +133,20 @@ blueprint's own probabilities, so its real hand can't drop out, and the search a
 with the strategy it played. Against an opponent that is not the blueprint (LBR, B0, a human)
 its hand can get weight 0; that was not measured here.
 
-B0
+## B0 (6)
+
+`python tools/b0_arena.py <agent> --stack-bb 20 --deals 100 --seed 7107`: B0 from Python,
+through `pokerscribe_engine.run_match`, each deal twice with the seats swapped, all-in hands
+scored by equity. The same 100 deals for both.
+
+| B0 against | B0's bb/100 | SE | The agent's bb/100 | B0's instructions | Not legal as said | Always wrong | Time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `search:<file>` | -4.70 | 22.08 | +4.70 | 403 | 0 | 0 | 532 s (2.7 s a hand) |
+| `blueprint:<file>` | +11.78 | 18.25 | -11.78 | 397 | 0 | 0 | 14 s |
+
+The search agent plays end to end from Python: 200 hands, every action legal. B0 sizes its bets
+its own way, and a size off the search's menu is added to the street's tree (how often was not
+counted in this run). 200 hands say nothing about who is better (the report has
+no per-deal results, so no paired SE; unpaired, the two differ by 16.5 ± 28.6). In a match the
+search agent's turn solves run on one thread (`turn_threads` 1), so here each hand cost more
+than in the bench.

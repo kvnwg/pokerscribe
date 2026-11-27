@@ -489,7 +489,7 @@ fn trees(opts: &HashMap<String, String>) {
     ];
     let mut out = Vec::new();
     for (name, pre) in preflops {
-        let mut s = State::new(&config, deal.clone()).unwrap();
+        let mut s = State::new(&config, deal).unwrap();
         for &a in &pre {
             s.apply(a).unwrap();
         }
@@ -541,7 +541,7 @@ fn trees(opts: &HashMap<String, String>) {
     }
     // The whole abstract game's turn starts: one leaf table per start, 7 lanes of 200 x 200
     // flop buckets in f32.
-    let root = State::new(&config, deal.clone()).unwrap();
+    let root = State::new(&config, deal).unwrap();
     let abstract_tree = abstract_game::tree::BettingTree::build(&root, &menus);
     let starts = search::leaf::turn_starts_in(&abstract_tree).len();
     // Decision points by street: the turn's and river's are what a leaf table build walks.
