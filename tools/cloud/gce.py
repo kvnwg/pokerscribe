@@ -185,10 +185,11 @@ def create_command(s, zone: str, max_run_seconds: int, metadata: dict,
     ]
     if beta:
         cmd.append(f"--preemption-notice-duration={int(s.PREEMPTION_NOTICE_SECONDS)}s")
-    if s.DISK_IOPS:
-        cmd.append(f"--boot-disk-provisioned-iops={int(s.DISK_IOPS)}")
-    if s.DISK_THROUGHPUT_MBPS:
-        cmd.append(f"--boot-disk-provisioned-throughput={int(s.DISK_THROUGHPUT_MBPS)}")
+    iops, mbps = s.disk_performance  # Hyperdisk Balanced: always both (settings.py)
+    if iops:
+        cmd.append(f"--boot-disk-provisioned-iops={iops}")
+    if mbps:
+        cmd.append(f"--boot-disk-provisioned-throughput={mbps}")
     if s.SERVICE_ACCOUNT:
         cmd.append(f"--service-account={s.SERVICE_ACCOUNT}")
     if s.NETWORK:

@@ -114,6 +114,55 @@ def test_disk_price_counts_iops_and_throughput_above_the_baseline(tmp_path):
     assert pd.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
 
 
+def test_hyperdisk_balanced_always_gets_both_iops_and_throughput(tmp_path):
+    # 27 Nov 2026: Google refused a create with throughput but no IOPS ("Size, provisioned
+    # iops and throughput must be all provided when desired performance is provisioned").
+    def flags(s):
+        cmd = gce.create_command(s, "us-central1-a", 8563, {}, "/s.sh")
+        return [c for c in cmd if c.startswith("--boot-disk-provisioned")]
+    kevin = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=400)
+    assert flags(kevin) == ["--boot-disk-provisioned-iops=3000",
+                            "--boot-disk-provisioned-throughput=400"]
+    # The 3,000 IOPS are free: the price is what it was ($0.023014 an hour).
+    assert kevin.disk_price_per_hour == pytest.approx((80 * 0.08 + 260 * 0.04) / 730)
+    assert kevin.disk_price_per_hour == pytest.approx(0.023014, abs=1e-6)
+    # Neither set: the free baseline is sent, not Google's larger size-based default.
+    plain = make_settings(tmp_path, DISK_SIZE_GB=80)
+    assert flags(plain) == ["--boot-disk-provisioned-iops=3000",
+                            "--boot-disk-provisioned-throughput=140"]
+    assert plain.disk_price_per_hour == pytest.approx(80 * 0.08 / 730)
+    iops_only = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_IOPS=6000)
+    assert flags(iops_only) == ["--boot-disk-provisioned-iops=6000",
+                                "--boot-disk-provisioned-throughput=140"]
+    # Other disk types: only what is set.
+    pd = make_settings(tmp_path, DISK_TYPE="pd-balanced", MACHINE_TYPE="n2-standard-8")
+    assert flags(pd) == []
+
+
+def test_hyperdisk_balanced_limits_are_checked(tmp_path):
+    def disk_problems(**over):
+        s = make_settings(tmp_path, DISK_SIZE_GB=80, **over)
+        return [p for p in s.problems(for_launch=False) if p.startswith("DISK_")]
+    assert disk_problems(DISK_THROUGHPUT_MBPS=400) == []
+    assert disk_problems() == []
+    # Throughput is at most IOPS/4: 750 MiB/s with 3,000 IOPS.
+    assert disk_problems(DISK_THROUGHPUT_MBPS=750) == []
+    assert disk_problems(DISK_THROUGHPUT_MBPS=800) == [
+        "DISK_THROUGHPUT_MBPS 800: with 3000 IOPS Hyperdisk Balanced takes 140 to 750 MiB/s"]
+    assert disk_problems(DISK_THROUGHPUT_MBPS=100) == [
+        "DISK_THROUGHPUT_MBPS 100: with 3000 IOPS Hyperdisk Balanced takes 140 to 750 MiB/s"]
+    # IOPS: 3,000 to 500 a GB (40,000 on 80 GB).
+    assert disk_problems(DISK_IOPS=40000, DISK_THROUGHPUT_MBPS=400) == []
+    assert disk_problems(DISK_IOPS=50000, DISK_THROUGHPUT_MBPS=400) == [
+        "DISK_IOPS 50000: Hyperdisk Balanced of 80 GB takes 3000 to 40000"]
+    # Throughput is at least IOPS/256: an empty one is sent as 140, too little for 50,000.
+    big = make_settings(tmp_path, DISK_SIZE_GB=200, DISK_IOPS=50000)
+    assert [p for p in big.problems(for_launch=False) if p.startswith("DISK_")] == [
+        "DISK_THROUGHPUT_MBPS 140: with 50000 IOPS Hyperdisk Balanced takes 195.312 to 2400 MiB/s"]
+    assert disk_problems(DISK_IOPS=2000) == [
+        "DISK_IOPS 2000: Hyperdisk Balanced of 80 GB takes 3000 to 40000"]
+
+
 def test_vm_family_quota_from_the_cloud_quotas_api():
     # A QuotaInfo as the Cloud Quotas API documents it (and gcloud beta quotas info describe
     # prints it as JSON): int64 values come as strings, and an entry with fewer dimensions is
@@ -409,6 +458,7 @@ def test_create_command_spot(tmp_path):
                  "--image-project=debian-cloud", "--boot-disk-size=200GB",
                  "--boot-disk-type=hyperdisk-balanced", "--scopes=storage-rw",
                  "--labels=pscloud-run=hu-test", "--preemption-notice-duration=120s",
+                 "--boot-disk-provisioned-iops=3000", "--boot-disk-provisioned-throughput=140",
                  "--metadata-from-file=startup-script=/x/startup.sh"):
         assert flag in cmd, flag
     meta = next(c for c in cmd if c.startswith("--metadata="))

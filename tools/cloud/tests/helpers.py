@@ -148,6 +148,14 @@ class FakeCompute:
             if self.fail.get(verb):
                 return 1, "", self.fail[verb].pop(0)
             if verb == "create":
+                # Google's rule, met on 27 Nov 2026: Hyperdisk Balanced given IOPS or
+                # throughput needs both.
+                if flags.get("boot-disk-type") == "hyperdisk-balanced" and (
+                        ("boot-disk-provisioned-iops" in flags)
+                        != ("boot-disk-provisioned-throughput" in flags)):
+                    return 1, "", ("ERROR: (gcloud.beta.compute.instances.create) Could not "
+                                   "fetch resource:\n - Size, provisioned iops and throughput "
+                                   "must be all provided when desired performance is provisioned.")
                 zone = flags["zone"]
                 self.add(name, zone=zone)
                 self.metadata[name] = dict(kv.split("=", 1) for kv in flags["metadata"].split(","))

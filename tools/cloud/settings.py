@@ -120,6 +120,11 @@ SPEC = {
 # Hyperdisk Balanced's baseline, included in the price per GB.
 FREE_IOPS = 3000
 FREE_MBPS = 140
+# Hyperdisk Balanced's limits (Google's docs, 27 Nov 2026): IOPS from 3,000 to 500 a GB, at
+# most 160,000; throughput from MAX(140, IOPS/256) to MIN(2,400, IOPS/4) MiB/s.
+MAX_IOPS_PER_GB = 500
+MAX_IOPS = 160_000
+MAX_MBPS = 2400
 
 KNOWN_MACHINES = {f"c4a-{kind}-{n}": (n, n * per) for kind, per in
                   (("highcpu", 2), ("standard", 4), ("highmem", 8))
@@ -231,19 +236,29 @@ class Settings:
                                  else "IP_PRICE_PER_HOUR"] or 0)
 
     @property
+    def disk_performance(self) -> tuple[int | None, int | None]:
+        """The boot disk's provisioned (IOPS, MiB/s) as sent to Google. Hyperdisk Balanced
+        needs both once either is given, so an unset one is sent as the free baseline (3,000
+        IOPS, 140 MiB/s). Both are sent even when neither is set: left to Google, an 80 GB disk
+        gets 3,480 IOPS and 260 MiB/s, which cost more than the estimate counts. Other disk
+        types: as set."""
+        iops, mbps = self.values.get("DISK_IOPS"), self.values.get("DISK_THROUGHPUT_MBPS")
+        if (self.values.get("DISK_TYPE") or "") == "hyperdisk-balanced":
+            return int(iops or FREE_IOPS), int(mbps or FREE_MBPS)
+        return (int(iops) if iops else None), (int(mbps) if mbps else None)
+
+    @property
     def disk_price_per_hour(self) -> float:
         """The disk's size, and on Hyperdisk Balanced the IOPS and throughput provisioned
         above the free baseline (3,000 IOPS, 140 MiB/s), by the hour."""
         month = float(self.values["DISK_SIZE_GB"]) * float(
             self.values["DISK_PRICE_PER_GB_MONTH"] or 0)
         if (self.values.get("DISK_TYPE") or "") == "hyperdisk-balanced":
-            iops, mbps = self.values.get("DISK_IOPS"), self.values.get("DISK_THROUGHPUT_MBPS")
-            if iops:
-                month += max(0, int(iops) - FREE_IOPS) * float(
-                    self.values["DISK_IOPS_PRICE_PER_MONTH"] or 0)
-            if mbps:
-                month += max(0, int(mbps) - FREE_MBPS) * float(
-                    self.values["DISK_THROUGHPUT_PRICE_PER_MONTH"] or 0)
+            iops, mbps = self.disk_performance
+            month += max(0, iops - FREE_IOPS) * float(
+                self.values["DISK_IOPS_PRICE_PER_MONTH"] or 0)
+            month += max(0, mbps - FREE_MBPS) * float(
+                self.values["DISK_THROUGHPUT_PRICE_PER_MONTH"] or 0)
         return month / 730.0
 
     @property
@@ -327,6 +342,16 @@ class Settings:
             out.append(f"{mt} is an Arm machine: IMAGE_FAMILY must be an arm64 image")
         if mt.startswith("c4a-") and (v.get("DISK_TYPE") or "").startswith("pd-"):
             out.append("C4A machines don't take Persistent Disk: use hyperdisk-balanced")
+        if (v.get("DISK_TYPE") or "") == "hyperdisk-balanced":
+            iops, mbps = self.disk_performance
+            top = min(MAX_IOPS_PER_GB * int(v.get("DISK_SIZE_GB") or 0), MAX_IOPS)
+            if not FREE_IOPS <= iops <= top:
+                out.append(f"DISK_IOPS {iops}: Hyperdisk Balanced of {v.get('DISK_SIZE_GB')} GB "
+                           f"takes {FREE_IOPS} to {top}")
+            low, high = max(FREE_MBPS, iops / 256), min(MAX_MBPS, iops / 4)
+            if not low <= mbps <= high:
+                out.append(f"DISK_THROUGHPUT_MBPS {mbps}: with {iops} IOPS Hyperdisk Balanced "
+                           f"takes {low:g} to {high:g} MiB/s")
         mem = self.machine_memory_gb()
         need = v.get("TRAINER_MEMORY_GB")
         if mem is not None and need is not None and float(need) > 0.9 * mem:
