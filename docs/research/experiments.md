@@ -2359,6 +2359,85 @@ the run's state is "done". The rich run above used the same contract.
 - **LBR's `fc14`** (30 times slower) and settings with more sizes on the flop only.
 - **Phase 6 itself.** Nothing was rented.
 
+## Phase 7 groundwork: depth-limited search (27 Nov 2026)
+
+Phase 7 of the roadmap (`README.md`): "Depth-limited search on every postflop decision
+(Modicum): opponent picks among blueprint and fold/call/raise-biased versions at the leaf;
+ranges updated every action; off-tree bets added and re-solved". This builds the search
+(`engine/crates/search`) and measures it on a 20 big blind Phase 5 blueprint on this machine (4
+cores, Intel Xeon at 2.1 GHz). It is groundwork, not the Phase 7 gate: the gate is for the
+Phase 6 blueprint at 200 big blinds. The plan was written and committed before the runs
+(`runs/phase7_groundwork/README.md`, commit 2d9a22a); the results are in `results.md` there.
+Everything was offline, against our own agents (rule 4).
+
+In short:
+
+- **The search works end to end**: every postflop decision of 6,000 hands against the blueprint,
+  LBR_HANDS hands against LBR and 200 against B0 (from Python, `tools/b0_arena.py
+  search:<file>`) was searched, with no illegal action.
+- **Head-to-head it does not beat the blueprint**: -2.51 ± 4.56 bb/100 over 3,000 deals
+  (z -0.55). An edge of more than about +6.6 bb/100 is unlikely. Against its own blueprint the
+  search's ranges are exact and it never re-solves, so its only edge is exact hands over 200
+  buckets, and at 20bb that is small next to its own solving error.
+- **LBR**: LBR_SUMMARY
+- **Decision time on 4 threads**: flop p50 0.48 s and p95 0.75 s, turn 2.2 s and 6.0 s, river
+  39 ms and 158 ms. Estimated for the Phase 6 game (200bb) on 64 cores: about 0.3 to 0.6 s on the
+  flop, 1.5 to 5 s on the turn, under 0.3 s on the river, plus 9.7 GB of leaf tables that take
+  about 2 hours to build there.
+- **Ranges**: in 300 hands against the blueprint both players' real hands were in the range and
+  in the solve at every one of 415 decisions after the flop, and were typical members of it.
+
+### What was built
+
+- **Ranges.** Both players start with all 1,326 combos; each action multiplies the actor's
+  weights by that combo's probability of it, and board cards remove combos. The opponent's
+  probabilities are the blueprint's, of the real action or, for a size the blueprint doesn't
+  have, of the menu action it reads it as (its own pseudo-harmonic mapping). The searcher's own
+  are those it played with (its solved strategy after the flop), so its hand never drops out of
+  its own range.
+- **River and turn.** A subgame from the real state (pot, stacks, bets), the blueprint's menu at
+  every decision plus the real off-menu actions, solved with the `subgame` crate: the river to
+  0.5% of the pot, the turn to 2% with every river card and a smaller river menu (three quarters
+  of the pot or all in, then all in).
+- **Flop, depth-limited.** Discounted CFR over every combo to the end of the flop, to 1% of the
+  pot. At a leaf the opponent picks, per hand, one of four continuation strategies (the
+  blueprint, and the blueprint with the probability of folding, of checking or calling, or of
+  betting or raising multiplied by 5 and renormalized, as in the Modicum paper); the searcher
+  plays the blueprint. The leaf values are precomputed tables: for each abstract turn start and
+  each of 7 strategy pairs, the big blind's expected share of the pot by the two hands' flop
+  buckets, averaged over 16M random deals walked exactly through the blueprint's turn and river
+  (22 minutes on 4 cores at 20bb, 149 MB). Card removal is exact at every leaf. Modicum valued
+  its leaves by rollouts at run time; tables are faster per decision but grow with the game
+  (below).
+- **Re-solving.** A bet not in the street's tree is added and the street solved again from its
+  start, with the searcher's earlier decisions on the street fixed to what it played. Unsafe, as
+  Pluribus re-solves: the opponent's range at the street's start is taken as it is, with no
+  gadget holding its values to the earlier solve's. A safe gadget needs those values for every
+  hand, and at a flop cut off by estimated leaf values they are estimates too; LBR is the check
+  on what unsafe costs.
+- **Agents.** `search:<strategy file>` in the arena and from Python
+  (`engine/crates/py/src/agents.rs`), and `lbr::Strategy` for LBR.
+- **Small changes elsewhere**, each with a test: `subgame` builds a tree from its parts and can
+  freeze a node's strategy (the solver and its best response follow it); `blueprint` gives the
+  strategy at a node for one bucket and the probability of an off-menu action as it reads it.
+
+### Results
+
+RESULTS_TABLE
+
+### Not done
+
+- **The Phase 7 gate**: it needs the Phase 6 blueprint.
+- **Ranges against opponents that are not the blueprint** (LBR, B0, people): a hand the
+  blueprint would never play that way gets weight 0 and the search plays it as the blueprint.
+  How often that happens wasn't measured.
+- **A safe re-solving gadget** (Brown and Sandholm 2017), to compare with the unsafe form under
+  LBR.
+- **Leaf values by rollout at run time**, as Modicum did, which a 200bb game may need: its tables
+  would be 9.7 GB at 200 buckets.
+- **Parallelizing the flop's leaves**: 17% of a flop solve runs on one thread, so the flop gains
+  little past 4 threads.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open
