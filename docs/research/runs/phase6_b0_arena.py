@@ -53,8 +53,6 @@ def play(match):
     d["label"] = label
     d["cpu_seconds"] = time.process_time() - c0
     d["b0"] = [p.stats() for p in [b0] + ([other] if isinstance(other, b0_arena.B0Player) else [])]
-    for s in d["b0"]:
-        s.pop("illegal_examples")
     path = os.path.join(OUT, label.replace(" ", "_").replace(",", "") + ".json")
     with open(path, "w") as f:
         json.dump(d, f, indent=1)
@@ -65,7 +63,7 @@ def profile(deals=150, seed=699):
     """Where B0's time goes against tag: cumulative seconds in the main calls."""
     import b0_arena
 
-    prof = cProfile.Profile()
+    prof = cProfile.Profile(time.process_time)  # CPU time, as the total
     t0 = time.process_time()
     prof.enable()
     report, b0 = b0_arena.run("tag", deals, seed)
@@ -100,8 +98,12 @@ def summary():
         with open(os.path.join(OUT, label.replace(" ", "_").replace(",", "") + ".json")) as f:
             d = json.load(f)
         r = d["results"][0]
-        se, deals = r["se"], d["deals"]
+        deals = d["deals"]
+        # B0 against itself in duplicate play: every deal's two hands cancel, up to float noise
+        exact = abs(r["se"]) < 1e-9 and abs(r["bb_per_100"]) < 1e-9
+        se = 0.0 if exact else r["se"]
         sd = se * math.sqrt(deals)
+        b0_seconds = sum(sum(x["seconds"].values()) for x in d["b0"])
         s = d["b0"][0]
         instructions = sum(x["instructions"] for x in d["b0"])
         illegal = {}
@@ -112,8 +114,10 @@ def summary():
             for k, v in x["always_wrong"].items():
                 wrong[k] = wrong.get(k, 0) + v
         need = [2 * math.ceil((2.5 * sd / e) ** 2) for e in EDGES] if sd > 0 else [0] * len(EDGES)
-        rows.append({"label": label, "deals": deals, "hands": d["hands"], "bb": r["bb_per_100"], "se": se,
-                     "plain_se": r["plain_se"], "sd": sd, "z": r["bb_per_100"] / se if se else None,
+        rows.append({"label": label, "deals": deals, "hands": d["hands"], "bb": 0.0 if exact else r["bb_per_100"],
+                     "se": se, "plain_se": r["plain_se"], "sd": sd, "z": r["bb_per_100"] / se if se else None,
+                     "outside": 1 - b0_seconds / d["timing"]["seconds"],
+                     "examples": [e for x in d["b0"] for e in x.get("always_wrong_examples", [])],
                      "hands_s": d["hands"] / d["cpu_seconds"], "ms": 1000 * d["cpu_seconds"] / max(1, instructions),
                      "per_hand": instructions / d["hands"], "illegal": illegal, "wrong": wrong, "need": need,
                      "adjusted": d["adjusted_hands"], "duplicate": d["config"]["duplicate"], "b0_hands": s["hands"]})
@@ -127,17 +131,31 @@ def summary():
         z = "" if x["z"] is None else f"{x['z']:+.1f}"
         lines.append(f"| {x['label']} | {x['deals']} | {x['hands']} | {x['bb']:+.2f} | {x['se']:.2f} | {z} | "
                      f"{x['plain_se']:.2f} | {x['sd']:.0f} | {x['adjusted']} |")
-    lines += ["", "| Opponent | Hands/s | ms per B0 instruction | B0 instructions per hand | Not legal as said | "
-                  "Always-wrong (simulate.check_advice) |", "| --- | --- | --- | --- | --- | --- |"]
+    lines += ["", "B0 against itself in duplicate play is exactly 0: B0 is deterministic, so each deal's two hands",
+              "cancel (the report's 1e-15 is float noise).",
+              "", "| Opponent | Hands/s | ms per B0 instruction | B0 instructions per hand | Time outside B0 | "
+                  "Not legal as said | Always-wrong (simulate.check_advice) |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
     for x in rows:
         ill = ", ".join(f"{k} x{v}" for k, v in sorted(x["illegal"].items())) or "none"
         wr = ", ".join(f"{k} x{v}" for k, v in sorted(x["wrong"].items())) or "none"
-        lines.append(f"| {x['label']} | {x['hands_s']:.1f} | {x['ms']:.1f} | {x['per_hand']:.2f} | {ill} | {wr} |")
+        lines.append(f"| {x['label']} | {x['hands_s']:.1f} | {x['ms']:.1f} | {x['per_hand']:.2f} | "
+                     f"{100 * x['outside']:.1f}% | {ill} | {wr} |")
+    lines += ["", "Time outside B0: the match's time less the time in `B0Player.act` (the arena, the other agent,",
+              "and crossing between Rust and Python)."]
+    examples = [(x["label"], e) for x in rows for e in x["examples"]]
+    if examples:
+        lines += ["", "The always-wrong instructions (the first of each match, up to 25), with the betting so far:", ""]
+        for label, e in examples:
+            moves = " ".join(f"{'B0' if seat == e['seat'] else 'opp'} {a}{'' if amt is None else ' ' + str(amt)}"
+                             for seat, a, amt in e["history"])
+            lines.append(f"- {label}: {e['cards']} on the {e['position']}, {'; '.join(e['always_wrong'])}: "
+                         f"{e['instruction']['headline']} after {moves} (played {e['played']})")
     lines += ["", "Hands for an edge to be 2.5 SE at this sd per deal (hands = 2 x (2.5 sd / edge)^2):", "",
               "| Opponent | sd per deal | " + " | ".join(f"Edge {e:g} bb/100" for e in EDGES) + " |",
               "| --- | --- | " + " | ".join("---" for _ in EDGES) + " |"]
     for x in rows:
-        if x["duplicate"] and x["sd"] > 0:
+        if x["duplicate"] and x["sd"] > 0:  # not B0 against itself, which is exactly 0
             lines.append(f"| {x['label']} | {x['sd']:.0f} | " + " | ".join(f"{n:,}" for n in x["need"]) + " |")
     prof_path = os.path.join(OUT, "profile.json")
     if os.path.exists(prof_path):
@@ -159,16 +177,21 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--summary", action="store_true", help="only rebuild summary.md from the JSON")
+    ap.add_argument("--only", nargs="*", metavar="LABEL", help="play only these matches (and no profile), then the summary")
+    ap.add_argument("--profile", action="store_true", help="only the profile, then the summary")
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
-    if not a.summary:
+    if not a.summary and not a.profile:
+        matches = [m for m in MATCHES if a.only is None or m[0] in a.only]
         with ProcessPoolExecutor(max_workers=a.jobs) as ex:
             # the longest first, so the pool ends together
-            order = sorted(MATCHES, key=lambda m: -m[3] * (3 if m[1] in ("call", "b0") else 1))
+            order = sorted(matches, key=lambda m: -m[3] * (3 if m[1] in ("call", "b0") else 1))
             for label, seconds in ex.map(play, order):
                 print(f"{label}: {seconds:.0f} s", flush=True)
+    if a.profile or (not a.summary and a.only is None):
+        p = profile()
         with open(os.path.join(OUT, "profile.json"), "w") as f:
-            json.dump(profile(), f, indent=1)
+            json.dump(p, f, indent=1)
     summary()
 
 

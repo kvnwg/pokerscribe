@@ -114,8 +114,8 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   Its gate run (pre-registered, run 5's rule, seeds 1111 to 1414) gave a geometric mean of 0.38
   and a largest r of 0.53, but 1.41 times the CPU (bar 1.25): it fails as written, on CPU only.
   Whether that is good enough is Kevin's call, as with run 5. The bots keep their six-max
-  styles, so heads-up they fold a lot and B0 beats every table. Not built: head-to-head play
-  (two agents against each other heads-up), which Phase 6 will need.
+  styles, so heads-up they fold a lot and B0 beats every table. Head-to-head play (two agents
+  against each other heads-up) is in the Rust arena now, B0 included (below).
 - Found by the heads-up work, not fixed (it would change six-max instructions): B0 can say a
   bet under the minimum in a tiny pot (BET 1.5 into two big blinds, six-max, 1 in 2038
   instructions). A bug fix with a regression test.
@@ -137,6 +137,16 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
   Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
   7-card hands. Suggested model: Claude Fable.
+- Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena
+  (`tools/b0_arena.py`; `experiments.md`, Phase 6 groundwork). It sees each spot exactly as in
+  the simulator. No instruction was illegal in 41145. B0 against B0 is exactly 0, and it beats
+  always-fold and always-call by 29 and 12.5 SE. B0 is the slow part: 22 to 32 hands per second
+  on one process against near-equal bots (tag +8.2 ± 5.6, tag-loose +2.5 ± 7.4), 94% of it in
+  B0's Monte Carlo equity. At their sd (300 to 400 per deal) a 2.5 SE test of a 5 bb/100 edge
+  needs 47,000 to 81,000 hands, and one of 10 bb/100 needs 12,000 to 20,000. The simulator's
+  always-wrong check flagged 9 jams with AKo facing big re-raises from the LBR random
+  strategies: a false alarm (the check ignores the bet faced). B0 calls a 100 big blind jam with
+  JJ or better only.
 - Reader bugs already reported still get fixed (no new reader work otherwise). Kevin presses "Save
   last reads" when an instruction is wrong (folders go to `~/Documents/PokerScribe reads/<time>`).
   For each folder: run `tools/replay_reads.py`, find the cause, fix it, add a regression test.

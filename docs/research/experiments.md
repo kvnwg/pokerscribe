@@ -1542,6 +1542,155 @@ classic (fails, at most 1.25). **The heads-up run fails**, on the CPU condition 
   are six-max only. The comparisons don't use the weights: they only correct board cards
   after which nobody can bet again, where the weights have no effect.
 
+## Phase 6 groundwork: B0 against Rust agents (27 Nov 2026)
+
+Phase 6's gate needs the heads-up blueprint to beat B0 by 2.5 SE heads-up. Until now nothing let
+B0 play a Rust agent: B0 is Python (`app/poker`) and the arena (`engine/crates/arena`) seats Rust
+agents only. This builds that and measures what such a test costs. Usage:
+`engine/crates/py/README.md`, "Matches in the arena" and "B0 against a Rust agent".
+
+### What was built
+
+- **`pokerscribe_engine.run_match`** (`engine/crates/py`): a match in the Rust arena, from Python.
+  The arena still runs everything: each deal twice with the seats swapped, all-in hands scored by
+  their equity, bb/100 with the SE per deal. Its public API is unchanged. Each seat is one of:
+  - a Rust agent by name: the arena's 8 bots and 5 of the LBR crate's simple strategies
+    (`pokerscribe_engine.agents()`);
+  - any Python object with `act(view)`. The arena calls it on its turn and holds Python's lock
+    only for that call. The view has the agent's own cards, what is public and the betting so
+    far, and nothing else (the other cards in the view's state are made up).
+
+  A Rust `Player` or `Strategy` becomes a name with one line in `src/agents.rs`. That is the hook
+  the blueprint will use. Checked through it: `lbr-call`, `lbr-fold` and `lbr-jam` (the LBR
+  crate's strategies) play exactly the matches `call`, `fold` and `jam` play.
+- **`tools/b0_arena.py`**: B0 as a Python agent.
+  - What B0 sees: the arena's view becomes the simulator's own `Hand`. B0 is then asked through
+    `simulate.app_state` and `simulate.decision`, so it gets the spot the simulator gives it: the
+    stacks, the blinds (1/2 in the simulator's chips), the seats named "BTN/SB" and "BB", and the
+    betting so far. Checked on 400 random hands, each played in the engine and then in the
+    simulator: the same `GameState` at every one of B0's decisions, to the last bit, and the
+    same result.
+  - What it plays: the simulator's move for the instruction (`simulate.app_move`, then
+    `simulate.act`). An instruction that is not legal as said is played as the simulator plays
+    it, counted by kind, and written to a log with the spot (one JSON line each).
+- **Why this design.** The arena drives and B0 is one more agent. Two other designs were
+  possible:
+  - Python could drive the match through the nlhe bindings, but then the duplicate deals, the
+    all-in equity and the SE would exist twice.
+  - B0 could be rewritten in Rust, but it is frozen, and a rewrite would have to be proved equal
+    to it.
+
+  This way the scoring exists once, in Rust, and a Rust agent plays at Rust speed. Only B0 is
+  Python.
+
+### Results
+
+`runs/phase6_b0_arena.py` (`phase6_b0_arena/summary.md`): heads-up, 100 big blinds, blinds
+50/100, duplicate and all-in equity unless the row says plain. Seeds 601 to 610.
+
+| B0 against | Hands | B0, bb/100 | SE without the pairing | sd per deal | Hands/s |
+|---|---|---|---|---|---|
+| B0 | 800 | exactly 0 | 39.7 | 0 | 12.4 |
+| B0, plain (each deal once) | 1000 | -42.1 ± 32.5 | | 1027 | 7.1 |
+| B0 with `bet_size: 0.5` | 3000 | +2.9 ± 3.9 | 14.1 | 150 | 13.1 |
+| fold | 2000 | +34.7 ± 1.2 | 1.2 | 37 | 91 |
+| call | 2000 | +239.5 ± 19.2 | 22.0 | 606 | 4.6 |
+| tag | 6000 | +8.2 ± 5.6 | 7.7 | 308 | 32 |
+| tag-loose | 6000 | +2.5 ± 7.4 | 8.6 | 403 | 22 |
+| jam | 2000 | +8.1 ± 20.1 | 32.5 | 635 | 33 |
+| lbr-random | 2000 | +157.7 ± 34.3 | 38.1 | 1083 | 16 |
+| lbr-call-or-raise | 2000 | +362.6 ± 53.1 | 65.1 | 1678 | 10 |
+
+- **B0 against B0 is exactly 0** in duplicate play, with an SE of 0. B0 is deterministic (its
+  equity runs are seeded from what it sees), so each deal's two hands cancel. Without the
+  pairing, -42 ± 32 over 1000 hands, 1.3 SE from 0.
+- **B0 beats always-fold by 29 SE and always-call by 12.5 SE.** It also beats both LBR test
+  strategies by more than 4.5 SE.
+- **The arena's tag bots are near B0's strength heads-up**: +8.2 ± 5.6 and +2.5 ± 7.4, neither
+  2 SE from 0.
+- **The same seed gives the same match.** The two LBR matches, played a second time, gave the
+  same report, B0's counts included.
+- **B0 is unchanged**: nothing in `app/poker` was touched, `TUNING` is the same after a match,
+  and the baseline test passes.
+- **The pairing helps less here than in the simulator's comparisons.** The SE over the SE without
+  the pairing is 0.73 against tag, 0.85 against tag-loose and 0.62 against jam, but 0.28
+  against B0's own variant. Two different agents play a deal's two hands differently, so the
+  cards cancel less. Most of the gain in `tools/compare.py` comes from replaying the hands two
+  variants play differently, from the point where they part, against the same bots. A match
+  between two agents has no such point, so only the seat swap is left.
+
+### Instructions that can't be played as said
+
+- **None** in 41145 instructions over 26800 hands. Every instruction B0 gave was legal as said.
+- **The simulator's always-wrong checks** (`simulate.check_advice`) fired 9 times, all on the
+  same spot.
+  - The spot: B0 raised (to 2.5 big blinds on the button, or to 4.5 in the big blind after a
+    limp), the LBR random strategy re-raised to 26 to 87 big blinds, and B0 went all in with AKo.
+  - Why the check fires: it counts any all-in 40 big blinds deep or more before the flop, with a
+    hand outside the top 5%, and AKo is just outside.
+  - Why it is a false alarm: the check doesn't look at what B0 is facing. Against a re-raise of
+    a quarter of the stack or more, all in with AKo is a normal play.
+
+  No other opponent here led to it, and Phase 1's 37629 heads-up instructions against the
+  simulator's bots had none. The check is not changed here.
+- **One thing about B0**, from the jam match: B0 calls a 100 big blind jam only with JJ or better
+  (12 calls in 430 jams, seed 610, 300 deals; `runs/phase6_b0_jam_calls.py`). Against a bot that jams every hand, the best
+  answer calls with any hand that has about half the equity against a random hand, roughly half
+  of all hands. That is why B0 is only +8 against jam, and a blueprint will find it. B0 is
+  frozen, so it stays.
+
+### Speed
+
+All of the time is B0's. The arena, the Rust agent and the crossings between Rust and Python take
+0.0% to 0.2% of each match.
+
+- B0 costs 22 ms to 70 ms per instruction: 22 ms before the flop (against fold, where it acts
+  only there), 37 ms against tag, 70 ms against call, where every hand goes to the river.
+- So hands per second depend on how many instructions a hand needs, from 91 against fold to 4.6
+  against call. Against a near-equal opponent (tag, tag-loose) it is 22 to 32 hands per second
+  on one process.
+- A profile of 300 hands against tag:
+  - 94% of B0's time is its Monte Carlo equity: 88% in the equity the simulator gives the advice
+    (`simulate.sim_compute`, 400 samples per estimate) and the rest in the advice's own equity
+    runs;
+  - building the spot, the checks and turning the instruction into an action take under 0.5%.
+- A match with a Python agent plays on one thread, since the agent holds Python's lock. The
+  measurement ran four matches at once, one process each.
+
+### Hands for a 2.5 SE test
+
+With one sample per deal, an edge of D bb/100 is 2.5 SE after (2.5 sd / D)^2 deals, twice that in
+hands:
+
+| Opponent (sd per deal) | Edge 5 bb/100 | Edge 10 bb/100 | Edge 20 bb/100 |
+|---|---|---|---|
+| B0 with `bet_size: 0.5` (150) | 11,324 | 2,832 | 708 |
+| tag (308) | 47,414 | 11,854 | 2,964 |
+| tag-loose (403) | 81,230 | 20,308 | 5,078 |
+| jam (635) | 201,600 | 50,400 | 12,600 |
+| lbr-random (1083) | 586,766 | 146,692 | 36,674 |
+
+- **A near-equal opponent of a different kind (tag, tag-loose)**: an sd of 300 to 400 per deal.
+  An edge of 5 bb/100 then takes 47,000 to 81,000 hands, about 25 to 60 minutes on one process.
+  An edge of 10 bb/100 takes 12,000 to 20,000 hands, about 6 to 15 minutes. The blueprint
+  against B0 is the same kind of test: two different agents, not two variants of one.
+- **A variant of B0** has an sd of only 150, because a deal's two hands mostly cancel. It is not
+  a guide for the blueprint.
+- **The sd depends on the opponent**: it grows with the size of the pots, so an agent that
+  re-raises and jams a lot (lbr-random) needs ten times the hands. The first run against the
+  blueprint should measure it, and the test should be sized from that.
+- **CLAUDE.md's promotion rule** also asks for a repeat on fresh seeds, which doubles the hands.
+
+### Not done
+
+- A match with a Python agent uses one process. Splitting one test over processes (separate
+  seeds, pooled per deal) is not built; `runs/phase6_b0_arena.py` runs separate matches in
+  parallel instead.
+- The always-wrong check for jams doesn't look at the bet faced (above). It is shared with the
+  simulator runs, so it is left as it is.
+- Heads-up styles for the arena's bots, and the redeal replays for matches between different
+  agents.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

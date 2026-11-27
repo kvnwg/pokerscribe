@@ -333,7 +333,9 @@ the same way, counted by kind in `stats()["illegal"]`, and written to `--log`:
 The arena never sees an illegal action from B0, so its `illegal` column stays at 0: B0's
 own count is the one to read. `stats()["always_wrong"]` also has the simulator's
 always-wrong checks (`simulate.check_advice`: folding the nuts, folding aces before the
-flop, all in too deep with a weak hand, ...). B0's logic and `TUNING` are not touched.
+flop, all in too deep with a weak hand, ...), and `stats()["always_wrong_examples"]` the
+first 25 spots that failed one, with the betting so far. B0's logic and `TUNING` are not
+touched.
 
 The river solver is connected in a different way: `app/solver/rust_backend.py` runs the
 program `subgame-solve` as a separate process and does not use this module.
@@ -355,6 +357,30 @@ thread, Python 3.13, release build), 26 Nov 2026:
 Almost all of that is the cost of crossing from Python into Rust and back: the evaluator
 itself takes about 4 nanoseconds. Loops that need millions of evaluations belong in Rust.
 
+**B0 in the arena** (`docs/research/runs/phase6_b0_arena/summary.md`, 27 Nov 2026, the same
+machine, one process each, heads-up at 100 big blinds):
+
+| Opponent | Hands/s | B0 instructions per hand | ms per B0 instruction |
+| --- | --- | --- | --- |
+| fold | 91 | 0.50 | 22 |
+| jam | 33 | 1.22 | 25 |
+| tag | 32 | 0.84 | 37 |
+| tag-loose | 22 | 1.11 | 41 |
+| B0 (two B0s at the table) | 12 to 13 | 2.6 to 2.8 | 29 |
+| always-call | 4.6 | 3.11 | 70 |
+
+All of the time is B0's. The arena, the Rust agent and the crossings between Rust and Python
+together take 0.0% to 0.2% of a match. Inside B0, 94% is its Monte Carlo equity (400 samples
+per estimate, a fixed count so runs repeat): 88% in the equity the simulator gives the advice
+(`simulate.sim_compute`) and the rest in the advice's own equity runs. Building B0's spot from
+the view, the always-wrong checks and turning the instruction into an action take under 0.5%.
+Instructions before the flop are the cheapest (22 ms against fold, where B0 acts only before
+the flop); against always-call, where every hand goes to the river, they average 70 ms.
+
+A match with a Python agent plays on one thread (`threads=None` picks 1), because the agent
+holds Python's lock while it thinks. More cores need more processes: separate matches on
+different seeds, pooled (each deal is an independent unit, so their SEs combine).
+
 ## Tests
 
 `app/tests/test_engine_bindings.py` (58 tests, a few seconds):
@@ -375,14 +401,15 @@ itself takes about 4 nanoseconds. Loops that need millions of evaluations belong
   of answer, an illegal answer counted as the arena counts one, and an error in a Python
   agent that stops the match.
 
-`app/tests/test_b0_arena.py` (8 tests, about two minutes, most of it B0 against always-call):
+`app/tests/test_b0_arena.py` (9 tests, about a minute and a half, most of it B0 against always-call):
 
 - B0 sees each spot exactly as in the simulator: 400 random hands played in the engine and
   again in the simulator, with the same `GameState` at each of B0's decisions and the same
   result; and the spot reads as the app reads a table at 50/100.
 - Each instruction becomes the simulator's move, and what is wrong with an instruction is
   named as the simulator would fix it (hand-made spots for each kind, among them BET 1.5
-  into two big blinds on the turn). Illegal instructions are counted and written to the log.
+  into two big blinds on the turn). Illegal instructions are counted and written to the log,
+  and the simulator's always-wrong checks are counted with the spots that fail them.
 - B0 against B0 is exactly 0 in duplicate play (SE 0) and within 3 SE without it.
 - B0 beats always-call and always-fold by more than 2.5 SE heads-up.
 - The same seed gives the same match, and B0 is unchanged (`TUNING` as frozen).

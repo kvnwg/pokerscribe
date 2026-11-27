@@ -146,6 +146,7 @@ class B0Player:
         self.illegal = Counter()
         self.examples = []
         self.checks = {"problems": defaultdict(int), "examples": []}  # simulate.check_advice's
+        self.wrong_examples = []  # the spots of the first always-wrong instructions
         self.seconds = defaultdict(float)
         if log:
             open(log, "w").close()
@@ -160,39 +161,47 @@ class B0Player:
         t1 = time.perf_counter()
         adv = sim.decision(h, me, self.variant, st)
         t2 = time.perf_counter()
+        before = dict(self.checks["problems"])
         sim.check_advice(h, me, adv, self.checks)
         action, problem = engine_action(view, h, me, adv)
         t3 = time.perf_counter()
         self.instructions += 1
         if problem is not None:
             self.record(view, h, me, adv, action, problem)
+        wrong = [k for k, v in self.checks["problems"].items() if v > before.get(k, 0)]
+        if wrong and len(self.wrong_examples) < EXAMPLES:
+            self.wrong_examples.append({"always_wrong": wrong, **self.entry(view, h, me, adv, action, problem)})
         self.seconds["spot"] += t1 - t0
         self.seconds["advice"] += t2 - t1
         self.seconds["checks"] += t3 - t2
         return action
 
     def record(self, view, h, me, adv, action, problem) -> None:
-        kind = problem.split(":")[0]
-        self.illegal[kind] += 1
-        legal = view.legal_actions()
-        entry = {"problem": problem, "hand": self.hands - 1, "seat": view.seat, "position": h.position(me),
-                 "cards": "".join(view.hole), "board": "".join(view.board), "street": view.street,
-                 "pot": view.pot, "to_call": view.to_call, "stacks": view.stacks, "bets": view.bets,
-                 "history": [(m["seat"], m["action"], m["amount"]) for m in view.history()],
-                 "instruction": {"action": adv.action, "amount": adv.amount, "headline": adv.headline},
-                 "legal": {"fold": legal.fold, "check": legal.check, "call": legal.call,
-                           "min_raise_to": legal.min_raise_to, "max_raise_to": legal.max_raise_to},
-                 "played": action if isinstance(action, str) else list(action)}
+        self.illegal[problem.split(":")[0]] += 1
+        entry = self.entry(view, h, me, adv, action, problem)
         if len(self.examples) < EXAMPLES:
             self.examples.append(entry)
         if self.log:
             with open(self.log, "a") as f:
                 f.write(json.dumps(entry) + "\n")
 
+    def entry(self, view, h, me, adv, action, problem) -> dict:
+        """The spot, the instruction and what was played, as JSON."""
+        legal = view.legal_actions()
+        return {"problem": problem, "hand": self.hands - 1, "seat": view.seat, "position": h.position(me),
+                "cards": "".join(view.hole), "board": "".join(view.board), "street": view.street,
+                "pot": view.pot, "to_call": view.to_call, "stacks": view.stacks, "bets": view.bets,
+                "history": [(m["seat"], m["action"], m["amount"]) for m in view.history()],
+                "instruction": {"action": adv.action, "amount": adv.amount, "headline": adv.headline},
+                "legal": {"fold": legal.fold, "check": legal.check, "call": legal.call,
+                          "min_raise_to": legal.min_raise_to, "max_raise_to": legal.max_raise_to},
+                "played": action if isinstance(action, str) else list(action)}
+
     def stats(self) -> dict:
         return {"name": self.name, "variant": self.variant, "hands": self.hands, "instructions": self.instructions,
                 "illegal": dict(self.illegal), "illegal_examples": self.examples,
-                "always_wrong": dict(self.checks["problems"]), "seconds": dict(self.seconds)}
+                "always_wrong": dict(self.checks["problems"]), "always_wrong_examples": self.wrong_examples,
+                "seconds": dict(self.seconds)}
 
 
 # ------------------------------------------------------------------ the match
@@ -229,6 +238,9 @@ def format_stats(players, report: dict) -> str:
         for ex in s["illegal_examples"][:5]:
             lines.append(f"   {ex['problem']}: {ex['instruction']['headline']} with {ex['cards']} "
                          f"{ex['board'] or 'preflop'}, played {ex['played']}")
+        for ex in s["always_wrong_examples"][:5]:
+            lines.append(f"   always wrong, {'; '.join(ex['always_wrong'])}: {ex['instruction']['headline']} with "
+                         f"{ex['cards']} {ex['board'] or 'preflop'}, played {ex['played']}")
     per = [p.stats() for p in players]
     instructions = sum(s["instructions"] for s in per)
     spent = defaultdict(float)

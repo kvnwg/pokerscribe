@@ -278,6 +278,27 @@ def test_illegal_instructions_are_counted_and_logged(tools, monkeypatch, tmp_pat
     assert report.result("b0")["illegal_actions"] == 0  # the arena got legal actions only
 
 
+def test_always_wrong_instructions_are_counted_with_their_spots(tools, monkeypatch):
+    """The simulator's always-wrong checks run on every instruction, and the first spots that
+    fail one are kept, with what failed. Here B0 is made to go all in with every hand before
+    the flop, 100 big blinds deep: legal, but always wrong outside the top 5% of hands."""
+    from app.poker import hands
+    from app.poker.advice import Advice
+
+    b0, sim, _ = tools
+    monkeypatch.setattr(sim, "decision", lambda h, me, overrides, st: Advice("all-in", "ALL IN (200)", "", amount=200))
+    report, player = b0.run("fold", 40, seed=4)
+    s = player.stats()
+    wrong = sum(s["always_wrong"].values())
+    assert s["illegal"] == {} and 0 < wrong < s["instructions"]
+    assert all(k.startswith("all in 100bb deep preflop with ") for k in s["always_wrong"])
+    assert len(s["always_wrong_examples"]) == min(wrong, b0.EXAMPLES)
+    for ex in s["always_wrong_examples"]:
+        cls = hands.preflop_class((ex["cards"][:2], ex["cards"][2:]))
+        assert ex["always_wrong"] == [f"all in 100bb deep preflop with {cls}"]
+        assert ex["problem"] is None and ex["played"] == ["raise", 10_000] and ex["street"] == "preflop"
+
+
 # ------------------------------------------------------------- the matches
 def test_b0_against_b0_is_zero(tools):
     """In duplicate play B0 meets itself on the same cards from both seats: exactly 0. In plain
@@ -292,11 +313,13 @@ def test_b0_against_b0_is_zero(tools):
 
 
 def test_b0_beats_always_call_and_always_fold(tools):
-    """By more than 2.5 SE each. Sized from longer runs (docs/research/runs/phase6_b0_arena):
-    against fold B0 wins about 34 bb/100 with an sd per deal near 40, against call about
-    200 with an sd near 550, and every hand against call goes to the river, so it is slow."""
+    """By more than 2.5 SE each. Sized from the 1000-deal runs (docs/research/runs/phase6_b0_arena):
+    against fold B0 wins 35 bb/100 with an sd per deal of 37, against call 240 with an sd of
+    606. At 150 deals that is 4.9 SE expected against call, under 2.5 about 1 time in 100 (60
+    deals, 3.1 SE expected, was too few). Every hand against call goes to the river, so this
+    is the slow test (about a minute)."""
     b0, _, _ = tools
-    for bot, deals in (("fold", 30), ("call", 60)):
+    for bot, deals in (("fold", 30), ("call", 150)):
         report, player = b0.run(bot, deals, seed=2)
         r = report.result("b0")
         assert r["bb_per_100"] > 2.5 * r["se"] > 0, (bot, r)
