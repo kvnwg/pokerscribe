@@ -12,6 +12,7 @@ account live only there, never in the repo. ``settings.example.env`` lists every
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -37,7 +38,8 @@ SPEC = {
                             "(default: ZONE only)"),
     "INSTANCE_NAME": ("str", None, "machine name (default: ps-<RUN_NAME>)"),
     # the machine
-    "MACHINE_TYPE": ("str", "c4a-highmem-64", "machine type"),
+    "MACHINE_TYPE": ("str", "c4a-highmem-64", "machine type (c4a-highmem-64, or "
+                                              "c4a-highcpu-64: the same 64 cores, 128 GB)"),
     "PROVISIONING": ("str", "SPOT", "SPOT or STANDARD (on-demand)"),
     "PREEMPTION_NOTICE_SECONDS": ("int", 120, "Spot only: 120 asks Google for 2 minutes' notice "
                                               "before the 30-second stop (uses gcloud beta); "
@@ -82,8 +84,21 @@ SPEC = {
     "ENGINE_DIR": ("str", os.path.join(REPO, "engine"), "build mode: the Cargo workspace"),
     "TRAINER_CONFIG": ("str", None, "the trainer's --config file (a local path)"),
     "TRAINER_ARGS": ("str", "", "extra trainer arguments, shell-quoted (optional)"),
+    "TRAINER_FILES": ("list", None, "local files or folders the trainer needs (bucket tables, "
+                                    "say), put in the bundle and installed on the machine at "
+                                    "/opt/pscloud/bundle/files/<name> (optional)"),
     "CHECKPOINT_PATTERN": ("str", "*.ckpt", "file names the trainer gives its checkpoints"),
     "KEEP_CHECKPOINTS": ("int", 3, "checkpoints kept in the bucket"),
+    "ARTIFACT_PATTERNS": ("list", ["*.bps", "*.jsonl"],
+                          "other files the trainer writes in its folder (strategy files, logs) "
+                          "that go to artifacts/ in the bucket and are all kept; none to turn "
+                          "it off"),
+    "TRAINER_MEMORY_GB": ("float", None, "the trainer's peak memory, measured (optional: check "
+                                         "and launch then refuse a machine it doesn't fit)"),
+    "CHECKPOINT_GB": ("float", None, "one checkpoint's size (optional: the disk is then "
+                                     "checked to hold 4 of them, the artifacts and 30 GB)"),
+    "ARTIFACTS_GB": ("float", None, "all the artifacts of the run together (optional, with "
+                                    "CHECKPOINT_GB)"),
     "STATUS_SECONDS": ("int", 60, "how often the machine writes status.json"),
     "STOP_GRACE_SECONDS": ("int", 600, "time the trainer gets to save after SIGTERM on a stop "
                                        "we ask for (budget, stop command)"),
@@ -92,6 +107,17 @@ SPEC = {
                                       "run counts as failed"),
     "POWER_OFF_WHEN_DONE": ("bool", True, "power the machine off when training finishes"),
 }
+
+# Machine types whose size is known without asking Google: (vCPUs, memory in GB). C4A comes
+# with 2 GB a vCPU (highcpu), 4 (standard) or 8 (highmem). `check` asks Google for any type.
+KNOWN_MACHINES = {f"c4a-{kind}-{n}": (n, n * per) for kind, per in
+                  (("highcpu", 2), ("standard", 4), ("highmem", 8))
+                  for n in (1, 2, 4, 8, 16, 32, 48, 64, 72)}
+
+# Where TRAINER_FILES are installed on the machine (control.VM_BUNDLE + "/files").
+VM_FILES = "/opt/pscloud/bundle/files"
+# Room on the disk besides the checkpoints and artifacts: the system, Rust and the build.
+DISK_SPARE_GB = 30
 
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
 _RUN = re.compile(r"^[a-z][a-z0-9-]{0,38}[a-z0-9]$")
@@ -213,6 +239,28 @@ class Settings:
         m = re.search(r"-(\d+)(?:-lssd)?$", self.values.get("MACHINE_TYPE") or "")
         return int(m.group(1)) if m else None
 
+    def machine_memory_gb(self) -> float | None:
+        """The machine type's memory, if it is one of KNOWN_MACHINES."""
+        mt = re.sub(r"-lssd$", "", self.values.get("MACHINE_TYPE") or "")
+        known = KNOWN_MACHINES.get(mt)
+        return float(known[1]) if known else None
+
+    def disk_needed_gb(self) -> float | None:
+        """Disk the run needs (4 checkpoints, the artifacts, DISK_SPARE_GB), if CHECKPOINT_GB
+        is set."""
+        ck = self.values.get("CHECKPOINT_GB")
+        if ck is None:
+            return None
+        return 4 * float(ck) + float(self.values.get("ARTIFACTS_GB") or 0) + DISK_SPARE_GB
+
+    @property
+    def artifact_patterns(self) -> list[str]:
+        pats = list(self.values.get("ARTIFACT_PATTERNS") or [])
+        return [] if [p.lower() for p in pats] == ["none"] else pats
+
+    def trainer_files(self) -> list[str]:
+        return [os.path.expanduser(p) for p in (self.values.get("TRAINER_FILES") or [])]
+
     def problems(self, for_launch: bool = True) -> list[str]:
         """Everything wrong with the settings, as plain sentences."""
         v = self.values
@@ -255,6 +303,17 @@ class Settings:
             out.append(f"{mt} is an Arm machine: IMAGE_FAMILY must be an arm64 image")
         if mt.startswith("c4a-") and (v.get("DISK_TYPE") or "").startswith("pd-"):
             out.append("C4A machines don't take Persistent Disk: use hyperdisk-balanced")
+        mem = self.machine_memory_gb()
+        need = v.get("TRAINER_MEMORY_GB")
+        if mem is not None and need is not None and float(need) > 0.9 * mem:
+            out.append(f"TRAINER_MEMORY_GB {float(need):g} does not fit {mt} ({mem:g} GB) with "
+                       f"10% to spare: pick a machine with more memory")
+        disk = self.disk_needed_gb()
+        if disk is not None and (v.get("DISK_SIZE_GB") or 0) < disk:
+            out.append(f"DISK_SIZE_GB {v.get('DISK_SIZE_GB')} is too small: 4 checkpoints of "
+                       f"{float(v['CHECKPOINT_GB']):g} GB, {float(v.get('ARTIFACTS_GB') or 0):g} "
+                       f"GB of artifacts and {DISK_SPARE_GB} GB for the system need "
+                       f"{disk:g} GB")
         if for_launch:
             out += self._trainer_problems()
         return out
@@ -283,12 +342,50 @@ class Settings:
                 out.append(f"ENGINE_DIR {eng} has no Cargo.toml")
         else:
             out.append("TRAINER_MODE must be build or copy")
+        names = set()
+        for path in self.trainer_files():
+            name = os.path.basename(path.rstrip(os.sep))
+            if not os.path.exists(path):
+                out.append(f"TRAINER_FILES: {path} does not exist")
+            elif name in names:
+                out.append(f"TRAINER_FILES: two entries are called {name}")
+            names.add(name)
         cfg = v.get("TRAINER_CONFIG")
         if not cfg:
             out.append("TRAINER_CONFIG is not set")
         elif not os.path.isfile(os.path.expanduser(cfg)):
             out.append(f"TRAINER_CONFIG {cfg} does not exist")
+        else:
+            # A config that names a path under VM_FILES needs that file in TRAINER_FILES, or the
+            # trainer fails on the machine, after the machine has started billing.
+            for ref in bundle_file_refs(os.path.expanduser(cfg)):
+                first = ref[len(VM_FILES) + 1:].split("/", 1)[0]
+                if first not in names:
+                    out.append(f"TRAINER_CONFIG names {ref}, but no entry of TRAINER_FILES is "
+                               f"called {first}")
         return out
+
+
+def bundle_file_refs(config_path: str) -> list[str]:
+    """Strings in a JSON config that are paths under VM_FILES (none if it isn't JSON)."""
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    found = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+        elif isinstance(x, str) and x.startswith(VM_FILES + "/"):
+            found.append(x.rstrip("/"))
+    walk(data)
+    return sorted(set(found))
 
 
 def executable_kind(path: str) -> str:

@@ -286,3 +286,58 @@ def test_uploads_are_never_torn(tmp_path):
     for c in objs:
         ckpt_iteration(store.url(c.object))                      # raises if torn
     assert [c.seq for c in objs] == list(range(1, len(objs) + 1))
+
+
+# --- artifacts: the trainer's other results ------------------------------------------------------
+
+def test_artifacts_are_uploaded_kept_and_put_back_on_a_new_machine(tmp_path):
+    # Machine 1 writes stage files and a stages log, then Google takes it. Machine 2 starts
+    # with an empty disk: the supervisor puts the stage files back before the trainer starts,
+    # so the trainer finds the stage before each new one, and every stage stays in the bucket.
+    fake = fake_config(tmp_path, iterations=400, stage_every=50, checkpoint_seconds=0.2)
+    over = dict(artifact_patterns=["*.bps", "*.jsonl"], keep_checkpoints=2)
+    run1, store, m1 = make_run(tmp_path, "m1", fake=fake, **over)
+    cfg = sup.load_run_config(run1)
+    s1 = sup.Supervisor(cfg)
+
+    def halfway():
+        names = [n for n, _ in store.list(sup.ARTIFACTS)]
+        return sup.ARTIFACTS + "stage-150.bps" in names and remote_checkpoints(store)
+
+    t = threading.Thread(target=lambda: s1.run(install_signals=False))
+    t.start()
+    local_test.wait_for(halfway, 60, "three stages in the bucket")
+    s1.request_stop("shutdown")
+    t.join(60)
+    assert read_json(store, STATE) is None
+    st1 = read_json(store, STATUS)["artifacts"]
+    assert st1["uploads"] >= 4 and st1["upload_failures"] == 0
+
+    run2, _, m2 = make_run(tmp_path, "m2", fake=fake, **over)
+    rc, err = run_supervisor(run2)
+    assert rc == 0, err
+    assert read_json(store, STATE)["state"] == "done"
+    st2 = read_json(store, STATUS)["artifacts"]
+    assert st2["restored"] >= 4                                   # stages and the log
+    names = sorted(n[len(sup.ARTIFACTS):] for n, _ in store.list(sup.ARTIFACTS))
+    assert names == sorted([f"stage-{i}.bps" for i in range(50, 401, 50)] + ["stages.jsonl"])
+    assert len(remote_checkpoints(store)) == 2                    # checkpoints are still pruned
+    # The log in the bucket is the whole log, both machines' lines, and after the resume each
+    # stage found the one before on the disk.
+    log = [json.loads(x) for x in (store.get_bytes(sup.ARTIFACTS + "stages.jsonl") or b"")
+           .decode().splitlines()]
+    assert [x["iterations"] for x in log][-1] == 400
+    assert all(x["previous_on_disk"] in (True, None) for x in log), log
+    assert (m2 / "checkpoints" / "stages.jsonl").read_bytes() == \
+        store.get_bytes(sup.ARTIFACTS + "stages.jsonl")
+
+
+def test_artifacts_off_by_default_and_never_checkpoints(tmp_path):
+    fake = fake_config(tmp_path, iterations=100, stage_every=50)
+    run_json, store, mdir = make_run(tmp_path, fake=fake)
+    rc, err = run_supervisor(run_json)
+    assert rc == 0, err
+    assert store.list(sup.ARTIFACTS) == []
+    assert (mdir / "checkpoints" / "stage-100.bps").exists()
+    local = sup.local_artifacts(str(mdir / "checkpoints"), ["*"], "*.ckpt")
+    assert "fake.ckpt" not in [n for n, _ in local]

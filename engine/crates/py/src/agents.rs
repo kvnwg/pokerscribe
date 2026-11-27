@@ -69,13 +69,19 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
 
 /// The agent a name `blueprint:<file>` asks for: the blueprint in that strategy file
 /// (engine/crates/blueprint), with the bucket tables it was trained with (the directory
-/// the file records), played through [`strategy_agent`]. `None` for any other name; an
-/// error when the file or its tables can't be loaded. Play it at the stacks and blinds it
-/// was trained for (`blueprint info <file>` shows them).
+/// the file records), played through [`strategy_agent`]. `blueprint:<file>?tables=<dir>`
+/// loads the tables from `dir` instead, for a file trained on another machine; they must
+/// still be the same tables (the file's checksums are checked). `None` for any other
+/// name; an error when the file or its tables can't be loaded. Play it at the stacks and
+/// blinds it was trained for (`blueprint info <file>` shows them).
 pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
-    let path = name.strip_prefix("blueprint:")?;
+    let rest = name.strip_prefix("blueprint:")?;
+    let (path, tables) = match rest.rsplit_once("?tables=") {
+        Some((path, tables)) => (path, Some(Path::new(tables))),
+        None => (rest, None),
+    };
     Some(
-        blueprint::Blueprint::load(Path::new(path), None)
+        blueprint::Blueprint::load(Path::new(path), tables)
             .map(|b| strategy_agent(name, b))
             .map_err(|e| format!("{name}: {e}")),
     )

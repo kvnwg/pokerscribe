@@ -492,3 +492,89 @@ def test_cli_help_runs():
     p = subprocess.run([sys.executable, "-m", "tools.cloud", "--help"], capture_output=True,
                        text=True, cwd=settings.REPO)
     assert p.returncode == 0 and "local-test" in p.stdout
+
+
+# --- trainer files, memory and disk --------------------------------------------------------------
+
+def test_known_machines_memory_and_disk_rules(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    assert s.vcpus() == 64 and s.machine_memory_gb() == 128.0
+    assert make_settings(tmp_path).machine_memory_gb() == 512.0        # c4a-highmem-64
+    assert make_settings(tmp_path, MACHINE_TYPE="n2-custom-8-1024").machine_memory_gb() is None
+    # The Phase 6 trainer (7.4 GB at its peak) fits; 120 GB does not leave 10% spare.
+    assert make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64",
+                         TRAINER_MEMORY_GB="7.4").problems() == []
+    big = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64", TRAINER_MEMORY_GB="120")
+    assert any("does not fit c4a-highcpu-64 (128 GB)" in p for p in big.problems())
+    # The disk holds 4 checkpoints, the artifacts and 30 GB for the system.
+    disk = make_settings(tmp_path, CHECKPOINT_GB="4.9", ARTIFACTS_GB="7", DISK_SIZE_GB="50")
+    assert disk.disk_needed_gb() == pytest.approx(56.6)
+    assert any("DISK_SIZE_GB 50 is too small" in p and "56.6 GB" in p for p in disk.problems())
+    assert make_settings(tmp_path, CHECKPOINT_GB="4.9", ARTIFACTS_GB="7",
+                         DISK_SIZE_GB="80").problems() == []
+    assert make_settings(tmp_path).disk_needed_gb() is None
+
+
+def test_trainer_files_must_exist_and_cover_the_config(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 100)
+    cfg = tmp_path / "phase6.json"
+    cfg.write_text(json.dumps({"spec": {"abstraction": "/opt/pscloud/bundle/files/k200",
+                                        "stack_bb": 200}}))
+    none = make_settings(tmp_path, TRAINER_CONFIG=str(cfg))
+    assert any("names /opt/pscloud/bundle/files/k200" in p and "called k200" in p
+               for p in none.problems())
+    good = make_settings(tmp_path, TRAINER_CONFIG=str(cfg), TRAINER_FILES=str(tables))
+    assert good.problems() == [] and good.trainer_files() == [str(tables)]
+    missing = make_settings(tmp_path, TRAINER_FILES=str(tmp_path / "nope"))
+    assert any("does not exist" in p for p in missing.problems())
+    other = tmp_path / "other" / "k200"
+    other.mkdir(parents=True)
+    twice = make_settings(tmp_path, TRAINER_FILES=f"{tables},{other}")
+    assert any("two entries are called k200" in p for p in twice.problems())
+
+
+def test_bundle_with_trainer_files(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 1000)
+    (tables / "flop.abs").write_bytes(b"f" * 10)
+    (tables / ".DS_Store").write_bytes(b"x")
+    s = make_settings(tmp_path, TRAINER_FILES=str(tables))
+    m = control.build_bundle(s, str(tmp_path / "a"))
+    assert m["extra_files"] == ["files/k200/flop.abs", "files/k200/river.abs"]
+    assert set(m["extra_files"]) <= set(m["files"])
+    assert (tmp_path / "a" / "files" / "k200" / "river.abs").read_bytes() == b"r" * 1000
+    assert m["bytes"] >= 1010
+    run = json.loads((tmp_path / "a" / "run.json").read_text())
+    assert run["artifact_patterns"] == ["*.bps", "*.jsonl"]
+    sup.check_run_config(run)
+    assert control.build_bundle(s, str(tmp_path / "b"))["version"] == m["version"]
+    (tables / "river.abs").write_bytes(b"R" * 1000)           # other tables: another bundle
+    assert control.build_bundle(s, str(tmp_path / "c"))["version"] != m["version"]
+    plain = control.build_bundle(make_settings(tmp_path), str(tmp_path / "d"))
+    assert plain["extra_files"] == []
+    off = make_settings(tmp_path, ARTIFACT_PATTERNS="none")
+    assert control.run_config(off)["artifact_patterns"] == []
+
+
+def test_format_watch_artifacts_and_memory_warning(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    now = 100000.0
+    status = {"updated_at": now - 20,
+              "memory": {"trainer_rss_bytes": 7.3e9, "trainer_peak_bytes": 7.4e9,
+                         "total_bytes": 135e9, "available_bytes": 126e9},
+              "artifacts": {"uploads": 3, "in_bucket": 4, "restored": 1,
+                            "last_uploaded_name": "strategy-4000000.bps",
+                            "last_uploaded_at": now - 60, "upload_failures": 0}}
+    inst = {"name": "ps-hu-test", "zone": "us-central1-a", "status": "RUNNING",
+            "machine_type": "c4a-highcpu-64", "provisioning": "SPOT", "last_start_at": now - 900}
+    sn = {"now": now, "instance": inst, "status": status, "state": None, "stop_requested": False,
+          "restarts": {"events": []}, "checkpoints": [], "preempted_at": None, "cost": 1.0}
+    text = "\n".join(control.format_watch(sn, s))
+    assert "artifacts   4 in the bucket; last strategy-4000000.bps 60 s ago; 1 put back" in text
+    assert "WARNING" not in text
+    full = dict(status, memory=dict(status["memory"], trainer_peak_bytes=125e9))
+    text = "\n".join(control.format_watch(dict(sn, status=full), s))
+    assert "WARNING     memory reached 93% of the machine" in text

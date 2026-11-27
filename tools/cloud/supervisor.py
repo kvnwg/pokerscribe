@@ -9,6 +9,8 @@ systemd starts it at every boot (see vm/startup.sh). It:
 4. runs ``<trainer> --config <file> --checkpoint-dir <dir> [--resume]``, with ``--resume``
    whenever a checkpoint is on the disk;
 5. copies every new checkpoint to the bucket as soon as it is written, and keeps the last 3 there;
+   copies the trainer's other results (``artifact_patterns``, such as strategy files) to
+   ``artifacts/`` and keeps them all, and puts them back on a new machine's empty disk;
 6. writes ``status.json`` to the bucket every minute: progress, iterations per second, memory,
    checkpoints, cost so far;
 7. stops the trainer with SIGTERM (it saves, then exits) when Google gives notice of preemption,
@@ -55,6 +57,7 @@ RESTARTS = "restarts.json"
 LAUNCH = "launch.json"
 SESSIONS = "sessions/"
 CHECKPOINTS = "checkpoints/"
+ARTIFACTS = "artifacts/"
 LOGS = "logs/"
 BUNDLE = "bundle/"
 
@@ -72,6 +75,7 @@ DEFAULTS = {
     "staging_dir": None,
     "checkpoint_pattern": "*.ckpt",
     "keep_checkpoints": 3,
+    "artifact_patterns": [],
     "settle_seconds": 2.0,
     "scan_seconds": 1.0,
     "status_seconds": 60.0,
@@ -378,6 +382,28 @@ def local_checkpoints(ckdir: str, pattern: str) -> list[tuple[str, os.stat_resul
     return sorted(out, key=lambda x: (x[1].st_mtime, x[0]))
 
 
+def local_artifacts(ckdir: str, patterns, checkpoint_pattern: str) -> list[tuple[str, os.stat_result]]:
+    """The trainer's other finished files in its folder: matching one of ``patterns``, not a
+    checkpoint, not temporary. Oldest first."""
+    out = []
+    if not patterns:
+        return out
+    try:
+        entries = list(os.scandir(ckdir))
+    except FileNotFoundError:
+        return out
+    for e in entries:
+        if is_temporary(e.name) or fnmatch.fnmatch(e.name, checkpoint_pattern) \
+                or not any(fnmatch.fnmatch(e.name, p) for p in patterns):
+            continue
+        try:
+            if e.is_file(follow_symlinks=False):
+                out.append((e.name, e.stat(follow_symlinks=False)))
+        except FileNotFoundError:
+            pass
+    return sorted(out, key=lambda x: (x[1].st_mtime, x[0]))
+
+
 def plan_restore(local: list[tuple[str, float]], remote: list[RemoteCheckpoint]):
     """The bucket checkpoint to download before the trainer starts, or None.
 
@@ -580,6 +606,8 @@ def check_run_config(cfg: dict) -> None:
         raise ValueError("run config: machine_per_hour is missing")
     if int(cfg["keep_checkpoints"]) < 1:
         raise ValueError("run config: keep_checkpoints must be at least 1")
+    if not isinstance(cfg.get("artifact_patterns") or [], list):
+        raise ValueError("run config: artifact_patterns must be a list of file name patterns")
 
 
 # --- the supervisor ------------------------------------------------------------------------------
@@ -620,6 +648,10 @@ class Supervisor:
                      "last_written_bytes": None, "last_uploaded_at": None,
                      "last_uploaded_object": None, "uploads": 0, "upload_failures": 0,
                      "last_error": None, "restored_from": None, "in_bucket": None}
+        self.art = {"uploads": 0, "upload_failures": 0, "last_uploaded_at": None,
+                    "last_uploaded_name": None, "last_error": None, "restored": 0,
+                    "in_bucket": None}
+        self._art_uploaded: dict[str, tuple] = {}
         self.closed_sessions: list[dict] = []
         self.session: dict = {}
         self.outcome: str | None = None
@@ -748,14 +780,25 @@ class Supervisor:
                     "updated_at": self.progress_at,
                     "line": prog,
                 },
-                "memory": memory_info(self.trainer.get("pid")
-                                      if self.trainer.get("state") == "running" else None),
+                "memory": self._memory(),
                 "checkpoints": dict(self.ckpt),
+                "artifacts": dict(self.art),
                 "cost": self.cost(now),
                 "stop_reason": self.stop_reason,
                 "outcome": self.outcome,
             }
         return st
+
+    def _memory(self) -> dict:
+        """memory_info for the running trainer. The trainer's peak is kept for the session, so
+        the report written after it exits still has it (the peak is what TRAINER_MEMORY_GB is
+        set from)."""
+        mem = memory_info(self.trainer.get("pid")
+                          if self.trainer.get("state") == "running" else None)
+        peak = max(mem.get("trainer_peak_bytes") or 0, getattr(self, "_trainer_peak", 0))
+        self._trainer_peak = peak
+        mem["session_trainer_peak_bytes"] = peak or None
+        return mem
 
     def write_status(self) -> None:
         try:
@@ -818,11 +861,109 @@ class Supervisor:
             self.ckpt.update(last_written_at=st.st_mtime, last_written_name=name,
                              last_written_bytes=st.st_size)
         self.ckpt["in_bucket"] = len(remote)
+        self._init_artifacts()
         for f in os.listdir(self.staging):
             try:
                 os.unlink(os.path.join(self.staging, f))
             except OSError:
                 pass
+
+    def _init_artifacts(self) -> None:
+        """Put back the artifacts the run uploaded that this disk lacks (a new machine starts
+        with an empty disk), so the trainer finds its earlier results. A file the disk has
+        stays as it is: it is the same or newer, and is uploaded if it changed."""
+        patterns = self.cfg.get("artifact_patterns") or []
+        if not patterns:
+            return
+        remote = dict(self.store.list(ARTIFACTS))
+        self.art["in_bucket"] = len(remote)
+        have = {n for n, _st in local_artifacts(self.ckdir, patterns,
+                                                 self.cfg["checkpoint_pattern"])}
+        for obj, size in sorted(remote.items()):
+            name = obj[len(ARTIFACTS):]
+            if "/" in name or name in have or is_temporary(name) \
+                    or not any(fnmatch.fnmatch(name, p) for p in patterns):
+                continue
+            tmp = os.path.join(self.ckdir, f".{name}.download")
+            self.log(f"restoring {obj} ({size} bytes) from the bucket")
+            self.store.get_file(obj, tmp)
+            if os.path.getsize(tmp) != size:
+                os.unlink(tmp)
+                raise StoreError(f"download of {obj} has the wrong size")
+            os.replace(tmp, os.path.join(self.ckdir, name))
+            st = os.stat(os.path.join(self.ckdir, name))
+            self._art_uploaded[name] = (st.st_ino, st.st_mtime_ns, st.st_size)
+            self.art["restored"] += 1
+        for name, st in local_artifacts(self.ckdir, patterns, self.cfg["checkpoint_pattern"]):
+            if name not in self._art_uploaded and remote.get(ARTIFACTS + name) == st.st_size:
+                # In the bucket already, from an earlier boot of this machine.
+                self._art_uploaded[name] = (st.st_ino, st.st_mtime_ns, st.st_size)
+
+    def pending_artifacts(self, settle: bool = True) -> list[tuple[str, os.stat_result]]:
+        now = time.time()
+        out = []
+        for name, st in local_artifacts(self.ckdir, self.cfg.get("artifact_patterns") or [],
+                                        self.cfg["checkpoint_pattern"]):
+            if self._art_uploaded.get(name) == (st.st_ino, st.st_mtime_ns, st.st_size):
+                continue
+            if settle and now - st.st_mtime < float(self.cfg["settle_seconds"]):
+                continue
+            out.append((name, st))
+        return out
+
+    def upload_artifact(self, name: str, st: os.stat_result) -> bool:
+        """Upload one version of an artifact to artifacts/<name>. Never deleted from the
+        bucket. A big file is pinned with a hard link (the trainer writes those whole and
+        renames them); a small one, which the trainer may append to, is copied first."""
+        with self.upload_lock:
+            src = os.path.join(self.ckdir, name)
+            staged = os.path.join(self.staging, f"artifact-{name}.{os.getpid()}")
+            try:
+                if os.path.exists(staged):
+                    os.unlink(staged)
+                linked = False
+                if st.st_size >= 64 * 1024 * 1024:
+                    try:
+                        os.link(src, staged)
+                        linked = True
+                    except OSError:
+                        pass
+                if not linked:
+                    shutil.copy2(src, staged)
+                after = os.stat(src)
+                sst = os.stat(staged)
+                key = (after.st_ino, after.st_mtime_ns, after.st_size) \
+                    if sst.st_size == after.st_size else None
+            except FileNotFoundError:
+                return False
+            try:
+                t0 = time.time()
+                self.store.put_file(ARTIFACTS + name, staged)
+                if key is not None:
+                    self._art_uploaded[name] = key
+                with self.lock:
+                    self.art.update(uploads=self.art["uploads"] + 1, last_uploaded_at=self.clock(),
+                                    last_uploaded_name=name, last_error=None)
+                self.log(f"uploaded {ARTIFACTS}{name} ({sst.st_size} bytes, "
+                         f"{time.time() - t0:.1f} s)")
+                return True
+            except (StoreError, OSError) as e:
+                with self.lock:
+                    self.art["upload_failures"] += 1
+                    self.art["last_error"] = str(e)[-500:]
+                self.log(f"upload of artifact {name} failed: {e}")
+                return False
+            finally:
+                try:
+                    os.unlink(staged)
+                except OSError:
+                    pass
+                try:
+                    n = len(self.store.list(ARTIFACTS))
+                    with self.lock:
+                        self.art["in_bucket"] = n
+                except StoreError:
+                    pass
 
     def has_local_checkpoint(self) -> bool:
         return bool(local_checkpoints(self.ckdir, self.cfg["checkpoint_pattern"]))
@@ -924,22 +1065,45 @@ class Supervisor:
                 backoff = min(60.0, max(5.0, backoff * 2))
                 self._quit.wait(backoff)
                 continue
+            # Checkpoints first: they are what a new machine resumes from.
+            pending = self.pending_artifacts()
+            if pending:
+                name, st = pending[0]
+                if self.upload_artifact(name, st):
+                    backoff = 0.0
+                    continue
+                backoff = min(60.0, max(5.0, backoff * 2))
+                self._quit.wait(backoff)
+                continue
             self._quit.wait(float(self.cfg["scan_seconds"]))
 
     def flush_checkpoints(self, deadline: float) -> None:
-        """After the trainer exits: upload whatever is new, retrying until the deadline."""
+        """After the trainer exits: upload whatever is new, retrying until the deadline.
+        Checkpoints first, then the artifacts."""
         attempt = 0
         while time.time() < deadline:
             self.note_written()
             pending = self.pending_checkpoints(settle=False)
             if not pending:
-                return
+                break
             name, st = pending[0]
             if not self.upload_one(name, st):
                 attempt += 1
                 time.sleep(min(10.0, 1.0 * attempt))
         if self.pending_checkpoints(settle=False):
             self.log("final upload not finished before the deadline; the disk keeps it")
+            return
+        attempt = 0
+        while time.time() < deadline:
+            pending = self.pending_artifacts(settle=False)
+            if not pending:
+                return
+            name, st = pending[0]
+            if not self.upload_artifact(name, st):
+                attempt += 1
+                time.sleep(min(10.0, 1.0 * attempt))
+        if self.pending_artifacts(settle=False):
+            self.log("artifacts not all uploaded before the deadline; the disk keeps them")
 
     # --- the reporter thread ---
 

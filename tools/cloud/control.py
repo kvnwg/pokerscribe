@@ -1,11 +1,12 @@
 """The commands run from Kevin's computer: launch, watch, recover, stop, resume, cleanup,
-leftovers, check, logs. ``__main__.py`` parses the command line and calls these.
+leftovers, check, logs, artifacts. ``__main__.py`` parses the command line and calls these.
 
 Everything goes through a ``Ctx``: the settings, a ``gce.Gcloud`` and the run's bucket prefix
 (a ``supervisor.GcsStore``, or a local folder in the tests).
 """
 from __future__ import annotations
 
+import fnmatch
 import gzip
 import hashlib
 import io
@@ -18,8 +19,8 @@ import time
 
 from . import gce
 from .gce import GcloudError
-from .settings import Settings, executable_kind, tracked_by_git
-from .supervisor import (BUNDLE, FINAL_STATES, LAUNCH, LOGS, RESTARTS, STATE, STATUS,
+from .settings import VM_FILES, Settings, executable_kind, tracked_by_git
+from .supervisor import (ARTIFACTS, BUNDLE, FINAL_STATES, LAUNCH, LOGS, RESTARTS, STATE, STATUS,
                          STOP_MARKER, GcsStore, StoreError, read_json, remote_checkpoints,
                          write_json)
 
@@ -237,6 +238,7 @@ def run_config(s: Settings) -> dict:
         "work_dir": VM_WORK,
         "checkpoint_pattern": s.CHECKPOINT_PATTERN,
         "keep_checkpoints": int(s.KEEP_CHECKPOINTS),
+        "artifact_patterns": s.artifact_patterns,
         "status_seconds": float(s.STATUS_SECONDS),
         "control_seconds": 15.0,
         "budget_usd": float(s.BUDGET_USD),
@@ -253,6 +255,26 @@ def run_config(s: Settings) -> dict:
         "session_from_boot": True,
         "provisioning": s.PROVISIONING,
     }
+
+
+def trainer_file_list(s: Settings) -> list[tuple[str, str]]:
+    """(name in the bundle, local path) for every file of TRAINER_FILES: a file goes to
+    files/<its name>, a folder's files to files/<folder name>/<path inside it>."""
+    out = []
+    for path in s.trainer_files():
+        base = os.path.basename(path.rstrip(os.sep))
+        if os.path.isdir(path):
+            for dirpath, dirs, names in os.walk(path):
+                dirs.sort()
+                for fn in sorted(names):
+                    if fn.startswith("."):
+                        continue
+                    full = os.path.join(dirpath, fn)
+                    rel = os.path.relpath(full, path).replace(os.sep, "/")
+                    out.append((f"files/{base}/{rel}", full))
+        else:
+            out.append((f"files/{base}", path))
+    return out
 
 
 def build_bundle(s: Settings, folder: str) -> dict:
@@ -284,6 +306,17 @@ def build_bundle(s: Settings, folder: str) -> dict:
                         cargo_features=s.TRAINER_CARGO_FEATURES or "",
                         rust_toolchain=s.RUST_TOOLCHAIN,
                         has_lock=os.path.exists(os.path.join(eng, "Cargo.lock")))
+    extra = []
+    for name, src in trainer_file_list(s):
+        dest = os.path.join(folder, name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        try:
+            os.link(src, dest)          # the bucket tables are 138 MB: no need to copy them
+        except OSError:
+            shutil.copyfile(src, dest)
+        files[name] = name
+        extra.append(name)
+    manifest["extra_files"] = extra
     h = hashlib.sha256()
     for name in sorted(files):
         h.update(name.encode() + b"\0")
@@ -292,6 +325,7 @@ def build_bundle(s: Settings, folder: str) -> dict:
     h.update(json.dumps(manifest, sort_keys=True).encode())
     manifest["version"] = h.hexdigest()[:16]
     manifest["files"] = sorted(files)
+    manifest["bytes"] = sum(os.path.getsize(os.path.join(folder, n)) for n in files)
     with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=1, sort_keys=True)
     return manifest
@@ -465,8 +499,11 @@ def launch(ctx: Ctx, force: bool = False) -> int:
     ensure_bucket(ctx)
     with tempfile.TemporaryDirectory(prefix="pscloud-bundle-") as folder:
         manifest = build_bundle(s, folder)
-        ctx.out(f"bundle {manifest['version']} ({manifest['mode']} mode): "
-                f"{', '.join(manifest['files'])}")
+        shown = [n for n in manifest["files"] if n not in manifest["extra_files"]]
+        if manifest["extra_files"]:
+            shown.append(f"{len(manifest['extra_files'])} trainer file(s) under files/")
+        ctx.out(f"bundle {manifest['version']} ({manifest['mode']} mode, "
+                f"{manifest['bytes'] / 1e6:.0f} MB): {', '.join(shown)}")
         upload_bundle(ctx, folder, manifest)
     hours = run_seconds_left(cost, s) / 3600
     ctx.out(f"price ${s.price_per_hour:.4f}/h (machine ${s.machine_price:.4f}, IP "
@@ -521,12 +558,18 @@ def format_watch(snap: dict, s: Settings) -> list[str]:
         text += f" (reported {age(now - pr['updated_at'])} ago)" if pr.get("updated_at") else ""
         lines.append(f"progress    {text}")
     mem = st.get("memory") or {}
+    tight = None
     if mem.get("total_bytes"):
         used = mem["total_bytes"] - (mem.get("available_bytes") or 0)
         t = f"machine {used / 1e9:.1f} of {gb(mem['total_bytes'])} used"
         if mem.get("trainer_rss_bytes"):
             t = f"trainer {gb(mem['trainer_rss_bytes'])} (peak {gb(mem.get('trainer_peak_bytes'))}), " + t
         lines.append(f"memory      {t}")
+        peak = max(float(mem.get("trainer_peak_bytes") or 0), float(used))
+        if not mem.get("trainer_rss_bytes") and mem.get("session_trainer_peak_bytes"):
+            lines[-1] += f"; the trainer's peak this session {gb(mem['session_trainer_peak_bytes'])}"
+        if peak > 0.9 * float(mem["total_bytes"]):
+            tight = peak / float(mem["total_bytes"])
     ck = st.get("checkpoints") or {}
     remote = snap["checkpoints"]
     if ck.get("last_written_at") or remote:
@@ -543,6 +586,19 @@ def format_watch(snap: dict, s: Settings) -> list[str]:
                          f"{(ck.get('last_error') or '')[:200]}")
     elif inst is not None:
         lines.append("checkpoint  none yet")
+    art = st.get("artifacts") or {}
+    if art.get("uploads") or art.get("in_bucket") or art.get("restored"):
+        t = [f"{art.get('in_bucket', 0)} in the bucket"]
+        if art.get("last_uploaded_name"):
+            t.append(f"last {art['last_uploaded_name']} "
+                     f"{age(now - art['last_uploaded_at'])} ago")
+        if art.get("restored"):
+            t.append(f"{art['restored']} put back on this machine")
+        lines.append("artifacts   " + "; ".join(t)
+                     + "  (python -m tools.cloud artifacts --download DIR)")
+        if art.get("upload_failures"):
+            lines.append(f"            {art['upload_failures']} failed upload(s), last: "
+                         f"{(art.get('last_error') or '')[:200]}")
     cost = snap["cost"]
     budget = float(s.BUDGET_USD)
     c = st.get("cost") or {}
@@ -574,6 +630,10 @@ def format_watch(snap: dict, s: Settings) -> list[str]:
     elif snap.get("stop_requested"):
         lines.append("state       stop requested")
     # warnings
+    if tight is not None:
+        lines.append(f"WARNING     memory reached {100 * tight:.0f}% of the machine: the trainer "
+                     f"may be killed for lack of memory. Set TRAINER_MEMORY_GB to the trainer's "
+                     f"peak and pick a machine with more (c4a-highmem-64).")
     if inst is not None and inst["status"] == "RUNNING":
         start = inst.get("last_start_at") or now
         last = st.get("updated_at")
@@ -816,12 +876,31 @@ def check(ctx: Ctx) -> int:
     for api in ("compute.googleapis.com", "storage.googleapis.com"):
         ok(api in names, f"{api} is enabled", f"gcloud services enable {api} --project "
                                               f"{s.PROJECT}")
+    need_mem = s.TRAINER_MEMORY_GB
     for zone in s.zones:
         mt = ctx.gcloud(["compute", "machine-types", "describe", s.MACHINE_TYPE,
                          f"--zone={zone}"], json_out=True, mutating=False, check=False)
         ok(bool(mt), f"{s.MACHINE_TYPE} exists in {zone}"
            + (f" ({mt.get('guestCpus')} vCPUs, {int(mt.get('memoryMb', 0)) // 1024} GB)" if mt
               else ""), "pick another zone (ZONE, ZONES)")
+        if mt and need_mem is not None and mt.get("memoryMb"):
+            have = int(mt["memoryMb"]) / 1024
+            ok(float(need_mem) <= 0.9 * have,
+               f"the trainer's {float(need_mem):g} GB fits {s.MACHINE_TYPE}'s {have:g} GB in "
+               f"{zone} with 10% to spare", "pick a machine with more memory")
+    if need_mem is None:
+        ctx.out("  note  TRAINER_MEMORY_GB is not set: the trainer's memory is not checked "
+                "against the machine")
+    disk = s.disk_needed_gb()
+    if disk is not None and int(s.DISK_SIZE_GB or 0) >= disk:
+        ok(True, f"disk {s.DISK_SIZE_GB} GB holds 4 checkpoints of {float(s.CHECKPOINT_GB):g} "
+                 f"GB, {float(s.ARTIFACTS_GB or 0):g} GB of artifacts and the system "
+                 f"({disk:g} GB)")
+    files = trainer_file_list(s) if not any("TRAINER_FILES" in p for p in problems) else []
+    if files:
+        size = sum(os.path.getsize(p) for _, p in files)
+        ctx.out(f"  note  TRAINER_FILES: {len(files)} file(s), {size / 1e6:.0f} MB, installed "
+                f"under {VM_FILES}")
     need = s.vcpus() or 0
     family = (s.MACHINE_TYPE or "").split("-")[0].upper()
     qs = gce.quotas(ctx.gcloud, s.REGION)
@@ -863,6 +942,39 @@ def check(ctx: Ctx) -> int:
                 f"about {hours:.1f} h of running")
     ctx.out("all checks passed" if not bad else f"{bad} thing(s) to fix")
     return 0 if not bad else 1
+
+
+# --- artifacts -----------------------------------------------------------------------------------
+
+def artifacts(ctx: Ctx, download: str | None = None, only: str | None = None) -> int:
+    """List the run's artifacts in the bucket (strategy files, stages.jsonl); with ``download``,
+    copy the ones not already there (same size) into that folder."""
+    found = [(n[len(ARTIFACTS):], size) for n, size in ctx.store.list(ARTIFACTS)
+             if not n.endswith("/")]
+    if only:
+        found = [(n, size) for n, size in found if fnmatch.fnmatch(n, only)]
+    if not found:
+        ctx.out(f"no artifacts in {ctx.s.store_url}/{ARTIFACTS}"
+                + (f" matching {only}" if only else ""))
+        return 1
+    total = sum(size for _, size in found)
+    ctx.out(f"{len(found)} artifact(s) in {ctx.s.store_url}/{ARTIFACTS}, {gb(total)}:")
+    for name, size in found:
+        ctx.out(f"  {name:40s} {size / 1e6:10.1f} MB")
+    if not download:
+        return 0
+    os.makedirs(download, exist_ok=True)
+    got = 0
+    for name, size in found:
+        dest = os.path.join(download, name)
+        if os.path.exists(dest) and os.path.getsize(dest) == size and not name.endswith(".jsonl"):
+            continue                # stages.jsonl grows, so it is always fetched again
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        ctx.store.get_file(ARTIFACTS + name, dest + ".part")
+        os.replace(dest + ".part", dest)
+        got += 1
+    ctx.out(f"downloaded {got} to {download} ({len(found) - got} were there already)")
+    return 0
 
 
 # --- logs ----------------------------------------------------------------------------------------

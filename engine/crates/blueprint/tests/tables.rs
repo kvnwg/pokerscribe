@@ -229,6 +229,139 @@ fn the_cloud_trainer_keeps_the_contract() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// The cloud trainer's strategy files at fixed stages: one file and one `stages.jsonl` line
+/// per stage, the change measured from the second stage on, through a SIGTERM and a resume;
+/// `strategy.bps` at the end; and `export` from the last checkpoint gives the same strategy.
+#[test]
+#[ignore = "needs built tables: set BLUEPRINT_TABLES to their directory"]
+fn the_cloud_trainer_writes_strategies_at_stages() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    let Some(tables) = std::env::var_os("BLUEPRINT_TABLES") else {
+        eprintln!("BLUEPRINT_TABLES is not set: nothing to check");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("blueprint-stages-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let spec = Spec {
+        stack_bb: 10,
+        menu: "minimal".into(),
+        abstraction: PathBuf::from(tables),
+        training: Training {
+            threads: 2,
+            linear: Some([100_000, 1_000_000]),
+            pruning: Some(blueprint::PruneSettings {
+                warmup: 1_000_000,
+                threshold: -1_000.0,
+                probability: 0.95,
+            }),
+            ..Training::default()
+        },
+    };
+    let until = 4_000_000u64;
+    let stages = [500_000u64, 1_000_000, 2_000_000, 4_000_000];
+    let config = dir.join("config.json");
+    std::fs::write(
+        &config,
+        serde_json::json!({"spec": spec, "until": until, "every_minutes": 0.005,
+                           "strategies": {"first": 500_000, "factor": 2}})
+        .to_string(),
+    )
+    .unwrap();
+    let ckdir = dir.join("ck");
+    let trainer = |resume: bool| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_blueprint"));
+        c.arg("--config")
+            .arg(&config)
+            .arg("--checkpoint-dir")
+            .arg(&ckdir);
+        if resume {
+            c.arg("--resume");
+        }
+        c.stdout(Stdio::piped());
+        c
+    };
+
+    // Train past the first stage, then SIGTERM.
+    let mut child = trainer(false).spawn().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let first: serde_json::Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    assert_eq!(first["event"], "started");
+    assert_eq!(first["stages"], serde_json::json!(stages));
+    loop {
+        let v: serde_json::Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if v["event"] == "stage" {
+            assert_eq!(v["iterations"].as_u64(), Some(stages[0]));
+            assert!(v["change"].is_null(), "nothing to compare the first stage with");
+            break;
+        }
+    }
+    let killed = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    for line in lines {
+        line.unwrap();
+    }
+    assert_eq!(child.wait().unwrap().code(), Some(75));
+
+    // Resumed to the end.
+    let out = trainer(true).output().unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    let done: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(done["event"], "done");
+
+    // One file and one line per stage (the last one is the end), each change measured
+    // against the stage before.
+    let log = std::fs::read_to_string(ckdir.join("stages.jsonl")).unwrap();
+    let lines: Vec<serde_json::Value> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let at: Vec<u64> = lines.iter().map(|v| v["iterations"].as_u64().unwrap()).collect();
+    assert_eq!(at, stages);
+    for (k, v) in lines.iter().enumerate() {
+        let file = blueprint::StrategyFile::load(&ckdir.join(format!("strategy-{}.bps", stages[k])))
+            .unwrap();
+        assert_eq!(file.header.iterations, stages[k]);
+        let regrets = &v["regrets"]["streets"];
+        assert!(regrets["preflop"]["slots"].as_u64().unwrap() > 0, "{v}");
+        assert!(v["regrets"]["threshold"].as_f64() == Some(-1_000.0), "{v}");
+        if k == 0 {
+            continue;
+        }
+        let change = v["change"].as_f64().unwrap();
+        assert!(change > 0.0 && change < 1.0, "{v}");
+        assert_eq!(v["change_from"], format!("strategy-{}.bps", stages[k - 1]));
+    }
+    // Pruning was on after its warm-up.
+    assert!(lines[3]["pruning"]["pruned_traversals"].as_u64().unwrap() > 0);
+    let last = blueprint::StrategyFile::load(&ckdir.join("strategy.bps")).unwrap();
+    assert_eq!(last.header.iterations, until);
+
+    // export: the same strategy from the checkpoint, off the run.
+    let exported = dir.join("exported.bps");
+    let out = Command::new(env!("CARGO_BIN_EXE_blueprint"))
+        .arg("export")
+        .arg("--config")
+        .arg(&config)
+        .arg("--checkpoint")
+        .arg(Run::checkpoint_path(&ckdir))
+        .arg("--out")
+        .arg(&exported)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let again = blueprint::StrategyFile::load(&exported).unwrap();
+    assert_eq!(again.probs, last.probs);
+    assert_eq!(again.header.iterations, until);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A small gate plan: stages double until the stop rule holds, every result is logged, and
 /// a plan started again reads its results back instead of redoing them.
 #[test]
