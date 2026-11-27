@@ -544,11 +544,17 @@ fn trees(opts: &HashMap<String, String>) {
     let root = State::new(&config, deal.clone()).unwrap();
     let abstract_tree = abstract_game::tree::BettingTree::build(&root, &menus);
     let starts = search::leaf::turn_starts_in(&abstract_tree).len();
+    // Decision points by street: the turn's and river's are what a leaf table build walks.
+    let mut by_street = [0usize; 4];
+    for id in 0..abstract_tree.len() as u32 {
+        by_street[abstract_tree.node(id).street as usize] += 1;
+    }
     let table_bytes = starts as u64 * search::leaf::TABLE_LANES as u64 * 200 * 200 * 4;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"stack_bb": bb, "lines": out,
-            "abstract_nodes": abstract_tree.len(), "turn_starts": starts,
+            "abstract_nodes": abstract_tree.len(), "abstract_nodes_by_street": by_street,
+            "turn_starts": starts,
             "leaf_table_bytes_at_200_buckets": table_bytes}))
         .unwrap()
     );
