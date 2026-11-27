@@ -82,6 +82,10 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   `docs/research/RIVER_SOLVER.md`.
 - `tools/slumbot/`: heads-up benchmark against Slumbot through its public bot API (client, action-string
   parser, check/call bot, B0 stub, JSONL hand log, bb/100). See `tools/slumbot/README.md`.
+- `tools/b0_arena.py`: B0 against any Rust agent heads-up in the Rust arena (each deal twice with the
+  seats swapped, all-in equity, bb/100 with SE), through `pokerscribe_engine.run_match`, which takes
+  any Python agent too (`engine/crates/py/README.md`). A Rust agent (a `Player` or a `Strategy`)
+  becomes playable from Python with one line in `engine/crates/py/src/agents.rs`.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
   isn't in the repo (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
