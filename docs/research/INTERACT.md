@@ -4,17 +4,46 @@ A small framework for clicking and typing in programs of our own, so the self-te
 table and PokerScribe's own windows can be driven and checked automatically. It is kept apart
 from the poker engine: it doesn't decide moves, and the engine doesn't know it exists.
 
-## Scope (rule 4)
+## What it can and can't drive (rule 4)
 
-Every backend acts inside our own process: the simulator's game, the demo table's picture, or a
-Qt widget tree of our own through QtTest (the events go to the widget; the computer's pointer
-doesn't move and no other program sees them). There is no backend for the system pointer or
-keyboard, no pointer movement of any kind, and none of that is to be added: rule 4 in
-`docs/research/README.md`, no automated play on live sites and no detection evasion. Kevin, 27
-Nov: "Do not implement live poker client integration or mechanisms designed to evade platform
-bot detection." `app/tests/test_interact.py` fails if the package (or its backends in
-`tools/interact_backends.py`) imports anything that can drive the system pointer or keyboard,
-or touches `QCursor`.
+It can drive three things, all inside the Python process that runs it:
+
+- **The simulator's game** (`SimBackend`): a "click" is a call to `tools/simulate.py`'s `act()`
+  on a `Hand` object in memory.
+- **The demo table** (`DemoTableBackend`): it draws the picture itself from the simulator's
+  game (`app/tests/demo_table.py`), and a "click" is checked against where that picture's
+  buttons were drawn, then made in the game with `act()`. It takes no picture from anywhere
+  else: there is no way to hand it a screenshot.
+- **Our own Qt windows** (`QtBackend`): the targets are named QWidget objects of this program.
+  QtTest delivers events to those objects; the computer's pointer doesn't move and the events
+  never leave the process.
+
+It can't drive anything else: no other program's window, no browser, no poker client, not
+even play-money 247 (rule 4 in `docs/research/README.md`; Kevin, 27 Nov: "Do not implement
+live poker client integration or mechanisms designed to evade platform bot detection."). There
+is no pointer movement of any kind and no backend for the system pointer or keyboard.
+
+How that is enforced in code, not by convention:
+
+- `app/tests/test_interact.py::test_nothing_in_the_repository_can_drive_another_program` scans
+  every source file in the repository (Python, shell, JavaScript, Swift, Rust; not only
+  `app/interact`) and fails on anything that can move the system pointer, press system keys or
+  act in another program's window: the input libraries (pyautogui, pynput, pywinauto, Quartz,
+  AppKit, Xlib, evdev and others), the macOS, Windows and X11 calls by name (`CGEventPost`,
+  `CGEventCreate...`, `CGWarpMouseCursorPosition`, `SendInput`, `mouse_event`, `SetCursorPos`,
+  `XTestFake...`), the command-line tools (`xdotool`, `cliclick`, `osascript`), AppleScript's
+  System Events, accessibility actions (`AXUIElement...`), `QCursor.setPos` and
+  `QWindow.fromWinId`; and any Rust input crate (enigo, rdev, autopilot and others) in a
+  `Cargo.toml`. `test_the_scan_would_catch_each_way_in` checks the scan catches each of those,
+  and doesn't catch what the app does itself (its own cursor shape, the screen-capture
+  permission check).
+- `test_interact_drives_nothing_outside_our_own_programs` fails if `app/interact` or its
+  backends import ctypes or subprocess at all.
+- `QtBackend` takes only a QWidget, and refuses (at the start and on every look at its targets)
+  a window that embeds another window: a window container, or a foreign window made from
+  another program's window id (`test_a_window_holding_another_window_is_refused`).
+- The import test keeps the framework and the poker engine apart, both ways: the advice, the
+  solver and the reader can't use it.
 
 ## How it fits together
 

@@ -1,9 +1,11 @@
 """Our own Qt windows as a backend: targets are the named widgets of one window.
 
-Clicks and keys go through QtTest, which hands the events to the widget itself: the
-computer's pointer doesn't move and no other program sees them. Every call runs on the GUI
-thread (the runner waits for it there), so the window stays responsive while a plan runs, and
-a plan must not be waited for on the GUI thread itself: submit() it with on_done.
+Clicks and keys go through QtTest, which hands the events to a QWidget object of this process:
+the computer's pointer doesn't move, and no other program sees them or can be reached this way.
+A window that embeds another program's window (a window container, or a foreign window made
+from another program's window id) is refused outright. Every call runs on the GUI thread (the runner
+waits for it there), so the window stays responsive while a plan runs, and a plan must not be
+waited for on the GUI thread itself: submit() it with on_done.
 """
 from __future__ import annotations
 
@@ -66,7 +68,10 @@ class QtBackend(Backend):
         app = QApplication.instance()
         if app is None:
             raise RuntimeError("QtBackend needs a QApplication")
+        if not isinstance(root, QWidget):
+            raise TypeError("QtBackend drives a QWidget of this program only")
         self.root = root
+        self._refuse_embedded()
         self._caller = _GuiCaller()
         self._caller.moveToThread(app.thread())
 
@@ -95,7 +100,17 @@ class QtBackend(Backend):
             raise BackendError(f"no widget named {name}")
         return w
 
+    def _refuse_embedded(self) -> None:
+        """Another program's window can be shown inside ours (a window container, a foreign
+        window). Events from QtTest wouldn't reach it, but no such window is driven at all."""
+        for w in [self.root] + self.root.findChildren(QWidget):
+            handle = w.windowHandle()
+            if w.metaObject().className() == "QWindowContainer" or (
+                    handle is not None and handle.type() == Qt.ForeignWindow):
+                raise BackendError("this window embeds another window: only our own widgets are driven")
+
     def targets(self) -> Dict[str, Target]:
+        self._refuse_embedded()
         out: Dict[str, Target] = {}
         for w in self.root.findChildren(QWidget):
             name = w.objectName()

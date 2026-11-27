@@ -416,6 +416,65 @@ def test_interact_drives_nothing_outside_our_own_programs():
         assert "QCursor" not in text and "setPos" not in text, f"{path} moves the system pointer"
 
 
+# Anything that can move the system pointer, press system keys or act in another program's
+# window, by name: input libraries, the macOS, Windows and X11 calls, the command-line tools,
+# AppleScript's System Events, accessibility actions, and Qt's ways to reach outside its widgets.
+DRIVES_OTHER_PROGRAMS = [
+    r"\b(import|from)\s+(pyautogui|pynput|pydirectinput|pywinauto|autopy|keyboard|mouse|evdev|uinput|Xlib|win32api|"
+    r"win32con|win32gui|Quartz|AppKit|ApplicationServices)\b",
+    r"\bCGEvent(Post|Create\w*)\b", r"\bCG(WarpMouseCursorPosition|DisplayMoveCursorToPoint|PostMouseEvent|"
+    r"PostKeyboardEvent)\b", r"\b(SendInput|mouse_event|keybd_event|SetCursorPos)\b",
+    r"\bXTestFake\w*", r"\bXWarpPointer\b", r"\b(xdotool|cliclick|osascript)\b", r"System Events",
+    r"\bAXUIElement\w*", r"QCursor\s*(\(\s*\))?\s*\.\s*setPos", r"\bfromWinId\b",
+]
+RUST_INPUT_CRATES = r"^\s*(enigo|rdev|autopilot|inputbot|mouce|winput|mouse-rs|device_query)\s*="
+SKIP_DIRS = {".git", ".venv", "node_modules", "target", "__pycache__", "venv312"}
+
+
+def repo_files(suffixes):
+    for d, dirs, files in os.walk(ROOT):
+        dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
+        for f in files:
+            if f.endswith(suffixes):
+                yield os.path.join(d, f)
+
+
+def test_nothing_in_the_repository_can_drive_another_program():
+    """Rule 4: whatever app/interact is given, nothing here can click or type into another
+    program (a poker client, even a play-money one). Enforced over every source file."""
+    import re
+
+    me = os.path.abspath(__file__)
+    scanned = 0
+    for path in repo_files((".py", ".sh", ".command", ".js", ".ts", ".tsx", ".swift", ".m", ".rs")):
+        if os.path.abspath(path) == me:
+            continue  # this list itself
+        text = open(path, errors="replace").read()
+        scanned += 1
+        for pat in DRIVES_OTHER_PROGRAMS:
+            m = re.search(pat, text)
+            assert m is None, f"{os.path.relpath(path, ROOT)}: {m.group(0)!r} can drive another program"
+    for path in repo_files(("Cargo.toml",)):
+        m = re.search(RUST_INPUT_CRATES, open(path).read(), re.M)
+        assert m is None, f"{os.path.relpath(path, ROOT)}: {m.group(0).strip()!r} is an input crate"
+    assert scanned > 200  # the walk really covered the repository
+
+
+def test_the_scan_would_catch_each_way_in():
+    import re
+
+    for line in ("import pyautogui", "from pynput.mouse import Controller", "lib.CGEventPost(0, ev)",
+                 "CGEventCreateMouseEvent(None, 1, (5, 5), 0)", "user32.SendInput(1, x, 28)", "XTestFakeButtonEvent(d)",
+                 "subprocess.run(['xdotool', 'click', '1'])", "os.system('osascript -e x')",
+                 'tell application "System Events" to click', "QCursor.setPos(10, 10)", "QWindow.fromWinId(wid)",
+                 "AXUIElementPerformAction(e, a)"):
+        assert any(re.search(p, line) for p in DRIVES_OTHER_PROGRAMS), line
+    assert re.search(RUST_INPUT_CRATES, 'enigo = "0.2"', re.M)
+    # what the app itself does is not caught: its own cursor shape, the screen-capture permission
+    assert not any(re.search(p, "self.setCursor(QCursor(Qt.CrossCursor))") for p in DRIVES_OTHER_PROGRAMS)
+    assert not any(re.search(p, "_core_graphics().CGPreflightScreenCaptureAccess") for p in DRIVES_OTHER_PROGRAMS)
+
+
 def test_interact_is_independent_of_the_poker_engine():
     for path in py_files("app", "interact"):
         for mod in imports_of(path):

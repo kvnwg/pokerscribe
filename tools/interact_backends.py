@@ -137,13 +137,11 @@ class DemoTableBackend(Backend):
         self.moves: List[Tuple[str, float]] = []
         self._stale = False  # a move was made since the picture was drawn
 
-    def open_turn(self, h: Hand, hand_no: int = 1, img=None, meta=None, read=None) -> None:
-        """Your turn in `h`. The caller can hand over the picture it drew and read already."""
+    def open_turn(self, h: Hand, hand_no: int = 1) -> None:
+        """Your turn in `h`: the demo table is drawn from the game and read. The picture is
+        always one this backend drew itself; no other picture is taken."""
         self.hand, self.hand_no, self._stale = h, hand_no, False
-        if img is None:
-            self._draw(0)
-        else:
-            self.img, self.meta, self.read = img, meta, read
+        self._draw(0)
 
     def _draw(self, acting: Optional[int]) -> None:
         from app.tests.demo_table import render

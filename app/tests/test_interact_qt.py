@@ -129,3 +129,23 @@ def test_a_dry_run_on_widgets_does_nothing(qapp, window):
         assert window.counts["call"] == 0 and QtBackend(window).targets()["amount"].label == ""
     finally:
         r.close()
+
+
+def test_a_window_holding_another_window_is_refused(qapp, window):
+    from PySide6.QtGui import QWindow
+    from PySide6.QtWidgets import QWidget
+
+    from app.interact import BackendError
+    from app.interact.qt import QtBackend
+
+    with pytest.raises(TypeError):
+        QtBackend(QWindow())  # a window that isn't one of our widgets
+    holder = QWidget()
+    QWidget.createWindowContainer(QWindow(), holder).setObjectName("other")
+    with pytest.raises(BackendError, match="embeds another window"):
+        QtBackend(holder)
+    qt = QtBackend(window)  # refused too when one is added later
+    QWidget.createWindowContainer(QWindow(), window)
+    with pytest.raises(BackendError, match="embeds another window"):
+        qt.targets()
+    holder.deleteLater()
