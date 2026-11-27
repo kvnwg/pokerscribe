@@ -2355,10 +2355,10 @@ and `fc14`). Results, tables and files are in that folder (`results.md`, `checks
 - **On a second deal set** (seed 779, not pre-registered): 10 to 50 is -24.0 ± 7.7 (3.1 SE),
   50 to 200 +7.0 ± 7.0. Pooled over both: -20.5 ± 5.5 (3.7 SE), +12.2 ± 5.0 (2.5 SE), and 10 to
   200 -8.3 ± 5.4 (1.5 SE). All of the fall from 10 to 50 is with the blueprint on the button.
-- **Near the menu, more buckets are more exploitable.** From 10 to 200 buckets: `fcpa14` +36.5
-  (4.9 SE), `fcpa34` +42.8 (6.6 SE), `b56_34` +42.3 (6.1 SE), `fc34` +13.5 (3.6 SE); at 20 big
-  blinds the same settings moved by at most 2.7 SE. With `fcpa14` only 1.5% to 1.7% of the
-  blueprint's decisions are off the tree, so this is not mainly the bet translation.
+- **Near the menu, more buckets are more exploitable.** From 10 to 200 buckets (seed 778):
+  `fcpa14` +36.5 (4.9 SE), `fcpa34` +42.8 (6.6 SE), `b56_34` +42.3 (6.1 SE), `fc34` +13.5 (3.6
+  SE); at 20 big blinds the same settings moved by at most 2.7 SE. With `fcpa14` only 1.5% to
+  1.7% of the blueprint's decisions are off the tree, so this is not mainly the bet translation.
 - **Answer.** Partly the stack depth: at 100 big blinds 10 buckets are measurably too coarse.
   But LBR shows no gain from 50 to 200 buckets, and the near-menu settings get worse at every
   step, more than at 20 big blinds, so this is likely to carry into Phase 6. Phase 6 shouldn't
@@ -2366,6 +2366,8 @@ and `fc14`). Results, tables and files are in that folder (`results.md`, `checks
   way first (for example standard-k50 against standard-k200 head to head in the arena; not
   done). Why finer buckets are more exploitable is not tested (the gate's three candidates
   stand).
+- **Scale.** LBR wins 1,671.7 ± 10.9 bb/100 from always calling at 100 big blinds; the three
+  blueprints give it 34% to 35% of that (33% to 40% at 20 big blinds).
 
 ## Research notes (paraphrased, with sources)
 

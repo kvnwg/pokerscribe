@@ -19,6 +19,8 @@ ls -la $D/deals.tar.xz
 # The checks after the plan (after.sh): logs, results and their per-deal files.
 A=/root/bp/100bb-after
 mkdir -p $R/after
-cp $A/after.log $A/seed779.jsonl $A/references.jsonl $R/after/
+cp $A/seed779.jsonl $A/references.jsonl $R/after/
+# after.log without the lines of its wait loop
+grep -v '^+ grep -q\|^+ sleep 20' $A/after.log > $R/after/after.log
 (cd $A && tar -cf - seed779/*.deals references/*.deals | xz -9 -T4 > $R/after/deals.tar.xz)
 ls -la $R/after/deals.tar.xz

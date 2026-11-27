@@ -136,8 +136,8 @@ deals, not the pilot's 220 (the pilot's figure was wrong).
 | standard-k200 | 592.9 ± 7.7 | 439.3 ± 6.0 | 111.4 ± 6.8 | 151.3 ± 5.4 | -11.2 ± 3.2 | 4.2 ± 2.7 | 592.9 |
 
 M is `b56_14` for all three, so M of six and M of the gate's five are the same. With the 56
-sizes, 9.1% to 10.1% of the blueprint's decisions are off the tree (18% at 20 big blinds); with
-`fcpa14` 1.5% to 1.7%.
+sizes, 9.1% to 10.1% of the blueprint's decisions are off the tree (about 18% at 20 big
+blinds); with `fcpa14` 1.5% to 1.7%.
 
 Paired differences, the second run minus the first:
 
@@ -189,6 +189,11 @@ This split isn't the same at 20 big blinds: there, from 10 to 200 buckets, LBR i
 won more (+11.9 ± 2.1 on the standard menu, +12.9 ± 2.3 on the small one) and LBR on the button
 about the same (+2.5 and +4.0) (the gate's final deals, seed 778).
 
+**References** (`b56_14` on the final deals, seed 778, 100,000 hands): LBR wins 1,671.7 ± 10.9
+bb/100 from always calling, 2,367.1 ± 18.9 from a random action and 1,719.7 ± 17.4 from a random
+kind of action. The three blueprints give it 34% to 35% of what always calling gives it (33% to
+40% at 20 big blinds).
+
 ### What it means
 
 **Kevin's question: is the 20bb result the stack depth?** Partly. Deeper, the coarsest buckets
@@ -197,9 +202,9 @@ more exploitable with every step, more than at 20 big blinds. That part is likel
 Phase 6.
 
 1. **What changed with the depth.** At 20 big blinds M rose from 10 to 50 buckets on the
-   standard menu (+4.6 pooled over two deal sets, 4.5 SE). At 100 it falls (-20.5 ± 5.5 pooled, 3.7
-   SE), all of it with the blueprint on the button. So 10 buckets a street are too coarse at
-   100 big blinds in a way LBR can see.
+   standard menu (+4.6 pooled over two deal sets, 4.5 SE). At 100 it falls (-20.5 ± 5.5
+   pooled, 3.7 SE), all of it with the blueprint on the button. So 10 buckets a street are too
+   coarse at 100 big blinds in a way LBR can see.
 2. **What didn't.** From 50 to 200 buckets M doesn't fall (pooled +12.2 ± 5.0), and from 10 to
    200 it moves by -8.3 ± 5.4 (1.5 SE). LBR shows no gain from Phase 6's 200 buckets over 50.
 3. **Near the menu, more buckets are more exploitable, at every step.** From 10 to 200 buckets
@@ -211,8 +216,9 @@ Phase 6.
    possibility: the finer strategies lose more even where LBR plays the menu's own bets.
 4. **It isn't that standard-k200 trained less.** It met the same stop rule (change 0.073, LBR
    flat), and no run's LBR fell by more than the noise as it trained: `fcpa34` was already
-   159.5 against standard-k200 at 4M iterations, against 101.7 for standard-k10 at 4M. Training on
-   would not close the gap; at 20 big blinds it didn't (`experiments.md`, the gate, check 3).
+   159.5 against standard-k200 at 4M iterations, against 101.7 for standard-k10 at 4M.
+   Training on would not close the gap; at 20 big blinds it didn't (`experiments.md`, the
+   gate, check 3).
    standard-k200 had 18 iterations per information set against 43 for standard-k10, and that
    remains a difference between them.
 
@@ -222,6 +228,29 @@ own), and finer strategies fitting the abstract betting more closely (Johanson e
 
 **For Phase 6** (200 big blinds, 200 buckets a street): don't count on LBR, as measured here, to
 show that 200 buckets are worth their cost (at 100 big blinds, 4 times the information sets
-of 50, 2.8 times the memory and 2.4 times the training time). Check the card abstraction another way first, for example standard-k50
-against standard-k200 head to head at 100 big blinds in the arena (both are `Strategy` agents;
-not done here).
+of 50, 2.8 times the memory and 2.4 times the training time). Check the card abstraction
+another way first, for example standard-k50 against standard-k200 head to head at 100 big
+blinds in the arena (both are `Strategy` agents; not done here).
+
+## Files
+
+| File | What |
+| --- | --- |
+| `README.md`, `plan.json` | The plan (committed before training), then the results |
+| `analyse.py`, `results.md` | The plan's tables and verdict, and its output |
+| `after.sh`, `checks.py`, `checks.md` | The checks after the plan (not pre-registered), and their output |
+| `run/` | The plan's logs: `out.log`, `err.log`, and per run `spec.json`, `stages.jsonl`, `progress.jsonl` (each doubling's stop decision), `lbr.jsonl` (stage readings), `final.jsonl`, `log.jsonl` (training sessions), `done.json` |
+| `run/deals.tar.xz` | The per-deal results of the final LBR (seed 778) |
+| `after/` | `after.log`, `seed779.jsonl`, `references.jsonl`, and their per-deal results in `deals.tar.xz` |
+| `pack.sh` | How these files were copied here and packed |
+
+`plan.json` is ignored by `.gitignore` (`docs/research/runs/*/*.json`) and was added with
+`git add -f`. The per-deal results are kept because training on 4 lock-free threads doesn't
+repeat exactly, so they could not be rebuilt from the plan. To rebuild the tables:
+
+```bash
+cd docs/research/runs/phase5_100bb
+(cd run && tar -xJf deals.tar.xz) && (cd after && tar -xJf deals.tar.xz)
+python analyse.py run
+python checks.py run after
+```

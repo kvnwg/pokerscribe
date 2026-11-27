@@ -1,0 +1,31 @@
++ B=/root/bp/blueprint-100bb
++ G=/root/bp/100bb
++ A=/root/bp/100bb-after
++ mkdir -p /root/bp/100bb-after
++ date
+Fri Nov 27 12:13:06 UTC 2026
++ python3 -c import json;print(json.load(open('/root/bp/100bb/standard-k10/done.json'))['stage'])
++ stage=16000000
++ [ -f /root/bp/100bb-after/seed779/standard-k10.b56_14.s779.h100000.deals ]
++ /root/bp/blueprint-100bb lbr --strategy /root/bp/100bb/standard-k10/strategy-16000000.bps --settings b56_14 --hands 100000 --seed 779 --deals /root/bp/100bb-after/seed779 --label standard-k10 --out /root/bp/100bb-after/seed779.jsonl
+{"bb_per_100":605.57299,"big_blind_bb_per_100":582.42714,"button_bb_per_100":628.71884,"command":"lbr","deals_file":"/root/bp/100bb-after/seed779/standard-k10.b56_14.s779.deals","extra":{"decisions":187438,"iterations":16000000,"off_tree_share":0.10015044974871691,"small_bets":"smallest","train_seconds":416.535115585},"hands":100000,"hands_per_second":282.7230969198383,"seconds":353.702973296,"seed":779,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":7.880272723764934,"strategy":"standard-k10"}
++ python3 -c import json;print(json.load(open('/root/bp/100bb/standard-k50/done.json'))['stage'])
++ stage=64000000
++ [ -f /root/bp/100bb-after/seed779/standard-k50.b56_14.s779.h100000.deals ]
++ /root/bp/blueprint-100bb lbr --strategy /root/bp/100bb/standard-k50/strategy-64000000.bps --settings b56_14 --hands 100000 --seed 779 --deals /root/bp/100bb-after/seed779 --label standard-k50 --out /root/bp/100bb-after/seed779.jsonl
+{"bb_per_100":581.5952400000001,"big_blind_bb_per_100":533.78438,"button_bb_per_100":629.4061,"command":"lbr","deals_file":"/root/bp/100bb-after/seed779/standard-k50.b56_14.s779.deals","extra":{"decisions":184905,"iterations":64000000,"off_tree_share":0.09000297450041914,"small_bets":"smallest","train_seconds":2386.828497499},"hands":100000,"hands_per_second":309.8395811872399,"seconds":322.747660634,"seed":779,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":7.751396003326255,"strategy":"standard-k50"}
++ python3 -c import json;print(json.load(open('/root/bp/100bb/standard-k200/done.json'))['stage'])
++ stage=128000000
++ [ -f /root/bp/100bb-after/seed779/standard-k200.b56_14.s779.h100000.deals ]
++ /root/bp/blueprint-100bb lbr --strategy /root/bp/100bb/standard-k200/strategy-128000000.bps --settings b56_14 --hands 100000 --seed 779 --deals /root/bp/100bb-after/seed779 --label standard-k200 --out /root/bp/100bb-after/seed779.jsonl
+{"bb_per_100":588.62852,"big_blind_bb_per_100":529.28996,"button_bb_per_100":647.96708,"command":"lbr","deals_file":"/root/bp/100bb-after/seed779/standard-k200.b56_14.s779.deals","extra":{"decisions":184892,"iterations":128000000,"off_tree_share":0.09541786556476213,"small_bets":"smallest","train_seconds":5654.328813669999},"hands":100000,"hands_per_second":314.54632767278747,"seconds":317.918192655,"seed":779,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":7.718442014745193,"strategy":"standard-k200"}
++ date
+Fri Nov 27 12:29:41 UTC 2026
++ /root/bp/blueprint-100bb reference --stack 100 --hands 100000 --seed 778 --settings b56_14 --deals /root/bp/100bb-after/references --out /root/bp/100bb-after/references.jsonl
+{"bb_per_100":1671.71877,"big_blind_bb_per_100":1685.45154,"button_bb_per_100":1657.986,"command":"lbr","deals_file":"/root/bp/100bb-after/references/always_call.b56_14.s778.deals","extra":{},"hands":100000,"hands_per_second":338.00091605734974,"seconds":295.857186325,"seed":778,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":10.918525546862204,"strategy":"always call"}
+{"bb_per_100":2367.13853,"big_blind_bb_per_100":2672.41654,"button_bb_per_100":2061.86052,"command":"lbr","deals_file":"/root/bp/100bb-after/references/random_action.b56_14.s778.deals","extra":{},"hands":100000,"hands_per_second":8269.351348363987,"seconds":12.092846922,"seed":778,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":18.857440193734032,"strategy":"random action"}
+{"bb_per_100":1719.71858,"big_blind_bb_per_100":1575.55492,"button_bb_per_100":1863.88224,"command":"lbr","deals_file":"/root/bp/100bb-after/references/random_kind_of_action.b56_14.s778.deals","extra":{},"hands":100000,"hands_per_second":4703.8839418271355,"seconds":21.259027909,"seed":778,"setting":"56 bets, rounds 1-4","stack_bb":100,"std_err":17.442274176838996,"strategy":"random kind of action"}
++ date
+Fri Nov 27 12:35:11 UTC 2026
++ echo AFTER DONE
+AFTER DONE
