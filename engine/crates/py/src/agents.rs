@@ -7,9 +7,11 @@
 //! - a [`Strategy`] (LBR's trait: a probability for each action), made an agent with
 //!   [`strategy_agent`], which draws its action with [`View::pick`].
 //!
-//! [`rust_agent`] is the list Python chooses from. To let Python play a new agent, such as
-//! the blueprint, add one line to it.
+//! [`rust_agent`] is the list Python chooses from. To let Python play a new agent, add one
+//! line to it. The blueprint is named by its strategy file: `blueprint:<file>`
+//! ([`blueprint_agent`]).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use arena::{bots, Agent, Player, View};
@@ -47,6 +49,9 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
     if let Some(agent) = bots::builtin(name) {
         return Some(agent);
     }
+    if let Some(made) = blueprint_agent(name) {
+        return made.ok();
+    }
     Some(match name {
         "lbr-fold" => strategy_agent(name, AlwaysFold),
         "lbr-call" => strategy_agent(name, AlwaysCall),
@@ -60,6 +65,20 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
         "lbr-random" => strategy_agent(name, UniformRandom::Kinds),
         _ => return None,
     })
+}
+
+/// The agent a name `blueprint:<file>` asks for: the blueprint in that strategy file
+/// (engine/crates/blueprint), with the bucket tables it was trained with (the directory
+/// the file records), played through [`strategy_agent`]. `None` for any other name; an
+/// error when the file or its tables can't be loaded. Play it at the stacks and blinds it
+/// was trained for (`blueprint info <file>` shows them).
+pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
+    let path = name.strip_prefix("blueprint:")?;
+    Some(
+        blueprint::Blueprint::load(Path::new(path), None)
+            .map(|b| strategy_agent(name, b))
+            .map_err(|e| format!("{name}: {e}")),
+    )
 }
 
 /// An agent that plays a [`Strategy`]: at each decision it asks the strategy for its action
