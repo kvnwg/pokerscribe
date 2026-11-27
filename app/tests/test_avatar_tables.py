@@ -684,3 +684,36 @@ def test_eight_stacks_in_another_font_on_the_stock_table(rec):
     img, meta = render(view, lay)
     res = rec.recognize(img)
     assert [p.stack.value for p in res.state.players] == [s * lay.unit for s in stacks]
+
+
+@needs_ocr
+def test_a_bet_whose_dollar_reads_as_a_colon_is_confirmed(rec):
+    """Eight-player self-test, phone table drawn in DejaVu: Otto's call of 800 (no "$" in the
+    first read) starts with an 8, which on a table full of "$" amounts may be a "$" read as an 8.
+    So only re-reads showing the sign counted, and the one that read it as "：800" didn't: no
+    two reads agreed and the bet was unknown. The chips then didn't add up, the blinds went
+    unknown, Panther's raise to 800 was taken for the big blind, and K-8 suited in the big blind
+    was told to fold."""
+    import dataclasses
+
+    from app.tests.demo_table import amount_text
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(for_players(LAY["portrait"], 8), text_font=find_font("DejaVuSans.ttf"))
+    stacks = [198, 221.5, 194, 376, 154, 176, 199, 253.5]
+    bets = {0: 2, 1: 8, 7: 8}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0), has_cards=i not in (2, 3, 4, 5, 6))
+             for i, name in enumerate(NAMES8)]
+    view = TableView(seats, ["Kh", "8h"], [], 0.0, 6, 0, ["Fold", "Call " + amount_text(6, lay), "Raise"],
+                     hand_no=16, timer_left=0.84)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+    by_seat = {}
+    for p in res.state.players:
+        x, y = p.anchor if p.anchor else (None, None)
+        if p.is_hero:
+            by_seat[0] = p
+        elif x is not None:
+            by_seat[min(range(8), key=lambda i: (plates[i][0] - x) ** 2 + (plates[i][1] - y) ** 2)] = p
+    assert by_seat[7].bet.known and by_seat[7].bet.value == 8 * lay.unit
