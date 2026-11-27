@@ -48,5 +48,36 @@ jobs:
           restore-keys: |
             cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-
 
+      # Some ignored tests check built bucket tables and pass without checking anything when
+      # none are given: blueprint's tests/tables.rs (BLUEPRINT_TABLES, BLUEPRINT_OTHER_TABLES)
+      # and abstraction's built_tables_pass_the_checks (ABSTRACTION_TABLES; its checks are
+      # written for 50 or more buckets, so it gets k50). abstraction-build makes k10 and k50 in
+      # about 1 and 3 minutes on 4 cores, 138 MB each. The cache keeps them until the
+      # abstraction crate's code changes.
+      - name: Restore the bucket tables
+        id: tables
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/abstraction
+          key: bucket-tables-k10-k50-${{ hashFiles('engine/crates/abstraction/src/**', 'engine/crates/abstraction/Cargo.toml') }}
+
+      - name: Build the bucket tables
+        if: steps.tables.outputs.cache-hit != 'true'
+        run: |
+          cargo build --release -p abstraction --bin abstraction-build
+          ./target/release/abstraction-build build --out ~/abstraction/k10 --buckets 10
+          ./target/release/abstraction-build build --out ~/abstraction/k50 --buckets 50
+
+      - name: Save the bucket tables
+        if: steps.tables.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/abstraction
+          key: ${{ steps.tables.outputs.cache-primary-key }}
+
       - name: cargo test --release -- --ignored
-        run: cargo test --release -- --ignored
+        run: |
+          export BLUEPRINT_TABLES="$HOME/abstraction/k10"
+          export BLUEPRINT_OTHER_TABLES="$HOME/abstraction/k50"
+          export ABSTRACTION_TABLES="$HOME/abstraction/k50"
+          cargo test --release -- --ignored
