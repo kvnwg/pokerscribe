@@ -242,10 +242,14 @@ def preempted_since(gcloud: Gcloud, name: str, zone: str, since: float | None) -
 
 # --- what is still costing money ----------------------------------------------------------------
 
-def leftovers(gcloud: Gcloud, bucket: str | None, disk_per_gb_month: float,
+def leftovers(gcloud: Gcloud, bucket: str | None, disk_monthly,
               instance_name: str | None = None) -> list[dict]:
     """Everything in the project that bills while it exists. Each row: kind, name, where,
-    detail, ours (made by these tools), monthly (rough USD a month, or None)."""
+    detail, ours (made by these tools), monthly (rough USD a month, or None).
+
+    ``disk_monthly(size_gb, disk_type, iops, mbps)`` prices a disk a month from what Google
+    lists for it (Settings.disk_month_price): Hyperdisk Balanced bills its provisioned IOPS and
+    throughput above the free baseline too, stopped or not, so the size alone undercounts."""
     rows = []
 
     def q(args):
@@ -261,12 +265,18 @@ def leftovers(gcloud: Gcloud, bucket: str | None, disk_per_gb_month: float,
     for r in q(["compute", "disks", "list"]):
         size = float(r.get("sizeGb") or 0)
         users = [last_part(u) for u in r.get("users") or []]
+        kind = last_part(r.get("type"))
+        iops = int(r["provisionedIops"]) if r.get("provisionedIops") else None
+        mbps = int(r["provisionedThroughput"]) if r.get("provisionedThroughput") else None
+        perf = ""
+        if iops or mbps:
+            perf = f" ({iops or '?'} IOPS, {mbps or '?'} MiB/s)"
         rows.append({"kind": "disk", "name": r.get("name"), "where": last_part(r.get("zone")),
-                     "detail": f"{int(size)} GB {last_part(r.get('type'))}, "
+                     "detail": f"{int(size)} GB {kind}{perf}, "
                                + (f"used by {', '.join(users)}" if users else "attached to nothing"),
                      "ours": LABEL in (r.get("labels") or {}) or bool(
                          instance_name and instance_name in users),
-                     "monthly": size * disk_per_gb_month})
+                     "monthly": disk_monthly(size, kind, iops, mbps)})
     for r in q(["compute", "addresses", "list"]):
         rows.append({"kind": "static IP", "name": r.get("name"),
                      "where": last_part(r.get("region")) or "global",

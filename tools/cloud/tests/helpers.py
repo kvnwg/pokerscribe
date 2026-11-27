@@ -69,6 +69,38 @@ def iso(t: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S.000-00:00", time.gmtime(t))
 
 
+class FlakyStore:
+    """A bucket store whose reads can be made to fail. ``bad[name]`` lists what the next reads
+    of that object give instead of its content, one per read: None (the read finds nothing, as
+    `gcloud storage cat` did once on 27 Nov 2026), bytes (say, half a JSON file) or an
+    exception to raise. While ``stat_error`` is set, listing one object raises StoreError with
+    it. Everything else goes to the store inside."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.bad: dict[str, list] = {}
+        self.stat_error: str | None = None
+        self.reads: list[str] = []
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def get_bytes(self, name):
+        self.reads.append(name)
+        if self.bad.get(name):
+            v = self.bad[name].pop(0)
+            if isinstance(v, Exception):
+                raise v
+            return v
+        return self.inner.get_bytes(name)
+
+    def stat(self, name):
+        if self.stat_error:
+            from tools.cloud.supervisor import StoreError
+            raise StoreError(self.stat_error)
+        return self.inner.stat(name)
+
+
 class FakeCompute:
     """Answers gcloud compute (and a few storage bucket) commands from memory.
 

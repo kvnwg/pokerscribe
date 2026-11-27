@@ -11,6 +11,7 @@ import sys
 import tarfile
 import io
 import gzip
+import time
 
 import pytest
 
@@ -112,6 +113,19 @@ def test_disk_price_counts_iops_and_throughput_above_the_baseline(tmp_path):
     assert low.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
     pd = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_TYPE="pd-balanced", DISK_IOPS=6000)
     assert pd.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
+
+
+def test_any_disk_is_priced_from_its_own_size_and_performance(tmp_path):
+    # leftovers prices every disk in the project this way, not from this run's settings: Kevin's
+    # stopped Phase 6 disk (80 GB, 3,000 IOPS, 400 MiB/s) is $16.80 a month, not $6.40.
+    s = make_settings(tmp_path, DISK_SIZE_GB=10)
+    assert s.disk_month_price(80, "hyperdisk-balanced", 3000, 400) == pytest.approx(16.80)
+    assert s.disk_month_price(80, "hyperdisk-balanced", None, None) == pytest.approx(6.40)
+    assert s.disk_month_price(80, "hyperdisk-balanced", 6000, 140) == pytest.approx(21.40)
+    assert s.disk_month_price(80, "pd-balanced", 6000, 400) == pytest.approx(6.40)
+    kevin = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=400)
+    assert kevin.disk_month_price(80, "hyperdisk-balanced", 3000, 400) == \
+        pytest.approx(kevin.disk_price_per_hour * 730)
 
 
 def test_hyperdisk_balanced_always_gets_both_iops_and_throughput(tmp_path):
@@ -431,13 +445,21 @@ TOTAL: 2 objects, 2276236 bytes (2.17MiB)
     assert sup.parse_ls_long(text, "gs://b/runs/r/") == [
         ("checkpoints/00000001-20261126T192517Z-x.ckpt", 2276224),
         ("checkpoints/00000002-20261126T192518Z-x.ckpt", 12)]
+    timed = sup.parse_ls_long_times(text, "gs://b/runs/r/")
+    assert [t for _, _, t in timed] == [1795721117.0, 1795721118.0]   # 2026-11-26T19:25:17Z
+    assert sup.parse_listed_time("2026-11-27T21:30:01Z") == 1795815001.0
+    assert sup.parse_listed_time("2026-11-27T21:30:01.250000+00:00") == 1795815001.25
+    assert sup.parse_listed_time("yesterday") is None
 
 
 def exercise_store(store, tmp_path):
     assert store.get_bytes("status.json") is None
+    assert store.stat("status.json") is None
     assert store.list("checkpoints/") == []
     store.put_bytes("status.json", b'{"a": 1}')
     assert sup.read_json(store, "status.json") == {"a": 1}
+    size, written = store.stat("status.json")
+    assert size == 8 and abs(written - time.time()) < 5
     f = tmp_path / "data.bin"
     f.write_bytes(b"x" * 1000)
     store.put_file("checkpoints/00000001-20261126T192517Z-x.ckpt", str(f))
@@ -479,6 +501,8 @@ def test_gcs_store_reports_real_errors(tmp_path):
         store.get_bytes("status.json")
     with pytest.raises(sup.StoreError, match="403"):
         store.list("checkpoints/")
+    with pytest.raises(sup.StoreError, match="403"):
+        store.stat("status.json")
     with pytest.raises(ValueError):
         GcsStore("/not/a/bucket")
 
@@ -680,6 +704,59 @@ def test_format_watch(tmp_path):
              "stop_requested": False, "restarts": {"events": []}, "checkpoints": [],
              "preempted_at": None, "cost": 0.0}
     assert "none" in "\n".join(control.format_watch(empty, s))
+
+
+def read(state, listed_at=None):
+    return {"state": state, "listed_at": listed_at, "error": None if state == "ok" else "x"}
+
+
+def test_a_report_that_couldnt_be_read_is_not_a_silent_machine(tmp_path):
+    # Phase 6 calibration, 27 Nov 2026, at 78 minutes: one read of status.json found nothing
+    # while the bucket listed it written seconds before. watch warned of a silent machine.
+    s = make_settings(tmp_path)
+    now = 100000.0
+    inst = {"name": "ps-hu-test", "zone": "us-central1-a", "status": "RUNNING",
+            "machine_type": "c4a-highcpu-64", "provisioning": "SPOT",
+            "last_start_at": now - 78 * 60}
+    sn = {"now": now, "instance": inst, "status": None, "state": None, "stop_requested": False,
+          "restarts": {"events": []}, "checkpoints": [], "preempted_at": None, "cost": 3.2}
+
+    def watch_text(r):
+        return "\n".join(control.format_watch(dict(sn, status_read=r), s))
+
+    text = watch_text(read("unreadable", now - 20))
+    assert "WARNING" not in text, text
+    assert "couldn't be read just now; the bucket lists it written 20 s ago" in text
+    text = watch_text(read("unknown"))
+    assert "WARNING" not in text and "couldn't read status.json or list it" in text
+    assert "no report from the machine for 78 min" in watch_text(read("missing"))
+    # listed, but written before this boot: the machine hasn't reported in this one
+    assert "WARNING" in watch_text(read("unreadable", now - 80 * 60))
+    # the recovery decision reads it the same way
+    assert control.silent_seconds(dict(sn, status_read=read("unreadable", now - 20))) is None
+    assert control.silent_seconds(dict(sn, status_read=read("unknown"))) is None
+    assert control.silent_seconds(dict(sn, status_read=read("missing"))) == 78 * 60
+    assert control.decide(dict(sn, status_read=read("unreadable", now - 20)), s)[0] == "wait"
+    assert control.decide(dict(sn, status_read=read("unknown")), s)[0] == "wait"
+    assert control.decide(dict(sn, status_read=read("missing")), s)[0] == "stop-silent"
+    assert control.decide(dict(sn, status_read=read("unreadable", now - 80 * 60)),
+                          s)[0] == "stop-silent"
+    # a snapshot without status_read (an older caller) takes the status as read
+    assert control.decide(sn, s)[0] == "stop-silent"
+
+
+def test_an_unreadable_report_doesnt_make_a_boot_unreported(tmp_path):
+    s = make_settings(tmp_path)
+    inst = {"name": "ps-hu-test", "status": "TERMINATED", "last_start_at": 5000.0,
+            "last_stop_at": 8000.0}
+    assert control.boot_unreported(inst, None)                          # no report at all
+    assert control.boot_unreported(inst, None, read("missing"))
+    assert not control.boot_unreported(inst, None, read("unknown"))
+    assert not control.boot_unreported(inst, None, read("unreadable", 7990.0))
+    assert control.boot_unreported(inst, None, read("unreadable", 4000.0))   # an older boot's
+    full = 3000 / 3600 * s.price_per_hour
+    assert control.estimate_cost(None, inst, 8000.0, s) == pytest.approx(full)
+    assert control.estimate_cost(None, inst, 8000.0, s, read=read("unknown")) == 0.0
 
 
 def test_cli_help_runs():

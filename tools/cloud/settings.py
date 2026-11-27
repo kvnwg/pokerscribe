@@ -250,19 +250,26 @@ class Settings:
             return int(iops or FREE_IOPS), int(mbps or FREE_MBPS)
         return (int(iops) if iops else None), (int(mbps) if mbps else None)
 
+    def disk_month_price(self, size_gb: float, disk_type: str | None, iops: int | None = None,
+                         mbps: int | None = None) -> float:
+        """A disk's price a month: its size, and on Hyperdisk Balanced the IOPS and throughput
+        provisioned above the free baseline (3,000 IOPS, 140 MiB/s). For this run's boot disk
+        and for any disk `leftovers` lists, from that disk's own size and performance."""
+        month = float(size_gb or 0) * float(self.values["DISK_PRICE_PER_GB_MONTH"] or 0)
+        if (disk_type or "") == "hyperdisk-balanced":
+            month += max(0, int(iops or FREE_IOPS) - FREE_IOPS) * float(
+                self.values["DISK_IOPS_PRICE_PER_MONTH"] or 0)
+            month += max(0, int(mbps or FREE_MBPS) - FREE_MBPS) * float(
+                self.values["DISK_THROUGHPUT_PRICE_PER_MONTH"] or 0)
+        return month
+
     @property
     def disk_price_per_hour(self) -> float:
-        """The disk's size, and on Hyperdisk Balanced the IOPS and throughput provisioned
+        """The boot disk's size, and on Hyperdisk Balanced the IOPS and throughput provisioned
         above the free baseline (3,000 IOPS, 140 MiB/s), by the hour."""
-        month = float(self.values["DISK_SIZE_GB"]) * float(
-            self.values["DISK_PRICE_PER_GB_MONTH"] or 0)
-        if (self.values.get("DISK_TYPE") or "") == "hyperdisk-balanced":
-            iops, mbps = self.disk_performance
-            month += max(0, iops - FREE_IOPS) * float(
-                self.values["DISK_IOPS_PRICE_PER_MONTH"] or 0)
-            month += max(0, mbps - FREE_MBPS) * float(
-                self.values["DISK_THROUGHPUT_PRICE_PER_MONTH"] or 0)
-        return month / 730.0
+        iops, mbps = self.disk_performance
+        return self.disk_month_price(float(self.values["DISK_SIZE_GB"]),
+                                     self.values.get("DISK_TYPE"), iops, mbps) / 730.0
 
     @property
     def price_per_hour(self) -> float:
