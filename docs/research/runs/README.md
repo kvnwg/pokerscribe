@@ -47,7 +47,7 @@ Phase 6 groundwork (27 Nov 2026):
 - `phase6_b0_arena.py`: B0 against Rust agents in the Rust arena (`tools/b0_arena.py`), heads-up,
   each deal twice with the seats swapped: B0 against itself and a variant, the always-fold and
   always-call bots, the arena's tag bots and the LBR crate's simple strategies, then a profile of
-  where B0's time goes. One JSON per match and `summary.md` in `phase6_b0_arena/`, and its
-  `.log`; `--summary` rebuilds the tables from the JSON, `--only LABEL ...` plays some matches
-  again and `--profile` redoes the profile. `phase6_b0_jam_calls.py` counts how often B0 calls a
+  where B0's time goes. `phase6_b0_arena/summary.md` and its `.log`. The JSON per match is not
+  committed (the script rebuilds it); `--summary` rebuilds the tables from it, `--only LABEL ...`
+  plays some matches again and `--profile` redoes the profile. `phase6_b0_jam_calls.py` counts how often B0 calls a
   100 big blind jam (its `.log`).
