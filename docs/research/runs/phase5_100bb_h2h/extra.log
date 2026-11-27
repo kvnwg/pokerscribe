@@ -1,0 +1,15 @@
+cards: of the first 1,000 deals, 0 are the same on seeds 9201 and 9202
+  seed 9201, deal 0: {'deal': 0, 'button': ['9d', '6h'], 'big_blind': ['8d', '4c'], 'board': ['6c', 'Ts', '3s', '3c', 'Kh']}
+  seed 9202, deal 0: {'deal': 0, 'button': ['8d', '2h'], 'big_blind': ['Qc', 'Jc'], 'board': ['3d', 'Ah', 'Ts', 'As', '9s']}
+standard-k200 against standard-k50, seed 9201, 1,000 deals: -7.3414 +- 20.1591 bb/100, real chips -1.9860, illegal [0, 0]
+standard-k200 against standard-k50, seed 9202, 1,000 deals: +10.4140 +- 22.4575 bb/100, real chips +17.8870, illegal [0, 0]
+standard-k200 against standard-k50, seed 9203, 2,000,000 deals: +2.4107 +- 0.4864 bb/100, real chips +2.4152, illegal [0, 0]
+standard-k200 against standard-k50, seed 9204, 2,000,000 deals: +3.7623 +- 0.4862 bb/100, real chips +3.7463, illegal [0, 0]
+standard-k200 against standard-k50, seed 9205, 2,000,000 deals: +3.1913 +- 0.4870 bb/100, real chips +3.1284, illegal [0, 0]
+standard-k200 against standard-k50, seed 9206, 2,000,000 deals: +3.4626 +- 0.4856 bb/100, real chips +3.5909, illegal [0, 0]
+standard-k200 against standard-k50, seed 9207, 2,000,000 deals: +3.0736 +- 0.4846 bb/100, real chips +3.0666, illegal [0, 0]
+standard-k200 against standard-k50, seed 9208, 2,000,000 deals: +3.5173 +- 0.4871 bb/100, real chips +3.5333, illegal [0, 0]
+standard-k200 against standard-k50, seed 9209, 2,000,000 deals: +4.3348 +- 0.4873 bb/100, real chips +4.0729, illegal [0, 0]
+standard-k200 against standard-k50, seed 9210, 2,000,000 deals: +3.7768 +- 0.4865 bb/100, real chips +4.2616, illegal [0, 0]
+standard-k200 against standard-k50, seed 9211, 2,000,000 deals: +4.1035 +- 0.4866 bb/100, real chips +4.0361, illegal [0, 0]
+standard-k200 against standard-k50, seed 9212, 2,000,000 deals: +3.7793 +- 0.4868 bb/100, real chips +3.7627, illegal [0, 0]

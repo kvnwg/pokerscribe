@@ -2416,6 +2416,10 @@ sized from a pilot on other seeds.
   (M +12.2 ± 5.0 pooled), yet it beats standard-k50. This supports Phase 6's 200 buckets, and
   says again that Phase 6's LBR readings are not the value of its card abstraction. Both
   blueprints share the menu, so the match doesn't test play against bets off it.
+- **Added after review** (not pre-registered; doesn't change the decision): the main match and
+  the replication agreed to 0.0023 bb/100, by chance. Their deals differ, and ten more fresh
+  seeds (9203 to 9212) give +2.41 to +4.33 with the spread their SEs predict (p = 0.38). Pooled
+  over 12 seeds: +3.57 ± 0.14 bb/100 (`runs/phase5_100bb_h2h/extra.md`).
 
 ## Phase 6: ready to launch (27 Nov 2026)
 

@@ -22,6 +22,14 @@ match took 10 or 11 seconds on 4 threads. The main match and its replication agr
 bb/100 by chance: their deals differ (their real-chip results, seat figures and adjusted hands
 all do), and the gap between them is +0.00 ± 0.69.
 
+**Added after review (not pre-registered; doesn't change the decision).** The 0.0023 agreement
+is chance (`extra.md`). The two seeds' deals differ: none of the first 1,000 is the same, and the
+two seeds share no deal seed within the 2,000,000 deals. Ten more fresh seeds (9203 to 9212, 2,000,000 deals each)
+give +2.41 to +4.33. Over all 12 seeds the results' sd is 0.505 against an SE of 0.486 (p =
+0.38), and pooled standard-k200 wins by +3.57 ± 0.14 bb/100. Seeds 9205 to 9212 were added after
+9204 landed 0.02 from the first two; chance puts three of four results that close about 1 time
+in 480, and the eight more seeds show the spread is ordinary.
+
 **Each seat's figure includes the button's advantage**: the second run on the button plays the
 first in the big blind, and the other way round. The result is the mean of the two, and half
 their difference (14.5 to 15.6 bb/100 in the four matches) is about what the button wins here.
@@ -59,12 +67,14 @@ that plays off their menu, as LBR does, or as people and other programs would.
 | `plan.md`, `plan.json` | The plan, committed before the main run (`plan.json` added with `git add -f`) |
 | `pilot.py`, `pilot.jsonl` | The pilot (seeds 9101 and 9102, 20,000 deals each), run before the plan, used only for its speed and sd |
 | `run.py`, `run.log`, `results.jsonl` | The matches: the script, its output, and every match's full arena report |
-| `report.py`, `results.md` | The plan's tables and decision, and their output |
+| `report.py`, `results.md` | The plan's tables and decision, and their output, with a note added after review at the end |
+| `extra.py`, `extra_report.py`, `extra.jsonl`, `extra.log`, `extra.md` | Added after review, not pre-registered: the deals' cards, seeds 9201 and 9202 at 1,000 deals, seeds 9203 to 9212 at 2,000,000 |
 
-To rebuild `results.md` from `results.jsonl`:
+To rebuild `results.md` (all but the note at its end) from `results.jsonl`, and `extra.md`:
 
 ```bash
 python docs/research/runs/phase5_100bb_h2h/report.py docs/research/runs/phase5_100bb_h2h/plan.json docs/research/runs/phase5_100bb_h2h/results.jsonl
+python docs/research/runs/phase5_100bb_h2h/extra_report.py docs/research/runs/phase5_100bb_h2h/results.jsonl docs/research/runs/phase5_100bb_h2h/extra.jsonl
 ```
 
 The arena deals from the seed and the deal's index and gives each seat its own random numbers,
