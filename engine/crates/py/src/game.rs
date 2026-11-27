@@ -1,17 +1,17 @@
 //! One hand of No-Limit Hold'em (the nlhe crate), with showdowns ranked by the eval crate.
 
-use nlhe::{Action, Chips, Config, Deal, EvalRanker, Street};
+use nlhe::{Action, Chips, Config, Deal, EvalRanker, Move, Street};
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::cards;
 
-fn value_error(e: impl std::fmt::Display) -> PyErr {
+pub(crate) fn value_error(e: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-fn street_name(street: Street) -> &'static str {
+pub(crate) fn street_name(street: Street) -> &'static str {
     match street {
         Street::Preflop => "preflop",
         Street::Flop => "flop",
@@ -21,7 +21,7 @@ fn street_name(street: Street) -> &'static str {
 }
 
 /// An action from Python: a name and, for a raise, the amount to raise to.
-fn parse_action(action: &str, amount: Option<Chips>) -> PyResult<Action> {
+pub(crate) fn parse_action(action: &str, amount: Option<Chips>) -> PyResult<Action> {
     match (action, amount) {
         ("fold", None) => Ok(Action::Fold),
         ("check", None) => Ok(Action::Check),
@@ -58,6 +58,16 @@ pub struct LegalActions {
 }
 
 impl LegalActions {
+    pub(crate) fn from_engine(legal: nlhe::LegalActions) -> LegalActions {
+        LegalActions {
+            fold: legal.fold,
+            check: legal.check,
+            call: legal.call,
+            min_raise_to: legal.raise.map(|r| r.min_to),
+            max_raise_to: legal.raise.map(|r| r.max_to),
+        }
+    }
+
     fn engine(&self) -> nlhe::LegalActions {
         nlhe::LegalActions {
             fold: self.fold,
@@ -327,38 +337,14 @@ impl State {
     /// "call" or "raise"), amount (the total bet a raise went to, else None) and added
     /// (the chips the action put in).
     fn history<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let moves = self.inner.history().iter();
-        moves
-            .map(|m| {
-                let (name, amount) = match m.action {
-                    Action::Fold => ("fold", None),
-                    Action::Check => ("check", None),
-                    Action::Call => ("call", None),
-                    Action::RaiseTo(to) => ("raise", Some(to)),
-                };
-                let entry = PyDict::new(py);
-                entry.set_item("street", street_name(m.street))?;
-                entry.set_item("seat", m.seat)?;
-                entry.set_item("action", name)?;
-                entry.set_item("amount", amount)?;
-                entry.set_item("added", m.added)?;
-                Ok(entry)
-            })
-            .collect()
+        history_dicts(py, self.inner.history())
     }
 
     // ----- playing -----
 
     /// What the player to act may do (nothing is allowed once the hand is over).
     fn legal_actions(&self) -> LegalActions {
-        let legal = self.inner.legal_actions();
-        LegalActions {
-            fold: legal.fold,
-            check: legal.check,
-            call: legal.call,
-            min_raise_to: legal.raise.map(|r| r.min_to),
-            max_raise_to: legal.raise.map(|r| r.max_to),
-        }
+        LegalActions::from_engine(self.inner.legal_actions())
     }
 
     /// The current player acts: apply("fold"), apply("check"), apply("call") or
@@ -411,6 +397,33 @@ impl State {
             self.inner.pot()
         )
     }
+}
+
+/// The moves of a hand as Python dicts: street, seat, action ("fold", "check", "call" or
+/// "raise"), amount (the total bet a raise went to, else None) and added (the chips the
+/// action put in).
+pub(crate) fn history_dicts<'py>(
+    py: Python<'py>,
+    moves: &[Move],
+) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    moves
+        .iter()
+        .map(|m| {
+            let (name, amount) = match m.action {
+                Action::Fold => ("fold", None),
+                Action::Check => ("check", None),
+                Action::Call => ("call", None),
+                Action::RaiseTo(to) => ("raise", Some(to)),
+            };
+            let entry = PyDict::new(py);
+            entry.set_item("street", street_name(m.street))?;
+            entry.set_item("seat", m.seat)?;
+            entry.set_item("action", name)?;
+            entry.set_item("amount", amount)?;
+            entry.set_item("added", m.added)?;
+            Ok(entry)
+        })
+        .collect()
 }
 
 /// Starts a hand: posts the antes and blinds and deals the cards.

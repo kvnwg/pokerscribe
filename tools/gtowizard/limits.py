@@ -9,8 +9,9 @@ The limits (benchmark.gtowizard.com FAQ, read 26 Nov 2026), per user and per gam
 The session asks ``HandBudget.check()`` before every new hand and never starts one that would go
 over. Two counts feed it, and the larger one is used:
 
-- the **ledger**, a local file with one line per hand started (the time and the hand id), shared
-  by every session on this machine whatever log it writes to;
+- the **ledger**, a local file with one line per hand started (the time and the hand id), used
+  by every session on this machine whatever log it writes to, one session at a time
+  (``LedgerLock``);
 - the **server's own count**, ``total_hands`` from ``GET /results`` with ``start_date`` set to the
   start of the day, the week and the month, fetched when a session starts. It covers hands played
   from another machine or with another tool.
@@ -145,6 +146,8 @@ class Ledger:
         if note:
             rec["note"] = note
         line = json.dumps(rec, separators=(",", ":")) + "\n"
+        if self._cut_off():
+            line = "\n" + line  # a crash left half a line: don't glue this record onto it
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(line)
             f.flush()
@@ -155,8 +158,53 @@ class Ledger:
             self._ids.add(hand_id)
         return True
 
+    def _cut_off(self) -> bool:
+        """Whether the file ends in the middle of a line."""
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                if f.tell() == 0:
+                    return False
+                f.seek(-1, os.SEEK_END)
+                return f.read(1) != b"\n"
+        except OSError:
+            return False
+
     def count_since(self, t: _dt.datetime) -> int:
         return len(self._times) - bisect.bisect_left(self._times, t)
+
+
+class LedgerLock:
+    """One session at a time per ledger, on this machine.
+
+    Two sessions at once would each finish the other's open hand (both start by playing whatever
+    the server holds in progress) and could both pass the cap check for the same last hand. The
+    lock is a file next to the ledger, held with ``flock`` while a session runs and released by
+    the system if the process dies. It can't see a session on another machine: that is on us.
+    """
+
+    def __init__(self, ledger_path: str):
+        self.path = ledger_path + ".lock"
+        self._file = None
+
+    def acquire(self) -> bool:
+        try:
+            import fcntl
+        except ImportError:  # no flock on this system (Windows): nothing to hold
+            return True
+        f = open(self.path, "a")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.close()
+            return False
+        self._file = f
+        return True
+
+    def release(self) -> None:
+        if self._file is not None:
+            self._file.close()  # closing the file drops the lock
+            self._file = None
 
 
 class HandBudget:

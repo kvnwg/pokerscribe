@@ -1,0 +1,14 @@
+[package]
+name = "lbr"
+version = "0.1.0"
+edition = "2021"
+description = "Local best response (Lisy and Bowling 2017) for heads-up No-Limit Hold'em: a lower bound on how exploitable a strategy is."
+publish = false
+
+[dependencies]
+eval = { path = "../eval" }
+nlhe = { path = "../nlhe", features = ["eval"] }
+rayon = "1"
+
+[dev-dependencies]
+cfr = { path = "../cfr" }

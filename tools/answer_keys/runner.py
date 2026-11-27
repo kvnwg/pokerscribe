@@ -5,7 +5,7 @@
 
 The binary is a black box that follows this command line and nothing else:
 
-    subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.3]
+    subgame-solve <spot.json> [--out result.json] [--target-exploitability 0.2]
                   [--max-iterations N] [--time-ms N] [--threads N]
 
 It must write the spot's RESULT (data/SPOT_FORMAT.md) to --out: the header with the solve

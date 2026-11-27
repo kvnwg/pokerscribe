@@ -537,8 +537,8 @@ tuning bots.
 - The keyed-only runs for seed 404 were dropped to save time: cross-method ratios are too
   noisy at this size to say anything (point 1 above).
 - A heads-up simulator mode (`--players 2`, each deal played twice with the seats swapped),
-  which the new roadmap's Phase 1 adds, with the check that B0 plays heads-up.
-  `tools/simulate.py` is six-max only.
+  which the new roadmap's Phase 1 adds, with the check that B0 plays heads-up. Added later:
+  see "Phase 1: the heads-up mode" below.
 
 ## Phase 2 groundwork: river solver (26 Nov 2026)
 
@@ -1424,6 +1424,385 @@ the solving time the program reports) and with a stand-in that does no solving
 - The backend keeps 40 ms of the solver's 300 ms back for this, so the program gets
   260 ms. The largest overhead measured in any run is 37.7 ms.
 - Not in these numbers: a Mac.
+
+## Phase 1: the heads-up mode (26 Nov 2026)
+
+The last part of Kevin's Phase 1 brief: a heads-up mode (`--players 2`) in the simulator and
+the comparisons, B0 playing heads-up without always-wrong instructions, six-max play not
+changed at all, and the gate (SE at least halved) for heads-up too.
+
+### What was built
+
+- **`tools/simulate.py --players 2`**: the app against one of the table's five bots at a
+  time: the first of each deal's seat shuffle, so a different one from deal to deal.
+  - Heads-up rules: the button posts the small blind and acts first before the flop; the big
+    blind acts first on the flop, turn and river.
+  - The seats are named as the reader names them, "BTN/SB" and "BB"
+    (`app.state.positions`), so the advice sees what it would see at a real two-player table.
+- **`tools/compare.py --players 2`**: duplicate deals play each deal twice with the seats
+  swapped. The app holds the button's cards once and the big blind's once, against the same
+  bot on the same board. Everything else works as in six-max:
+  - a seed per bot decision;
+  - 6 replays from where the variants part, with the bot dealt fresh hands it could hold;
+  - the luck of board cards after which nobody can bet again taken out;
+  - a deck's two hands as one unit for the SE;
+  - `--jobs`, with the same results.
+- **More always-wrong checks** in `simulate.check_advice`, for moves the table can't take as
+  said:
+  - a bet or raise under the minimum, or more than the stack;
+  - CALL with nothing to call, CHECK facing a bet;
+  - folding aces before the flop.
+- **Nothing in `app/poker` changed**, B0 included. The advice already handled the heads-up
+  seats: the button's chart (`charts.OPEN["BTN/SB"]`), the raiser's seat group, who is in
+  position, and the players behind for push-or-fold.
+- **Six-max plays exactly as before.** These were all identical to the commit before the
+  heads-up mode, problem counts included:
+  - 720 hands on four tables and stack settings;
+  - 120 hands with profiles;
+  - paired runs of 72 hands with each of the three methods.
+
+  `test_six_max_unchanged_by_the_heads_up_mode` pins some of them, and the baseline test
+  passes.
+
+### B0 heads-up
+
+`runs/phase1_heads_up_b0.sh` and `phase1_heads_up_b0/summary.md`: every table and stack
+setting heads-up, 2000 hands each (1000 with profiles), and three six-max runs with the same
+checks for comparison.
+
+| Heads-up, 2000 hands each | B0, bb/100 | Button raises |
+|---|---|---|
+| mixed / stations / nits / tags | +20.2 / +24.4 / +30.9 / +25.1 | 44% / 43% / 42% / 44% |
+| lags / maniacs / fish247 | +22.2 / +5.9 / +22.0 | 43% / 45% / 46% |
+| heldout / regulars / switchers / wildcards | +19.3 / +26.1 / +25.3 / +2.0 | 44% / 44% / 46% / 47% |
+| mixed: uneven / tourney / 500 bb deep / profiles (1000) | +27.2 / +20.8 / +18.0 / +24.8 | 41% / 42% / 43% / 44% |
+| fish247: tourney / 500 bb deep | +10.6 / +7.7 | 43% / 45% |
+
+- **No always-wrong instruction** in 37629 heads-up instructions (33000 hands, 17 settings).
+  That covers every tuning and held-out table, uneven and tournament stacks, 500 big blinds
+  deep, and profiles. Both kinds of check found nothing: `check_advice`'s and the new ones.
+- From the button B0 raises 41% to 47% of hands and folds the rest. That's its six-max
+  button chart (`OPEN["BTN/SB"] = OPEN["BTN"]`). Heads-up solver strategies open far wider
+  (about 80% at 100 big blinds), but that's a question for the new agent, not a bug, and B0
+  is frozen.
+- **The bots keep their six-max styles**, so heads-up they fold a lot before the flop
+  (`runs/phase1_heads_up_bots.py`, mixed, 2500 hands, in `phase1_heads_up_b0/bots.txt`):
+  - in the big blind facing an open: the nit 92%, the tag 85%, the lag 84%, the maniac 67%
+    and the station 66%;
+  - on the button, first in: the nit 83%, the tag 81%, the lag 68%, the station 51% and the
+    maniac 43%.
+
+  So B0 wins against every table, and the bots are weak heads-up opponents. Heads-up styles
+  for them would need data: the HandHQ heads-up hands are in the shelved dataset.
+- **One older six-max bug**, which the new checks found in the six-max runs (1 of 2038
+  instructions on fish247, 500 big blinds deep):
+  - B0 said BET 1.5 into a pot of 4 chips (two big blinds) on the turn, under the minimum
+    bet of 2.
+  - The simulator plays the minimum instead, so no result changes.
+  - It isn't fixed here, because six-max play must not change. It's a plain bug fix for
+    later, with a regression test. (Fixed on 27 Nov 2026: "B0 fix: no bet under the
+    minimum", below.)
+
+### The gate, heads-up
+
+Rule (`runs/phase1_heads_up_gate.sh`, committed in 68791d6 before any heads-up hand on its
+seeds was played):
+
+- Gate run 5's rule, heads-up: the same 8 comparisons, 3000 hands each.
+- The new way: the defaults (each deal twice with the seats swapped; 6 replays from where the
+  variants part, with the bot redealt; luck taken out only where nobody can bet again), on
+  seeds 1111 and 1212.
+- The old way: classic, raw difference, pooled over seeds 1111 to 1414.
+- r: the new way's sd per hand over the old way's (decks as units), as in runs 4 and 5.
+- Judged: the comparisons in which at least 1% of the new way's hands differ.
+- Pass: geometric mean of r at most 0.5, none above 0.75, CPU per hand at most 1.25 times
+  classic.
+
+Result (`runs/phase1_heads_up_gate/summary.md`). Hands: 6000 new way, 12000 old way.
+
+| Comparison | Hands that differ, new | New way (bb/100) | Old way (bb/100) | r | CPU, new / old |
+|---|---|---|---|---|---|
+| `push_chart`, tourney | 2.52% | +1.2 ± 0.2 | +1.5 ± 0.6 | 0.258 | 1.16 |
+| `bet_size: 0.5` | 4.42% | -1.3 ± 0.6 | -0.0 ± 1.3 | 0.323 | 1.39 |
+| `texture_sizing` | 4.43% | -0.6 ± 0.5 | -0.7 ± 1.1 | 0.327 | 1.40 |
+| `ev_sizing`, fish247 | 8.27% | +2.3 ± 1.0 | +3.5 ± 1.6 | 0.439 | 1.71 |
+| `ev_sizing`, mixed | 5.57% | +3.7 ± 1.3 | +3.8 ± 1.8 | 0.497 | 1.80 |
+| `semibluff_turn: "never"` | 1.57% | -3.2 ± 0.9 | -3.3 ± 1.3 | 0.529 | 1.12 |
+| Not judged (under 1%): `stab: 0.0` | 0.42% | -1.2 ± 0.4 | -1.7 ± 1.0 | 0.295 | 1.11 |
+| Not judged: `commit: 1.0` | 0.03% | no result differs | | | 1.03 |
+
+Geometric mean of r over the six judged: **0.38** (passes, at most 0.5). Largest judged r:
+**0.53**, `semibluff_turn: "never"` (passes, at most 0.75). CPU per hand: **1.41** times
+classic (fails, at most 1.25). **The heads-up run fails**, on the CPU condition only.
+
+- The SE is more than halved on average heads-up too: 0.38, against 0.46 in six-max run 5,
+  and every judged comparison is at 0.53 or below (run 5: up to 0.75). Read strictly (every
+  comparison at most 0.5), one is over: `semibluff_turn: "never"` at 0.53.
+- The extra CPU is the replays. Heads-up more hands differ (4% to 8% for the sizing
+  comparisons, about 4% in six-max), and each is played 10 more times. It is highest for
+  `ev_sizing` (1.7 and 1.8), whose decisions are the slowest.
+- Per CPU second instead of per hand, r becomes r x the square root of the CPU ratio:
+  geometric mean 0.45, largest 0.67 (`ev_sizing`, mixed). That was worked out after the
+  result, so it tests nothing.
+- The seat swap alone does nothing for these comparisons: the raw duplicate difference's sd
+  is 0.68 to 1.27 of classic's. The gain is the replays'. Pairing the variants already
+  cancels the cards they share.
+- The brief's gate is "at equal hands", which this passes on average; the CPU bar came with
+  run 5's rule. As with run 5, whether that is good enough is Kevin's call. Nothing in the
+  method was changed for heads-up.
+
+**Decision (27 Nov 2026, the manager session under Kevin's delegation): good enough. Phase 1
+is done.**
+
+- Kevin left the call to the manager session ("if u think its passed then sure").
+- The gate is not passed as written: the CPU condition fails (1.41 against 1.25).
+- Both SE conditions pass: geometric mean of r 0.38 (bar 0.5), largest judged r 0.53 (bar
+  0.75). B0 plays heads-up with no always-wrong instruction.
+- The CPU cost is paid back: per CPU second the SE is 0.45 of the old way's (geometric mean),
+  so a comparison still needs far less computer time than classic. That figure was worked
+  out after the result, so it is a reason for the call, not a pass.
+- The new way stays the default for comparisons, heads-up too.
+- Phase 6's "beats B0 heads-up by 2.5 SE" will be measured in the Rust arena, not with
+  `tools/compare.py`, so this gate's CPU cost doesn't slow Phase 6.
+
+### Not done
+
+- Head-to-head play: two variants against each other heads-up, each deal played twice with
+  the seats swapped. Phase 6's "beats B0 heads-up" needs it once there is a second agent.
+  (Built since, in the Rust arena, B0 included: "Phase 6 groundwork" below.)
+- Heads-up styles for the bots (above).
+- The weakness report (`tools/weakness.py`) and the luck weights' fit (`tools/luck.py fit`)
+  are six-max only. The comparisons don't use the weights: they only correct board cards
+  after which nobody can bet again, where the weights have no effect.
+
+## B0 fix: no bet under the minimum (27 Nov 2026)
+
+The bug the heads-up work found (above): in six-max B0 said BET 1.5 into a pot of 4 chips
+(two big blinds), under the minimum bet of one big blind (2). A plain bug fix, so regression
+tests and no simulation (CLAUDE.md). `TUNING` and `baseline_tuning.json` are unchanged.
+
+### The cause
+
+- The `stab` rule bets a third of the pot: heads-up after the flop, checked to B0 last on a
+  dry board, from a 40% chance of winning. In a pot of 4 or 5 chips a third rounds to 1.5,
+  under the big blind of 2.
+- `_aggressive` turns a size into BET x, RAISE TO x or ALL IN. It capped a size at the stack,
+  but it never raised one to the minimum.
+
+### Every bet and raise in `app/poker`
+
+Every sized bet and raise goes through `_aggressive` in `app/poker/advice.py`. The rest are
+all-ins.
+
+- Before the flop: the open (2.5 big blinds, 3 from the small blind), the raise over limpers
+  (3 big blinds plus one per limper, 3.5 plus one from the big blind), re-raises (3 or 4 times
+  the raise plus one per caller, 2.3 times cold), raising a re-raise (2.2 or 2.5 times), and
+  `eff_push` and `bully` (off). All are at least twice the bet they answer, so at or over the
+  minimum.
+- After the flop: raising a bet for value (3 times their bet, or from 2.5 times with
+  `ev_sizing`), value bets (2/3 of the pot, or `texture_sizing`, `geometric`, `ev_sizing`,
+  `bucket_sizing`), `small_bet_from` (a third), `river_ip_call_share` (half), semi-bluffs
+  (half) and `stab` (a third). The bets are shares of the pot, and the smallest pot after the
+  flop is two big blinds: half of it or more is at least the big blind, a third isn't. Of the
+  options on by default, only `stab` bets a third.
+- The river solver's bets and raises (`river_solver`, off). Its tree (`app/solver/tree.py`)
+  has no floor of one big blind for a bet, so in a tiny pot it could also say a bet under the
+  minimum.
+- A size from a big blind guessed from the pot, when the blinds weren't read ("RAISE TO
+  ABOUT 5").
+- All-ins: `_shove` and CALL ALL IN, the whole stack, which is always allowed.
+
+### The fix
+
+One last check on every instruction, after `_never_fold_a_free_check` (`_legal_size`):
+
+- A bet or raise under the minimum goes up to it, and the small print says "That's the
+  smallest bet allowed."
+- The minimum (`_min_to`): the biggest bet plus the last raise (its gap down to the next bet
+  on the table), and at least one big blind more. A first bet is at least one big blind. With
+  nothing to call, a bigger bet on screen is taken for a misread.
+- Never more than your chips. When the minimum is most of your chips the instruction is ALL
+  IN, as for any size (`ALL_IN_SHARE`). When it is more than you have, it's all in for less,
+  which is allowed.
+- A guessed size ("ABOUT") is capped at the stack but never turned into ALL IN. The random
+  spots in `test_advice_fuzz.py` found one, RAISE TO ABOUT 333 with 200 chips (a big blind of
+  133 guessed from the pot), that the cap would otherwise have made a weak all-in. Before the
+  fix it said the 333.
+- Known limit: the minimum is worked out from the bets on the table, so after an all-in that
+  wasn't a full raise it can come out a little low. The rules' raises are at least twice the
+  bet there, far above it.
+
+Tests: `app/tests/test_legal_sizes.py`. They cover the exact spot (hand 665 of the six-max
+fish247 run, 500 big blinds deep, seed 43, rebuilt as the simulator holds it), small pots,
+short stacks, raises and the minimum itself.
+
+### Check runs
+
+`simulate.check_advice` on the main tables, on the commit before the fix and on the fix,
+compared hand by hand (`runs/b0_min_bet.py`, `runs/b0_min_bet/summary.md`).
+
+| Setting | Hands | Instructions | Under the minimum, before | After | Other always-wrong, after |
+|---|---|---|---|---|---|
+| Six-max: the 11 tables at 100 and 500 big blinds, tournament and uneven stacks, seed 43 | 52000 | 73338 | 14 | 0 | none |
+| Heads-up: the 17 settings of `phase1_heads_up_b0.sh` | 33000 | 37629 | 0 | 0 | none |
+
+- Before: the 14 were all one spot. B0 was in the big blind, the small blind completed, it was
+  checked to B0 on the flop or turn, and B0 said BET 1.5 into 4 chips. That's about 1 in 5200
+  six-max instructions, on 7 of the 11 tables. There were none heads-up: there the big blind
+  acts first after the flop, and B0 never just calls from the button.
+- After: none, and no other always-wrong instruction.
+- Exactly those 14 instructions changed (BET 1.5 to BET 2), and no hand's result changed: the
+  simulator already played the minimum. So the six-max values pinned in
+  `test_six_max_unchanged_by_the_heads_up_mode` are unchanged too.
+
+## Phase 6 groundwork: B0 against Rust agents (27 Nov 2026)
+
+Phase 6's gate needs the heads-up blueprint to beat B0 by 2.5 SE heads-up. Until now nothing let
+B0 play a Rust agent: B0 is Python (`app/poker`) and the arena (`engine/crates/arena`) seats Rust
+agents only. This builds that and measures what such a test costs. Usage:
+`engine/crates/py/README.md`, "Matches in the arena" and "B0 against a Rust agent".
+
+### What was built
+
+- **`pokerscribe_engine.run_match`** (`engine/crates/py`): a match in the Rust arena, from Python.
+  The arena still runs everything: each deal twice with the seats swapped, all-in hands scored by
+  their equity, bb/100 with the SE per deal. Its public API is unchanged. Each seat is one of:
+  - a Rust agent by name: the arena's 8 bots and 5 of the LBR crate's simple strategies
+    (`pokerscribe_engine.agents()`);
+  - any Python object with `act(view)`. The arena calls it on its turn and holds Python's lock
+    only for that call. The view has the agent's own cards, what is public and the betting so
+    far, and nothing else (the other cards in the view's state are made up).
+
+  A Rust `Player` or `Strategy` becomes a name with one line in `src/agents.rs`. That is the hook
+  the blueprint will use. Checked through it: `lbr-call`, `lbr-fold` and `lbr-jam` (the LBR
+  crate's strategies) play exactly the matches `call`, `fold` and `jam` play.
+- **`tools/b0_arena.py`**: B0 as a Python agent.
+  - What B0 sees: the arena's view becomes the simulator's own `Hand`. B0 is then asked through
+    `simulate.app_state` and `simulate.decision`, so it gets the spot the simulator gives it: the
+    stacks, the blinds (1/2 in the simulator's chips), the seats named "BTN/SB" and "BB", and the
+    betting so far. Checked on 400 random hands, each played in the engine and then in the
+    simulator: the same `GameState` at every one of B0's decisions, to the last bit, and the
+    same result.
+  - What it plays: the simulator's move for the instruction (`simulate.app_move`, then
+    `simulate.act`). An instruction that is not legal as said is played as the simulator plays
+    it, counted by kind, and written to a log with the spot (one JSON line each).
+- **Why this design.** The arena drives and B0 is one more agent. Two other designs were
+  possible:
+  - Python could drive the match through the nlhe bindings, but then the duplicate deals, the
+    all-in equity and the SE would exist twice.
+  - B0 could be rewritten in Rust, but it is frozen, and a rewrite would have to be proved equal
+    to it.
+
+  This way the scoring exists once, in Rust, and a Rust agent plays at Rust speed. Only B0 is
+  Python.
+
+### Results
+
+`runs/phase6_b0_arena.py` (`phase6_b0_arena/summary.md`): heads-up, 100 big blinds, blinds
+50/100, duplicate and all-in equity unless the row says plain. Seeds 601 to 610.
+
+| B0 against | Hands | B0, bb/100 | SE without the pairing | sd per deal | Hands/s |
+|---|---|---|---|---|---|
+| B0 | 800 | exactly 0 | 39.7 | 0 | 12.4 |
+| B0, plain (each deal once) | 1000 | -42.1 ± 32.5 | | 1027 | 7.1 |
+| B0 with `bet_size: 0.5` | 3000 | +2.9 ± 3.9 | 14.1 | 150 | 13.1 |
+| fold | 2000 | +34.7 ± 1.2 | 1.2 | 37 | 91 |
+| call | 2000 | +239.5 ± 19.2 | 22.0 | 606 | 4.6 |
+| tag | 6000 | +8.2 ± 5.6 | 7.7 | 308 | 32 |
+| tag-loose | 6000 | +2.5 ± 7.4 | 8.6 | 403 | 22 |
+| jam | 2000 | +8.1 ± 20.1 | 32.5 | 635 | 33 |
+| lbr-random | 2000 | +157.7 ± 34.3 | 38.1 | 1083 | 16 |
+| lbr-call-or-raise | 2000 | +362.6 ± 53.1 | 65.1 | 1678 | 10 |
+
+- **B0 against B0 is exactly 0** in duplicate play, with an SE of 0. B0 is deterministic (its
+  equity runs are seeded from what it sees), so each deal's two hands cancel. Without the
+  pairing, -42 ± 32 over 1000 hands, 1.3 SE from 0.
+- **B0 beats always-fold by 29 SE and always-call by 12.5 SE.** It also beats both LBR test
+  strategies by more than 4.5 SE.
+- **The arena's tag bots are near B0's strength heads-up**: +8.2 ± 5.6 and +2.5 ± 7.4, neither
+  2 SE from 0.
+- **The same seed gives the same match.** The two LBR matches, played a second time, gave the
+  same report, B0's counts included.
+- **B0 is unchanged**: nothing in `app/poker` was touched, `TUNING` is the same after a match,
+  and the baseline test passes.
+- **The pairing helps less here than in the simulator's comparisons.** The SE over the SE without
+  the pairing is 0.73 against tag, 0.85 against tag-loose and 0.62 against jam, but 0.28
+  against B0's own variant. Two different agents play a deal's two hands differently, so the
+  cards cancel less. Most of the gain in `tools/compare.py` comes from replaying the hands two
+  variants play differently, from the point where they part, against the same bots. A match
+  between two agents has no such point, so only the seat swap is left.
+
+### Instructions that can't be played as said
+
+- **None** in 41145 instructions over 26800 hands. Every instruction B0 gave was legal as said.
+- **The simulator's always-wrong checks** (`simulate.check_advice`) fired 9 times, all on the
+  same spot.
+  - The spot: B0 raised (to 2.5 big blinds on the button, or to 4.5 in the big blind after a
+    limp), the LBR random strategy re-raised to 26 to 87 big blinds, and B0 went all in with AKo.
+  - Why the check fires: it counts any all-in 40 big blinds deep or more before the flop, with a
+    hand outside the top 5%, and AKo is just outside.
+  - Why it is a false alarm: the check doesn't look at what B0 is facing. Against a re-raise of
+    a quarter of the stack or more, all in with AKo is a normal play.
+
+  No other opponent here led to it, and Phase 1's 37629 heads-up instructions against the
+  simulator's bots had none. The check is not changed here.
+- **One thing about B0**, from the jam match: B0 calls a 100 big blind jam only with JJ or better
+  (12 calls in 430 jams, seed 610, 300 deals; `runs/phase6_b0_jam_calls.py`). Against a bot that jams every hand, the best
+  answer calls with any hand that has about half the equity against a random hand, roughly half
+  of all hands. That is why B0 is only +8 against jam, and a blueprint will find it. B0 is
+  frozen, so it stays.
+
+### Speed
+
+All of the time is B0's. The arena, the Rust agent and the crossings between Rust and Python take
+0.0% to 0.2% of each match.
+
+- B0 costs 22 ms to 70 ms per instruction: 22 ms before the flop (against fold, where it acts
+  only there), 37 ms against tag, 70 ms against call, where every hand goes to the river.
+- So hands per second depend on how many instructions a hand needs, from 91 against fold to 4.6
+  against call. Against a near-equal opponent (tag, tag-loose) it is 22 to 32 hands per second
+  on one process.
+- A profile of 300 hands against tag:
+  - 94% of B0's time is its Monte Carlo equity: 88% in the equity the simulator gives the advice
+    (`simulate.sim_compute`, 400 samples per estimate) and the rest in the advice's own equity
+    runs;
+  - building the spot, the checks and turning the instruction into an action take under 0.5%.
+- A match with a Python agent plays on one thread, since the agent holds Python's lock. The
+  measurement ran four matches at once, one process each.
+
+### Hands for a 2.5 SE test
+
+With one sample per deal, an edge of D bb/100 is 2.5 SE after (2.5 sd / D)^2 deals, twice that in
+hands:
+
+| Opponent (sd per deal) | Edge 5 bb/100 | Edge 10 bb/100 | Edge 20 bb/100 |
+|---|---|---|---|
+| B0 with `bet_size: 0.5` (150) | 11,324 | 2,832 | 708 |
+| tag (308) | 47,414 | 11,854 | 2,964 |
+| tag-loose (403) | 81,230 | 20,308 | 5,078 |
+| jam (635) | 201,600 | 50,400 | 12,600 |
+| lbr-random (1083) | 586,766 | 146,692 | 36,674 |
+
+- **A near-equal opponent of a different kind (tag, tag-loose)**: an sd of 300 to 400 per deal.
+  An edge of 5 bb/100 then takes 47,000 to 81,000 hands, about 25 to 60 minutes on one process.
+  An edge of 10 bb/100 takes 12,000 to 20,000 hands, about 6 to 15 minutes. The blueprint
+  against B0 is the same kind of test: two different agents, not two variants of one.
+- **A variant of B0** has an sd of only 150, because a deal's two hands mostly cancel. It is not
+  a guide for the blueprint.
+- **The sd depends on the opponent**: it grows with the size of the pots, so an agent that
+  re-raises and jams a lot (lbr-random) needs ten times the hands. The first run against the
+  blueprint should measure it, and the test should be sized from that.
+- **CLAUDE.md's promotion rule** also asks for a repeat on fresh seeds, which doubles the hands.
+
+### Not done
+
+- A match with a Python agent uses one process. Splitting one test over processes (separate
+  seeds, pooled per deal) is not built; `runs/phase6_b0_arena.py` runs separate matches in
+  parallel instead.
+- The always-wrong check for jams doesn't look at the bet faced (above). It is shared with the
+  simulator runs, so it is left as it is.
+- Heads-up styles for the arena's bots, and the redeal replays for matches between different
+  agents.
 
 ## Research notes (paraphrased, with sources)
 

@@ -5,8 +5,9 @@ reports who won in bb/100 with a standard error (SE). It is the tool behind the 
 version replaces the last one only if it beats it by 2.5 SE", so behind the gates of Phases
 6, 7 and 8. The rules come from the `nlhe` crate and the showdowns from `eval`.
 
-Status, 26 Nov 2026: built and tested on five simple bots. No real agent is plugged in yet
-(the blueprint, LBR and B0 come later), and nothing in the app uses it.
+Status, 27 Nov 2026: built and tested on five simple bots. B0 plays in it from Python
+(`tools/b0_arena.py`, through `engine/crates/py`); the blueprint and LBR come later, and
+nothing in the app uses it.
 
 | Asked for | Result |
 | --- | --- |
@@ -145,10 +146,13 @@ How the coming agents fit:
   range it needs "what would you do here with these cards": `view.imagine(seat, cards)` is
   the same public situation through another seat's eyes with cards of the caller's choosing,
   and `view.config()` with `view.history()` rebuilds the public state in an nlhe `State`.
-- B0 through Python: a player that passes the view's fields to Python and turns the answer
-  into an `Action`. `begin_hand` and `end_hand` (with `net()` and `shown()`) give it the
-  hand boundaries and the showdowns its profiles learn from. An agent that learns from one
-  hand to the next repeats exactly only with `threads: 1`.
+- B0 through Python: built, in `engine/crates/py` ("Matches in the arena"). A player there
+  hands a Python object the view's fields at each decision and turns its answer into an
+  `Action`; `tools/b0_arena.py` is B0 as such an object. `begin_hand` and `end_hand` (with
+  `net()` and `shown()`) give it the hand boundaries and the showdowns profiles would learn
+  from (B0 plays without profiles for now). An agent that learns from one hand to the next
+  repeats exactly only with `threads: 1`. The same crate has the adapter for a `Strategy`
+  and the list of agents Python can name (`src/agents.rs`), where the blueprint goes.
 
 ## A match
 
@@ -430,8 +434,9 @@ decision after the flop, and against call every hand reaches the river. Four thr
 6. The SE treats the win rate as normal, as every bb/100 figure does. With few deals and
    rare huge pots the true spread is wider than the SE says. The 24 identical-agent matches
    of the tests, a few thousand hands each, stay within 1.9 SE.
-7. Not built yet: AIVAT (the hook is there), the bridge to Python for B0, uneven stacks, and
-   a hand history file. A `Scorer` sees every finished hand and could write one.
+7. Not built yet: AIVAT (the hook is there), uneven stacks, and a hand history file. A
+   `Scorer` sees every finished hand and could write one. The bridge to Python for B0 is
+   built (`engine/crates/py`).
 
 ## Layout
 
@@ -444,7 +449,7 @@ decision after the flop, and against call every hand reaches the river. Four thr
 | `src/luck.rs` | `Scorer`, `HandRecord`, `ActualChips`, `AllInEquity` |
 | `src/report.rs` | `MatchReport`, its JSON and its text table |
 | `src/bots.rs` | The test bots, the Chen score, hand strength |
-| `src/ranker.rs` | `EvalRanker`: the `eval` crate behind nlhe's `HandRanker` |
+| `src/ranker.rs` | `EvalRanker` (nlhe's own, the `eval` crate behind its `HandRanker`, re-exported) and `to_eval`, an nlhe card as an `eval` card |
 | `src/bin/arena.rs` | The command line |
 | `examples/variance.rs`, `examples/speed.rs` | The tables above |
 | `tests/` | `matches.rs` and `equity.rs` |

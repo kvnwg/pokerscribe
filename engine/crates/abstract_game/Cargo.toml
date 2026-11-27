@@ -8,4 +8,4 @@ publish = false
 [dependencies]
 cfr = { path = "../cfr" }
 eval = { path = "../eval" }
-nlhe = { path = "../nlhe" }
+nlhe = { path = "../nlhe", features = ["eval"] }

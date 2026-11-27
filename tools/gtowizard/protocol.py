@@ -148,10 +148,11 @@ def request_for(d: Decision) -> Tuple[str, Optional[int]]:
 
 def safe_action(legal: Sequence[str]) -> Tuple[str, Optional[int]]:
     """Check when it is free, fold otherwise: how a hand is finished when the bot can't play it."""
+    codes = [str(a) for a in legal] if isinstance(legal, (list, tuple)) else []
     for code in ("k", "f", "c"):
-        if code in legal:
+        if code in codes:
             return code, None
-    raise ProtocolError(f"no check, fold or call among the legal actions {list(legal)!r}")
+    raise ProtocolError(f"no check, fold or call among the legal actions {legal!r}")
 
 
 # --- the state a bot sees -------------------------------------------------------------------------
@@ -211,6 +212,12 @@ class View:
     hard: List[str] = field(default_factory=list)  # our parse and the server disagree: don't trust the parse
     soft: List[str] = field(default_factory=list)  # differences worth a note; the server's word is used
 
+    def our_actions(self) -> Optional[int]:
+        """How many actions of ours the history holds, or None when it couldn't be parsed."""
+        if self.history is None:
+            return None
+        return sum(1 for a in self.history.actions if a.seat == self.me)
+
     def bot_state(self, hand_number: int = 0) -> BenchmarkState:
         if self.history is None:
             raise ProtocolError("no parsed history to build a bot state from")
@@ -252,8 +259,13 @@ def _two_cards(cards) -> Optional[List[str]]:
     return out if len(out) == 2 else None
 
 
-def _number(x) -> Optional[float]:
-    return None if x is None else float(x)
+def number(x) -> Optional[float]:
+    """A finite number, or None for null and for anything that isn't one."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
 
 
 def _raise_range(gs: dict) -> Optional[Tuple[int, int]]:
@@ -269,9 +281,21 @@ def read_state(resp: dict, me: Optional[int] = None, postflop_first: int = BB_SE
 
     ``me`` is our seat if an earlier response of this hand already told us; otherwise we are the
     one player whose hole cards are shown. Raises ``ProtocolError`` when the basics can't be read
-    (no game state, no way to tell who we are). A history that can't be parsed, or that disagrees
-    with the server, does not raise: it is reported in ``View.hard``.
+    (no game state, no way to tell who we are), and nothing else: a reply that strays from the
+    spec in a way not foreseen here must not crash a session in the middle of a hand. A history
+    that can't be parsed, or that disagrees with the server, does not raise: it is reported in
+    ``View.hard``.
     """
+    try:
+        return _read_state(resp, me, postflop_first)
+    except ProtocolError:
+        raise
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError) as e:
+        raise ProtocolError(f"a reply that doesn't have the expected shape "
+                            f"({type(e).__name__}: {e})") from e
+
+
+def _read_state(resp: dict, me: Optional[int], postflop_first: int) -> View:
     try:
         hand_id = int(resp["hand_id"])
         gs = resp["game_state"]
@@ -299,10 +323,17 @@ def read_state(resp: dict, me: Optional[int] = None, postflop_first: int = BB_SE
     view = View(hand_id=hand_id, me=me, hole_cards=cards[mine] or [], opponent_cards=cards[1 - mine],
                 board=[], tokens=tokens, history=None, over=over,
                 our_turn=not over and gs.get("player_to_act") == USER, legal=legal,
-                raise_range=_raise_range(gs), total_pot=_number(gs.get("total_pot")),
-                winnings=_number(gs.get("winnings")), aivat_score=_number(gs.get("aivat_score")),
+                raise_range=None, total_pot=number(gs.get("total_pot")),
+                winnings=number(gs.get("winnings")), aivat_score=number(gs.get("aivat_score")),
                 opponent_folded=bool(gs.get("has_gto_wizard_folded")))
     view.soft.extend(game_differences(resp.get("game")))
+    try:
+        view.raise_range = _raise_range(gs)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        view.soft.append(f"the raise range {gs.get('raise_range')!r} can't be read; no bet is offered to the bot")
+        view.legal = tuple(a for a in legal if a != "b")
+    if view.total_pot is None and gs.get("total_pot") is not None:
+        view.hard.append(f"the total pot {gs.get('total_pot')!r} is not a number")
     if not cards[mine]:
         view.hard.append(f"our hole cards are {players[mine].get('hole_cards')!r}")
     try:

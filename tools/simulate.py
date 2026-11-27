@@ -1,7 +1,12 @@
 """Play the app's instructions against simulated opponents and measure how much it wins.
 
     python tools/simulate.py [hands] [--table mixed|stations|nits|tags|lags|maniacs] [--seed N] [--deep]
-                             [--stacks even|uneven|tourney] [--profiles]
+                             [--stacks even|uneven|tourney] [--profiles] [--players 2]
+
+With --players 2 the game is heads-up: the app against one bot of the table at a time (a
+different one of the table's five, drawn for each deal). Heads-up rules: the button posts
+the small blind and the other player the big blind; the button acts first before the flop
+and last after it. The seats are named as the app reads them ("BTN/SB" and "BB").
 
 A 6-max no-limit hold'em table, blinds 1/2, everyone topped up to 100 big blinds at the
 start of each hand (500 with --deep, like 247 Free Poker). With --stacks uneven the bots
@@ -51,7 +56,24 @@ from app.state.positions import position_names  # noqa: E402
 
 SB, BB = 1.0, 2.0
 POSITIONS = ["BTN", "SB", "BB", "UTG", "HJ", "CO"]  # by seat offset from the button
+assert POSITIONS == position_names(6)  # the names the app reads off a six-seat table
 PREFLOP_FIRST = 3  # UTG acts first preflop
+PLAYERS = (2, 6)  # table sizes: heads-up and six-max
+
+
+def blind_seats(button: int, n: int) -> Tuple[int, int]:
+    """The small and big blind's seats. Heads-up the button posts the small blind."""
+    return (button, (button + 1) % n) if n == 2 else ((button + 1) % n, (button + 2) % n)
+
+
+def first_to_act(button: int, n: int, preflop: bool) -> int:
+    """Who acts first: before the flop the seat after the big blind (heads-up the button, which
+    is the small blind); after it the first seat after the button (heads-up the big blind)."""
+    if preflop:
+        return button if n == 2 else (button + PREFLOP_FIRST) % n
+    return (button + 1) % n
+
+
 STYLES = {
     #          vpip  pfr  3bet  postflop: bet_strength  call_strength  bluff  aggression
     "station": (0.50, 0.08, 0.02, 0.80, 0.30, 0.02, 0.15),
@@ -176,7 +198,7 @@ class Hand:
         return ((self.rng_key * 8 + i) * 8 + len(self.board)) * 64 + n
 
     def position(self, i: int) -> str:
-        n = len(self.seats)  # six seats: POSITIONS
+        n = len(self.seats)
         return (POSITIONS if n == 6 else position_names(n))[(i - self.button) % n]
 
     @property
@@ -273,6 +295,19 @@ def check_advice(h: Hand, me: int, adv, stats) -> None:
                 problems.append("folded the best possible hand")
     if "Someone raised" in adv.reason and to_call <= 1e-9:
         problems.append("'someone raised' with nothing to call")
+    # moves the table can't take as said (added with the heads-up mode)
+    if adv.action == "call" and to_call <= 1e-9:
+        problems.append("call with nothing to call")
+    if adv.action == "check" and to_call > 1e-9:
+        problems.append("check facing a bet")
+    total = seat.stack + seat.bet
+    if adv.action in ("bet", "raise") and adv.amount is not None:
+        if adv.amount < min(total, h.current + h.min_raise) - 1e-9:
+            problems.append(f"below the minimum bet or raise: {adv.headline}")
+        if adv.amount > total + 1e-9:
+            problems.append(f"more than the stack: {adv.headline}")
+    if adv.action == "fold" and not h.board and cls == "AA":
+        problems.append("folded AA before the flop")
     for p in problems:
         stats["problems"][p.split(":")[0] if ":" in p else p] += 1
         if len(stats["examples"]) < 25:
@@ -668,11 +703,15 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
               number: int = 0, rotate: int = 0, keyed: bool = False, split_at: Optional[int] = None,
               resample: Optional[int] = None, hole_override: Optional[Dict[int, Tuple[str, str]]] = None,
               board_override: Optional[Dict[int, str]] = None) -> Dict[int, float]:
-    """Play one hand; the app is styles.index("app"). The deck deals hole cards to six card
-    slots and the button sits at slot `button`. With `rotate` r the players move r slots on
-    (the app takes slot r's cards and position), so the six rotations of one deck give the
-    app, and every bot, each slot's cards from that slot's position once (duplicate deals).
-    With `keyed` each bot decision gets its own seed (Hand.bot_rng)."""
+    """Play one hand; the app is styles.index("app"). The deck deals hole cards to one card
+    slot per player (six, or two heads-up) and the button sits at slot `button`. With `rotate`
+    r the players move r slots on (the app takes slot r's cards and position), so the six
+    rotations of one deck give the app, and every bot, each slot's cards from that slot's
+    position once (duplicate deals). Heads-up the two rotations swap the seats: each deal is
+    played twice, the app holding each player's cards once. With `keyed` each bot decision
+    gets its own seed (Hand.bot_rng)."""
+    n = len(styles)
+    assert 2 <= n <= 6, n
     rng = random.Random(seed)
     deck = list(hands.DECK)
     rng.shuffle(deck)
@@ -680,24 +719,24 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     # (board position 0-4), by swapping cards within the deck so it stays a whole deck
     wanted = {}
     for k, cards in (hole_override or {}).items():
-        slot = (k + rotate) % 6
+        slot = (k + rotate) % n
         wanted.update({2 * slot: cards[0], 2 * slot + 1: cards[1]})
-    wanted.update({12 + pos: c for pos, c in (board_override or {}).items()})
+    wanted.update({2 * n + pos: c for pos, c in (board_override or {}).items()})
     for pos, c in wanted.items():
         j = deck.index(c)
         deck[pos], deck[j] = deck[j], deck[pos]
     seats = [Seat(st, stack=d * BB) for st, d in zip(styles, stack_sizes(styles, seed, depth_bb, stacks))]
     for k, s in enumerate(seats):
-        slot = (k + rotate) % 6
+        slot = (k + rotate) % n
         s.cards = (deck[2 * slot], deck[2 * slot + 1])
         if names:
             s.name = names[k]
-    button = (button - rotate) % 6
-    board_cards = deck[12:17]
+    button = (button - rotate) % n
+    board_cards = deck[2 * n:2 * n + 5]
     h = Hand(seats, button, profiles=profiles, number=number, rng_key=seed * 6 + rotate if keyed else None,
              split_at=split_at, resample=resample)
     me = styles.index("app")
-    sb_i, bb_i = (button + 1) % 6, (button + 2) % 6
+    sb_i, bb_i = blind_seats(button, n)
     for i, amt in ((sb_i, SB), (bb_i, BB)):
         seats[i].stack -= amt
         seats[i].bet = amt
@@ -706,8 +745,8 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     if profiles is not None:
         observe(h, styles.index("app"))  # the blinds are in
     bot_rng = random.Random(seed * 7 + 1)
-    betting_round(h, (button + 3) % 6, bot_rng, budget_ms, stats)
-    for n in (3, 4, 5):
+    betting_round(h, first_to_act(button, n, preflop=True), bot_rng, budget_ms, stats)
+    for cards_on_board in (3, 4, 5):
         if len(h.active()) == 1:
             break
         h.pot_before = h.pot
@@ -719,7 +758,7 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
         h.current = 0.0
         h.min_raise = BB
         if not seats[me].folded:
-            h.chance.append({"board": tuple(h.board), "deal": tuple(board_cards[len(h.board):n]),
+            h.chance.append({"board": tuple(h.board), "deal": tuple(board_cards[len(h.board):cards_on_board]),
                              "live": tuple(h.active()), "put_in": tuple(s.put_in for s in seats),
                              "behind": tuple(s.stack for s in seats)})
             h.events.append(("card", len(h.chance) - 1))
@@ -729,14 +768,14 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
             random.Random(f"{seed}/{rotate}/{resample}/{len(h.board)}").shuffle(fresh)
             board_cards = list(h.board) + fresh[:5 - len(h.board)]
             if h.chance and h.chance[-1]["board"] == tuple(h.board):
-                h.chance[-1]["deal"] = tuple(board_cards[len(h.board):n])
-        h.board = board_cards[:n]
+                h.chance[-1]["deal"] = tuple(board_cards[len(h.board):cards_on_board])
+        h.board = board_cards[:cards_on_board]
         if sum(1 for i in h.active() if not seats[i].all_in) >= 2:
-            betting_round(h, (button + 1) % 6, bot_rng, budget_ms, stats)
+            betting_round(h, first_to_act(button, n, preflop=False), bot_rng, budget_ms, stats)
     if len(h.active()) > 1:
         h.board = board_cards[:5]
     won = showdown(h)
-    net = {i: won.get(i, 0.0) - seats[i].put_in for i in range(6)}
+    net = {i: won.get(i, 0.0) - seats[i].put_in for i in range(n)}
     stats["diverged"] = h.diverged
     # everything tools/luck.py and tools/weakness.py need about the hand just played
     stats["last"] = {"cards": tuple(s.cards for s in seats), "board": tuple(board_cards), "me": me,
@@ -760,12 +799,15 @@ def play_hand(styles: List[str], button: int, seed: int, budget_ms: int, depth_b
     return net
 
 
-def seating(table: str, seed: int, k: int) -> Tuple[List[str], List[str]]:
+def seating(table: str, seed: int, k: int, players: int = 6) -> Tuple[List[str], List[str]]:
     """Hand k's seats: the app in seat 0 and the bots shuffled round the others (the same
-    shuffle for styles and names, so a bot keeps its name wherever it sits)."""
+    shuffle for styles and names, so a bot keeps its name wherever it sits). Heads-up
+    (players 2) the app plays the first bot of the shuffle: one of the table's five, a
+    different one from deal to deal."""
     others = TABLES[table]
     order = list(range(len(others)))
     random.Random(seed + k).shuffle(order)
+    order = order[:players - 1]
     styles = ["app"] + [others[j] for j in order]
     names = ["You"] + [f"{others[j]}{j}" for j in order]
     return styles, names
@@ -778,7 +820,8 @@ def new_profiles():
 
 
 def run(n: int, table: str, seed: int, budget_ms: int = 25, depth_bb: float = 100.0, quiet: bool = False,
-        stacks: str = "even", profiles: bool = False) -> dict:
+        stacks: str = "even", profiles: bool = False, players: int = 6) -> dict:
+    assert players in PLAYERS, players
     stats = {"hands": [], "by_pos": defaultdict(list), "by_street": defaultdict(list), "all_in": [],
              "preflop_first": defaultdict(int), "advice": defaultdict(int), "problems": defaultdict(int),
              "examples": []}
@@ -787,8 +830,8 @@ def run(n: int, table: str, seed: int, budget_ms: int = 25, depth_bb: float = 10
     t0 = time.time()
     for k in range(n):
         # the app sits in seat 0; the button goes round, so it plays every position
-        styles, names = seating(table, seed, k)
-        play_hand(styles, button=k % 6, seed=seed * 100003 + k, budget_ms=budget_ms, depth_bb=depth_bb,
+        styles, names = seating(table, seed, k, players)
+        play_hand(styles, button=k % players, seed=seed * 100003 + k, budget_ms=budget_ms, depth_bb=depth_bb,
                   stats=stats, stacks=stacks, names=names, profiles=prof, number=k + 1)
         if not quiet and (k + 1) % 500 == 0:
             r = stats["hands"]
@@ -821,7 +864,7 @@ def report(stats: dict) -> str:
     if stats["all_in"]:
         lines.append(f"hands where the app was all in: {len(stats['all_in'])}, net {sum(stats['all_in']):+.0f} bb")
     first = stats["preflop_first"]
-    for pos in ["UTG", "HJ", "CO", "BTN", "SB", "BB"]:
+    for pos in ["UTG", "HJ", "CO", "BTN", "SB", "BTN/SB", "BB"]:
         tot = sum(v for (p, _), v in first.items() if p == pos)
         if tot:
             lines.append(f"  {pos:3s} first action: " + ", ".join(
@@ -872,9 +915,11 @@ def main():
     ap.add_argument("--profiles", action="store_true",
                     help="the app learns each bot's style from the hands, as in watch mode")
     ap.add_argument("--bot-actions", action="store_true", help="each bot style's action shares by street")
+    ap.add_argument("--players", type=int, default=6, choices=PLAYERS,
+                    help="6: six-max; 2: heads-up against one of the table's bots at a time")
     a = ap.parse_args()
     stats = run(a.hands, a.table, a.seed, a.budget, 500.0 if a.deep else 100.0, stacks=a.stacks,
-                profiles=a.profiles)
+                profiles=a.profiles, players=a.players)
     print(report(stats))
     if a.bot_actions:
         print(bot_action_report(stats))

@@ -3,11 +3,13 @@
 The module is built from Rust and is optional: the app runs without it. When it isn't
 built, every test here is skipped. To build it: engine/crates/py/README.md.
 
-Checked here: the evaluator against treys (the evaluator the app already uses), and the
+Checked here: the evaluator against treys (the evaluator the app already uses), the
 rules engine against the 10,000 PokerKit hands the Rust tests replay, so the bindings are
-known to hand over exactly what the engine works out.
+known to hand over exactly what the engine works out, and matches in the arena with Rust
+and Python agents (B0 itself is tested in test_b0_arena.py).
 """
 import copy
+import json
 import os
 import random
 import re
@@ -44,8 +46,8 @@ def test_the_type_stubs_name_what_the_module_has():
                 | {n.target.id for n in body if isinstance(n, ast.AnnAssign)})
 
     public = {n for n in dir(pe) if not n.startswith("_") and n != "pokerscribe_engine"} | {"__version__"}
-    assert names(stub.body) - {"Card", "Cards"} == public
-    for cls in (pe.State, pe.LegalActions):
+    assert names(stub.body) - {"Card", "Cards", "Answer", "Agent"} == public
+    for cls in (pe.State, pe.LegalActions, pe.View, pe.MatchReport):
         node = next(n for n in stub.body if isinstance(n, ast.ClassDef) and n.name == cls.__name__)
         assert {n for n in names(node.body) if not n.startswith("_")} == {n for n in dir(cls) if not n.startswith("_")}
 
@@ -421,3 +423,211 @@ def test_the_example_in_the_readme():
     assert hand.street == "river" and len(hand.board) == 5
     net = hand.payouts()
     assert sum(net) == 0 and sorted(abs(x) for x in net) in ([0, 0], [2, 2])
+
+
+# ------------------------------------------------------ matches in the arena
+def _same_match(a, b):
+    """Two reports are the same match apart from the agents' names, the threads and the time."""
+    def strip(report):
+        d = report.to_dict()
+        d.pop("timing")
+        d.pop("agents")
+        d["config"].pop("threads")
+        d["results"] = [{k: v for k, v in r.items() if k != "agent"} for r in d["results"]]
+        return d
+
+    return strip(a) == strip(b)
+
+
+def test_the_rust_agents_by_name():
+    assert pe.agents() == ["fold", "call", "raise", "minraise", "jam", "random", "tag", "tag-loose",
+                           "lbr-fold", "lbr-call", "lbr-jam", "lbr-call-or-raise", "lbr-random"]
+    with pytest.raises(ValueError, match='no Rust agent is called "nobody"'):
+        pe.run_match(["tag", "nobody"], 10)
+    with pytest.raises(TypeError, match="act"):
+        pe.run_match(["tag", 42], 10)
+
+
+def test_a_match_from_python_adds_up_and_repeats():
+    report = pe.run_match(["call", "tag"], 3000, seed=7)
+    d = report.to_dict()
+    assert d["format"] == "pokerscribe-arena/1" and d["config"]["lineup"] == [0, 1]
+    assert d["hands"] == 6000 and d["replays_per_deal"] == 2 and d["config"]["duplicate"]
+    call, tag = d["results"]
+    assert (call["agent"], tag["agent"]) == ("call", "tag")
+    assert call["bb_per_100"] == -tag["bb_per_100"] and tag["bb_per_100"] > 4 * tag["se"]
+    assert [s["position"] for s in tag["by_seat"]] == ["BTN/SB", "BB"]
+    assert report.result("tag") == tag and report.result(0) == call and report.result("nobody") is None
+    # the same seed, any number of threads: the same match to the last bit; another seed differs
+    assert _same_match(report, pe.run_match(["call", "tag"], 3000, seed=7, threads=1))
+    assert _same_match(report, pe.run_match(["call", "tag"], 3000, seed=7, threads=3))
+    assert not _same_match(report, pe.run_match(["call", "tag"], 3000, seed=8))
+    plain = pe.run_match(["call", "tag"], 3000, seed=7, duplicate=False, all_in_equity=False).to_dict()
+    assert plain["hands"] == 3000 and plain["scoring"] == "actual chips"
+    six = pe.run_match(["call", "tag"], 500, seed=7, players=6).to_dict()
+    assert six["config"]["lineup"] == [1, 0, 0, 0, 0, 0] and six["hands"] == 3000
+    assert pe.run_match(["call", "tag"], 50, lineup=[0, 1, 1]).to_dict()["config"]["lineup"] == [0, 1, 1]
+    with pytest.raises(ValueError, match="at least 1 deal"):
+        pe.run_match(["call", "tag"], 0)
+
+
+def test_the_report_saves_prints_and_reads_back(tmp_path):
+    report = pe.run_match(["tag", "random"], 200, seed=3)
+    assert json.loads(report.to_json()) == report.to_dict()
+    path = tmp_path / "match.json"
+    report.save(str(path))
+    assert json.loads(path.read_text()) == report.to_dict()
+    text = report.summary()
+    assert text == str(report) and "tag" in text and "random" in text and "BTN/SB" in text
+    assert repr(report).startswith("MatchReport(400 hands")
+
+
+def test_strategies_play_through_the_strategy_hook():
+    """LBR's chumps are Strategy implementations; through the adapter they play exactly as the
+    arena's bots that do the same thing, so the match is the same to the last bit."""
+    for bot, chump in (("call", "lbr-call"), ("fold", "lbr-fold"), ("jam", "lbr-jam")):
+        assert _same_match(pe.run_match(["tag", bot], 2000, seed=5), pe.run_match(["tag", chump], 2000, seed=5))
+    for chump in ("lbr-random", "lbr-call-or-raise"):
+        d = pe.run_match(["tag", chump], 2000, seed=5).to_dict()
+        assert all(r["illegal_actions"] == 0 for r in d["results"]) and d["results"][0]["bb_per_100"] > 0
+
+
+class _Watcher:
+    """A Python agent that plays random legal actions and checks, at every decision, that
+    its view is the hand replayed in the engine with its own cards and the board."""
+
+    def __init__(self, name):
+        self.name = name
+        self.decisions = self.showdowns_seen = 0
+        self.nets = []
+
+    def replay(self, view):
+        n = view.num_players
+        mine = list(view.hole)
+        spare = [c for c in DECK if c not in mine + list(view.board)]
+        hole = [mine if s == view.seat else [spare.pop(), spare.pop()] for s in range(n)]
+        board = list(view.board) + [spare.pop() for _ in range(5 - len(view.board))]
+        h = pe.new_hand(view.starting_stacks, view.small_blind, view.big_blind, view.ante, view.button,
+                        hole=hole, board=board)
+        for m in view.history():
+            h.apply(m["action"], m["amount"])
+        return h
+
+    def begin_hand(self, view):
+        assert view.history() == [] and view.street == "preflop" and view.net is None and not view.is_over
+
+    def act(self, view):
+        h = self.replay(view)
+        assert h.current_player == view.seat and h.legal_actions() == view.legal_actions()
+        for name in ("street", "board", "stacks", "bets", "committed", "pot", "max_bet", "full_raise", "button",
+                     "small_blind_seat", "big_blind_seat", "starting_stacks"):
+            assert getattr(h, name) == getattr(view, name), name
+        assert view.to_call == (view.legal_actions().call or 0) and len(set(view.hole)) == 2
+        others = [s for s in range(view.num_players) if s != view.seat]
+        assert view.shown(view.seat) == view.hole and all(view.shown(s) is None for s in others)
+        assert [view.is_folded(s) for s in range(view.num_players)] == [h.is_folded(s) for s in range(h.num_players)]
+        self.decisions += 1
+        legal = view.legal_actions()
+        moves = [m for m in ("fold", "check", "call") if getattr(legal, m) not in (False, None)]
+        if legal.can_raise:
+            moves += ["min", "max"]
+        move = moves[view.pick([1.0] * len(moves))]
+        if move in ("min", "max"):
+            return ("raise" if view.max_bet else "bet", legal.min_raise_to if move == "min" else legal.max_raise_to)
+        return move
+
+    def end_hand(self, view):
+        assert view.is_over and view.net is not None
+        self.nets.append(view.net)
+        others = [s for s in range(view.num_players) if s != view.seat]
+        showdown = not any(view.is_folded(s) for s in range(view.num_players))
+        for s in others:
+            shown = view.shown(s)
+            assert (shown is not None) == showdown
+            if shown:
+                assert len(shown) == 2 and not set(shown) & set(view.hole + view.board)
+        self.showdowns_seen += showdown
+
+
+def test_a_python_agent_sees_its_own_cards_and_what_is_public():
+    a, b = _Watcher("a"), _Watcher("b")
+    d = pe.run_match([a, b], 300, seed=11).to_dict()
+    assert [r["agent"] for r in d["results"]] == ["a", "b"]
+    assert d["results"][0]["illegal_actions"] == d["results"][1]["illegal_actions"] == 0
+    assert a.decisions > 600 and b.decisions > 600 and a.showdowns_seen > 30
+    # each hand's two results add up to 0 (heads-up, both see every hand, in the same order)
+    assert len(a.nets) == len(b.nets) == 600 and all(x + y == 0 for x, y in zip(a.nets, b.nets))
+    # a Python agent against a Rust one; the same seed gives the same match
+    first = pe.run_match([_Watcher("w"), "tag"], 200, seed=4)
+    assert _same_match(first, pe.run_match([_Watcher("w"), "tag"], 200, seed=4))
+    assert first.to_dict()["timing"]["threads"] == 1  # Python agents play on one thread unless asked
+
+
+def test_a_python_agent_answers_in_any_of_the_forms():
+    class Plays:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def act(self, view):
+            return self.answer(view)
+
+    def first_legal(view):
+        legal = view.legal_actions()
+        return "check" if legal.check else "call"
+
+    d = pe.run_match([Plays(first_legal), "fold"], 50).to_dict()
+    assert d["agents"] == ["Plays", "fold"] and d["results"][0]["illegal_actions"] == 0
+    # a bet ("bet" or "raise", with the total bet of the street) and a tuple with None
+    bettor = Plays(lambda v: ("bet", v.legal_actions().min_raise_to) if v.legal_actions().can_raise
+                   else ("call", None) if v.legal_actions().call else "check")
+    assert pe.run_match([bettor, "call"], 50).to_dict()["results"][0]["illegal_actions"] == 0
+    # an illegal action is the arena's business: replaced by a check or a fold, and counted
+    # (so a player whose every answer is illegal scores exactly as the fold bot does)
+    illegal = pe.run_match([Plays(lambda v: ("raise", 1)), "call"], 50, seed=6)
+    d = illegal.to_dict()
+    assert d["results"][0]["illegal_actions"] == 250  # each deal: folds on the button, checks 4 streets in the BB
+    assert d["results"][0]["bb_per_100"] == pe.run_match(["fold", "call"], 50, seed=6).result(0)["bb_per_100"]
+
+
+def test_an_error_in_a_python_agent_stops_the_match():
+    class Breaks:
+        def __init__(self):
+            self.calls = 0
+
+        def act(self, view):
+            self.calls += 1
+            if self.calls == 5:
+                raise RuntimeError("broken on purpose")
+            return "check" if view.legal_actions().check else "call"
+
+    broken = Breaks()
+    with pytest.raises(RuntimeError, match="broken on purpose"):
+        pe.run_match([broken, "tag"], 1000)
+    assert broken.calls == 5  # not asked again once it had failed
+
+    class Mumbles:
+        def act(self, view):
+            return 42
+
+    with pytest.raises(TypeError, match="must return"):
+        pe.run_match([Mumbles(), "tag"], 10)
+    for bad in ("shove", ("raise",), ("call", 5)):
+        with pytest.raises((ValueError, TypeError)):
+            pe.run_match([type("Bad", (), {"act": lambda self, v, bad=bad: bad})(), "tag"], 10)
+
+
+def test_pick_draws_from_the_decisions_random_number():
+    picks = []
+
+    class Picker:
+        def act(self, view):
+            with pytest.raises(ValueError):
+                view.pick([0.0, 0.0])
+            with pytest.raises(ValueError):
+                view.pick([1.0, -1.0])
+            picks.append((view.pick([1.0, 1.0, 1.0]), view.pick([1.0, 1.0, 1.0]), view.pick([0.0, 1.0])))
+            return "check" if view.legal_actions().check else "call"
+
+    pe.run_match([Picker(), "call"], 100, seed=2)
+    assert all(a == b and c == 1 for a, b, c in picks)  # the same decision draws the same number
+    assert {a for a, _, _ in picks} == {0, 1, 2}

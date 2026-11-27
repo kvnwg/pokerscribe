@@ -1,0 +1,2 @@
+fish247   base   +22.1 (±  5.9)  other   +28.3 (±  6.9)  difference   +6.2 ±  3.5  luck-adjusted   +6.2 ±  3.5 (checked down only   +6.2 ±  3.5) bb/100  [261/3000 hands differ, problems none]
+ALL       difference   +6.2 ±  3.5  luck-adjusted   +6.2 ±  3.5 bb/100 over 3000 hands, classic (232s)

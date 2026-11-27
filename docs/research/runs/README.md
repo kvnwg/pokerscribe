@@ -24,6 +24,12 @@ Phase 1 (26 Nov 2026), run from the repo root:
   hand that differs, on the gate runs' seeds and on seeds 41 to 48, and the tests on them, one
   `.txt` per test), and `phase1_replay_check.sh`, with its rule in the header before it ran,
   the confirming check on seeds 51 to 66 (`phase1_replay_check/summary.md`).
+- The heads-up mode: `phase1_heads_up_b0.sh` plays B0 heads-up on every table and stack
+  setting and counts always-wrong instructions (`phase1_heads_up_b0.py`, table by
+  `phase1_heads_up_b0_table.py` in `phase1_heads_up_b0/summary.md`), `phase1_heads_up_bots.py`
+  counts how the bots play heads-up before the flop (`phase1_heads_up_b0/bots.txt`), and
+  `phase1_heads_up_gate.sh`, with its rule in the header before it ran, is the gate run 5
+  rule applied heads-up (`phase1_heads_up_gate/summary.md`, made by `phase1_gate4_summary.py`).
 
 Phase 2 (26 Nov 2026):
 
@@ -35,3 +41,13 @@ Phase 2 (26 Nov 2026):
   how well the river ranges from the betting predict real cards, and their cost;
   `phase2_budget.py`: the solver's time by pot size, and whether a simulator run repeats
   exactly. Each with its `.log` (`experiments.md`, Phase 2).
+
+Phase 6 groundwork (27 Nov 2026):
+
+- `phase6_b0_arena.py`: B0 against Rust agents in the Rust arena (`tools/b0_arena.py`), heads-up,
+  each deal twice with the seats swapped: B0 against itself and a variant, the always-fold and
+  always-call bots, the arena's tag bots and the LBR crate's simple strategies, then a profile of
+  where B0's time goes. `phase6_b0_arena/summary.md` and its `.log`. The JSON per match is not
+  committed (the script rebuilds it); `--summary` rebuilds the tables from it, `--only LABEL ...`
+  plays some matches again and `--profile` redoes the profile. `phase6_b0_jam_calls.py` counts how often B0 calls a
+  100 big blind jam (its `.log`).

@@ -1,22 +1,11 @@
-//! Showdowns: the eval crate's evaluator behind nlhe's [`HandRanker`] trait.
+//! Showdowns: the eval crate's evaluator behind nlhe's [`HandRanker`](nlhe::HandRanker) trait.
+//!
+//! [`EvalRanker`] is nlhe's own (`nlhe::EvalRanker`, feature `eval`), re-exported so that
+//! `abstract_game::EvalRanker` names it. This crate used to have a copy of its own.
 
-use nlhe::{Card, HandRanker};
+use nlhe::Card;
 
-/// Ranks showdowns with the eval crate. `nlhe` only needs the order of the values:
-/// higher is better and equal values tie, which is how `eval::HandRank` is numbered.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct EvalRanker;
-
-impl HandRanker for EvalRanker {
-    #[inline]
-    fn rank7(&self, cards: &[Card; 7]) -> u32 {
-        let mut hand = eval::Hand::new();
-        for &card in cards {
-            hand = hand.add(to_eval(card));
-        }
-        hand.eval7().value() as u32
-    }
-}
+pub use nlhe::EvalRanker;
 
 /// An `nlhe` card as an `eval` card. Both number cards `rank * 4 + suit`.
 #[inline]
@@ -28,7 +17,7 @@ pub(crate) fn to_eval(card: Card) -> eval::Card {
 mod tests {
     use super::*;
     use cfr::Rng;
-    use nlhe::{card_string, BruteForceRanker};
+    use nlhe::{card_string, BruteForceRanker, HandRanker};
 
     #[test]
     fn cards_are_numbered_the_same_way() {
