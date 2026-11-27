@@ -36,7 +36,7 @@ is local best response, an exploiter that measures how much a strategy can be be
 | Phase | Work | Gate before the next phase |
 | --- | --- | --- |
 | 0 | Correct inputs, capture log, frozen B0 | Done |
-| 1 | Duplicate deals, luck adjustment, heads-up simulator mode | SE at least halved; B0 plays heads-up |
+| 1 | Duplicate deals, luck adjustment, heads-up simulator mode | Done (SE at least halved; B0 plays heads-up; CPU over its bar, accepted 27 Nov 2026, `experiments.md`) |
 | 2 | River CFR solver in Python, push-or-fold | Reference for Phase 4 |
 | 3 | Rust core on toy games: rules engine, hand evaluator, CFR library (vanilla, CFR+, Linear, Discounted, Monte Carlo), exact best response | Kuhn value -1/18 and exploitability under 0.001; Leduc matches OpenSpiel; evaluator exact on all 7-card hands |
 | 4 | Rust subgame solver, river then turn, Discounted CFR over all combos with card removal | Matches Phase 2, closed-form results and TexasSolver within 0.5% pot EV; under 0.5% pot exploitability; river p95 under 400 ms |

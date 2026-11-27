@@ -1534,10 +1534,25 @@ classic (fails, at most 1.25). **The heads-up run fails**, on the CPU condition 
   run 5's rule. As with run 5, whether that is good enough is Kevin's call. Nothing in the
   method was changed for heads-up.
 
+**Decision (27 Nov 2026, the manager session under Kevin's delegation): good enough. Phase 1
+is done.**
+
+- Kevin left the call to the manager session ("if u think its passed then sure").
+- The gate is not passed as written: the CPU condition fails (1.41 against 1.25).
+- Both SE conditions pass: geometric mean of r 0.38 (bar 0.5), largest judged r 0.53 (bar
+  0.75). B0 plays heads-up with no always-wrong instruction.
+- The CPU cost is paid back: per CPU second the SE is 0.45 of the old way's (geometric mean),
+  so a comparison still needs far less computer time than classic. That figure was worked
+  out after the result, so it is a reason for the call, not a pass.
+- The new way stays the default for comparisons, heads-up too.
+- Phase 6's "beats B0 heads-up by 2.5 SE" will be measured in the Rust arena, not with
+  `tools/compare.py`, so this gate's CPU cost doesn't slow Phase 6.
+
 ### Not done
 
 - Head-to-head play: two variants against each other heads-up, each deal played twice with
   the seats swapped. Phase 6's "beats B0 heads-up" needs it once there is a second agent.
+  (Built since, in the Rust arena, B0 included: "Phase 6 groundwork" below.)
 - Heads-up styles for the bots (above).
 - The weakness report (`tools/weakness.py`) and the luck weights' fit (`tools/luck.py fit`)
   are six-max only. The comparisons don't use the weights: they only correct board cards
