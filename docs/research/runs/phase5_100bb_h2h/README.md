@@ -23,12 +23,12 @@ bb/100 by chance: their deals differ (their real-chip results, seat figures and 
 all do), and the gap between them is +0.00 ± 0.69.
 
 **Added after review (not pre-registered; doesn't change the decision).** The 0.0023 agreement
-is chance (`extra.md`). The two seeds' deals differ: none of the first 1,000 is the same, and the
-two seeds share no deal seed within the 2,000,000 deals. Ten more fresh seeds (9203 to 9212, 2,000,000 deals each)
-give +2.41 to +4.33. Over all 12 seeds the results' sd is 0.505 against an SE of 0.486 (p =
-0.38), and pooled standard-k200 wins by +3.57 ± 0.14 bb/100. Seeds 9205 to 9212 were added after
-9204 landed 0.02 from the first two; chance puts three of four results that close about 1 time
-in 480, and the eight more seeds show the spread is ordinary.
+is chance (`extra.md`). The two seeds' deals differ: none of the first 1,000 is the same, and
+within the 2,000,000 deals the two seeds share no deal seed. Ten more fresh seeds (9203 to 9212,
+2,000,000 deals each) give +2.41 to +4.33. Over all 12 seeds the results' sd is 0.505 against an
+SE of 0.486 (p = 0.38), and pooled standard-k200 wins by +3.57 ± 0.14 bb/100. Seeds 9205 to 9212
+were added after 9204 landed 0.02 from the first two; chance puts three of four results that
+close about 1 time in 480, and the eight more seeds show the spread is ordinary.
 
 **Each seat's figure includes the button's advantage**: the second run on the button plays the
 first in the big blind, and the other way round. The result is the mean of the two, and half
