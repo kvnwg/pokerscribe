@@ -1,0 +1,2 @@
+{"after":585.0855,"before":592.98002,"change":0.0885460776909973,"converged":false,"from":4000000,"lbr_flat":true,"lowered_by":7.89452,"run":"standard-k10","setting":"b56_14","settled":false,"std_err":8.569269628377796,"to":8000000}
+{"after":584.56614,"before":585.0855,"change":0.07680269206694648,"converged":true,"from":8000000,"lbr_flat":true,"lowered_by":0.51936,"run":"standard-k10","setting":"b56_14","settled":true,"std_err":8.204548642463136,"to":16000000}

@@ -2352,12 +2352,48 @@ the run's state is "done". The rich run above used the same contract.
 
 - **Why the buckets half fails** is not tested. The cheapest next step is the bucket half at 100
   big blinds (standard menu, 10, 50 and 200 buckets; 7.2M information sets at 200), about 3 to 4
-  hours here.
+  hours here. (Done after the gate: "Phase 5 check: buckets at 100 big blinds", below.)
 - **Bucket counts above 200**, and potential-aware river buckets.
 - **Pruning on a long run**, and Linear CFR's interval and length (Pluribus's, unchanged).
 - **The speed on Arm and on 64 threads**: guessed above, not measured.
 - **LBR's `fc14`** (30 times slower) and settings with more sizes on the flop only.
 - **Phase 6 itself.** Nothing was rented.
+
+## Phase 5 check: buckets at 100 big blinds (27 Nov 2026)
+
+A check added after the gate, not a gate run. At 20 big blinds more buckets didn't lower LBR's
+win rate; Kevin asked whether that is the stack depth or will carry into Phase 6. The plan
+(`docs/research/runs/phase5_100bb/README.md`, `plan.json`) was committed before training
+(350f9c4): heads-up, 100 big blinds, the standard menu, OCHS on the river, 10, 50 and 200 buckets
+a street, the gate's training settings and stop rule (change at most 0.08, LBR flat, cap 256M),
+then LBR on the same 100,000 deals (seed 778) for all three with six settings (the gate's five
+and `fc14`). Results, tables and files are in that folder (`results.md`, `checks.md`).
+
+- **Training.** All three converged: standard-k10 at 16M iterations (7 minutes), standard-k50
+  at 64M (40 minutes), standard-k200 at 128M (1.6 hours, 22,786 iterations a second, 1.6 GB).
+  M is `b56_14` for all three: 592.6 ± 7.9, 575.6 ± 7.7 and 592.9 ± 7.7 bb/100.
+- **The plan's verdict**: buckets help from 10 to 50 (M -16.9 ± 7.8, 2.2 paired SE), then M
+  rises again from 50 to 200 (+17.3 ± 7.0, 2.5 SE), so it doesn't flatten. None of the plan's
+  four outcomes fits; standard-k200's M equals standard-k10's (+0.4 ± 7.7).
+- **On a second deal set** (seed 779, not pre-registered): 10 to 50 is -24.0 ± 7.7 (3.1 SE),
+  50 to 200 +7.0 ± 7.0. Pooled over both: -20.5 ± 5.5 (3.7 SE), +12.2 ± 5.0 (2.5 SE), and 10 to
+  200 -8.3 ± 5.4 (1.5 SE). All of the fall from 10 to 50 is with the blueprint on the button.
+- **Near the menu, more buckets are more exploitable.** From 10 to 200 buckets (seed 778):
+  `fcpa14` +36.5 (4.9 SE), `fcpa34` +42.8 (6.6 SE), `b56_34` +42.3 (6.1 SE), `fc34` +13.5 (3.6
+  SE); at 20 big blinds the same settings moved by at most 2.7 SE. With `fcpa14` only 1.5% to
+  1.7% of the blueprint's decisions are off the tree, so this is not mainly the bet translation.
+- **Answer.** Partly the stack depth: at 100 big blinds 10 buckets are measurably too coarse.
+  But LBR shows no gain from 50 to 200 buckets, and the near-menu settings get worse at every
+  step, more than at 20 big blinds, so this is likely to carry into Phase 6.
+- **For Phase 6.** Its gate is head to head and against B0, with LBR only reported (Phase 5: the
+  gate, Decision), so the gate is unchanged. But LBR at 100 big blinds goes against 200 buckets
+  over 50 (M +12.2 ± 5.0 pooled, `fcpa34` +18.5 ± 6.5), and Phase 6's LBR readings shouldn't be
+  expected to show what 200 buckets buy. LBR measures the worst case, not play against a real
+  opponent: if 200 buckets are to be checked before the full run, the cheap way is standard-k50
+  against standard-k200 head to head at 100 big blinds in the arena (not done). Why finer
+  buckets are more exploitable is not tested (the gate's three candidates stand).
+- **Scale.** LBR wins 1,671.7 ± 10.9 bb/100 from always calling at 100 big blinds; the three
+  blueprints give it 34% to 35% of that (33% to 40% at 20 big blinds).
 
 ## Phase 6: ready to launch (27 Nov 2026)
 
