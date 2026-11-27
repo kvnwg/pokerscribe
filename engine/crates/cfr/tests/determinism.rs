@@ -35,7 +35,10 @@ fn for_each_set_gives_the_same_numbers_as_the_copies() {
     let (regrets, sums) = (solver.regrets(), solver.strategy_sums());
     let mut seen = std::collections::HashMap::new();
     solver.for_each_set(|key, r, s| {
-        assert!(seen.insert(key, (r.to_vec(), s.to_vec())).is_none(), "a set twice");
+        assert!(
+            seen.insert(key, (r.to_vec(), s.to_vec())).is_none(),
+            "a set twice"
+        );
     });
     assert_eq!(seen.len(), table.len());
     for (i, set) in table.sets().iter().enumerate() {

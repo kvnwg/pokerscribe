@@ -538,7 +538,10 @@ fn stage(run: &Run, dir: &Path, stages: &[u64], until: u64) -> Result<serde_json
     let started = Instant::now();
     let export = run.export();
     let name = stage_name(at);
-    let bytes = export.file.save(&dir.join(&name)).map_err(|e| e.to_string())?;
+    let bytes = export
+        .file
+        .save(&dir.join(&name))
+        .map_err(|e| e.to_string())?;
     let export_seconds = started.elapsed().as_secs_f64();
     let before = stages
         .iter()
@@ -549,7 +552,8 @@ fn stage(run: &Run, dir: &Path, stages: &[u64], until: u64) -> Result<serde_json
     let measured = Instant::now();
     let change = match before {
         Some(b) => {
-            let earlier = StrategyFile::load(&dir.join(stage_name(b))).map_err(|e| e.to_string())?;
+            let earlier =
+                StrategyFile::load(&dir.join(stage_name(b))).map_err(|e| e.to_string())?;
             let layout = Layout::of(run.solver.game());
             Some(export.file.change_from(&earlier, &layout, &export.weights))
         }
@@ -596,7 +600,9 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
     }
     if let Some(s) = config.strategies {
         if s.first == 0 || s.factor < 2 {
-            return Err("--config: strategies needs a first stage above 0 and a factor of 2 or more".into());
+            return Err(
+                "--config: strategies needs a first stage above 0 and a factor of 2 or more".into(),
+            );
         }
     }
     if let Some(t) = a.get("threads") {
@@ -718,12 +724,16 @@ fn export(a: &Args) -> Result<(), String> {
     };
     let checkpoint = PathBuf::from(a.need("checkpoint")?);
     let out = PathBuf::from(a.need("out")?);
-    let tables = a.get("tables").map(PathBuf::from).unwrap_or(spec.abstraction.clone());
+    let tables = a
+        .get("tables")
+        .map(PathBuf::from)
+        .unwrap_or(spec.abstraction.clone());
     let started = Instant::now();
-    let buckets = Arc::new(Buckets::load(&tables).map_err(|e| format!("{}: {e}", tables.display()))?);
+    let buckets =
+        Arc::new(Buckets::load(&tables).map_err(|e| format!("{}: {e}", tables.display()))?);
     let game = build_game(&spec, buckets.clone()).map_err(|e| e.to_string())?;
-    let solver = Mccfr::resume(game, &checkpoint)
-        .map_err(|e| format!("{}: {e}", checkpoint.display()))?;
+    let solver =
+        Mccfr::resume(game, &checkpoint).map_err(|e| format!("{}: {e}", checkpoint.display()))?;
     let train_seconds: f64 = a.num("train-seconds", 0.0)?;
     let exported = StrategyFile::from_solver(
         &solver,
@@ -798,7 +808,10 @@ mod tests {
             s.upto(8_000_000),
             vec![1_000_000, 2_000_000, 4_000_000, 8_000_000]
         );
-        assert_eq!(s.upto(5_000_000), vec![1_000_000, 2_000_000, 4_000_000, 5_000_000]);
+        assert_eq!(
+            s.upto(5_000_000),
+            vec![1_000_000, 2_000_000, 4_000_000, 5_000_000]
+        );
         assert_eq!(s.upto(500_000), vec![500_000]);
         assert_eq!(stage_name(2_000_000), "strategy-2000000.bps");
     }
