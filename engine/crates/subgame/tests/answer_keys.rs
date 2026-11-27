@@ -30,12 +30,15 @@ use subgame::{
 const GATE_EXPLOITABILITY: f64 = 0.005;
 const GATE_VALUE_PCT: f64 = 0.5;
 const GATE_RIVER_P95_MS: f64 = 400.0;
-/// The binary's default target, 0.3% of the pot (TexasSolver's accuracy for the keys too).
-/// The value gate is checked on solves to this target. Stopping at exactly 0.5% isn't
-/// enough for it: a strategy that is 0.5% exploitable can sit up to 1% of the pot from the
-/// game's value, and r02 and r20 come out 0.57% and 0.50% from TexasSolver's (the README
-/// has every spot at both targets).
-const DEFAULT_TARGET: f64 = 0.003;
+/// The binary's default target, 0.2% of the pot. The value gate is checked on solves to
+/// this target. Stopping at exactly 0.5% isn't enough for it: a strategy that is 0.5%
+/// exploitable can sit up to 1% of the pot from the game's value, and r02 and r20 come out
+/// 0.57% and 0.50% from TexasSolver's. At 0.3% r02 passes the Phase 4 gate against the
+/// Python reference by 0.002% of the pot (`docs/research/PHASE4.md`), so the default is
+/// 0.2% (the README has every spot at both targets).
+const DEFAULT_TARGET: f64 = 0.002;
+/// `DEFAULT_TARGET` in percent, for the report's labels.
+const DEFAULT_TARGET_PCT: &str = "0.2";
 
 fn keys_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../data/answer_keys")
@@ -470,7 +473,7 @@ fn trivial_spots_pass_their_expected_checks() {
         let game = load_game(id);
         assert!(!game.spot.expected.is_empty(), "{id} has expected checks");
         checks += game.spot.expected.len();
-        for target in [GATE_EXPLOITABILITY, 0.003] {
+        for target in [GATE_EXPLOITABILITY, DEFAULT_TARGET] {
             let solution = solve(&game, &config(target, 1));
             let failures = check_expected(&game.spot, &records(&game, &solution.strategy));
             assert!(failures.is_empty(), "{id} at {target}: {failures:?}");
@@ -935,8 +938,10 @@ fn report() {
     };
     timed_decision("r01", GATE_EXPLOITABILITY, 1); // warm up
 
+    let fine_pct = DEFAULT_TARGET_PCT;
+    assert_eq!(fine_pct.parse::<f64>().unwrap() / 100.0, DEFAULT_TARGET);
     println!("\n### River\n");
-    println!("| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | Expl. | EV gap | Iter. at 0.3% | ms | Expl. | EV oop | TexasSolver's EV oop | EV gap | TexasSolver's answer: its number | our number |");
+    println!("| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | Expl. | EV gap | Iter. at {fine_pct}% | ms | Expl. | EV oop | TexasSolver's EV oop | EV gap | TexasSolver's answer: its number | our number |");
     println!("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
     let (mut quick_times, mut default_times) = (Vec::new(), Vec::new());
     let (mut worst_quick_gap, mut worst_default_gap) = (0.0f64, 0.0f64);
@@ -968,9 +973,12 @@ fn report() {
     }
     println!();
     summary("river, whole decision, target 0.5%", &quick_times);
-    summary("river, whole decision, target 0.3%", &default_times);
-    println!("river, largest EV gap: {worst_quick_gap:.3}% at target 0.5%, {worst_default_gap:.3}% at target 0.3%");
-    for target in ["0.5", "0.3"] {
+    summary(
+        &format!("river, whole decision, target {fine_pct}%"),
+        &default_times,
+    );
+    println!("river, largest EV gap: {worst_quick_gap:.3}% at target 0.5%, {worst_default_gap:.3}% at target {fine_pct}%");
+    for target in ["0.5", fine_pct] {
         // the binary, process start included
         let mut times = Vec::new();
         for id in spot_ids("river") {
@@ -987,7 +995,7 @@ fn report() {
     }
 
     println!("\n### Turn ({n_threads} threads)\n");
-    println!("| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | ms, 1 thread | Expl. | EV gap | Iter. at 0.3% | ms | ms, 1 thread | Expl. | EV oop | TexasSolver's EV oop | EV gap |");
+    println!("| Spot | Combos (oop, ip) | Nodes | Iter. at 0.5% | ms | ms, 1 thread | Expl. | EV gap | Iter. at {fine_pct}% | ms | ms, 1 thread | Expl. | EV oop | TexasSolver's EV oop | EV gap |");
     println!("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
     let mut keys = Vec::new();
     let (mut quick_times, mut default_times, mut quick_one, mut default_one) =
@@ -1031,10 +1039,13 @@ fn report() {
     );
     summary("turn, whole decision, target 0.5%, 1 thread", &quick_one);
     summary(
-        &format!("turn, whole decision, target 0.3%, {n_threads} threads"),
+        &format!("turn, whole decision, target {fine_pct}%, {n_threads} threads"),
         &default_times,
     );
-    summary("turn, whole decision, target 0.3%, 1 thread", &default_one);
+    summary(
+        &format!("turn, whole decision, target {fine_pct}%, 1 thread"),
+        &default_one,
+    );
 
     println!("\n### TexasSolver's turn answers\n");
     println!("| Spot | TexasSolver's number | Our number (exact card removal) | Difference | Its arithmetic redone on our tree |");
