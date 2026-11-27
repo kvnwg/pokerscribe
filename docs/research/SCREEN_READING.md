@@ -151,17 +151,18 @@ between a seat and the middle.
 | Thing | Where | Rule |
 | --- | --- | --- |
 | Player picture | Round, a few text heights across | Found as a circle whose whole outline is an edge (two circle finders propose, the outline decides). Dim pictures of folded players count |
-| Level | A badge on the picture's rim, a box on the name's line, or a bare number beside the name | Text on a picture or in a badge on its rim is never a name, stack or bet. A number on the same line as a name or a stack, next to it, is never a bet |
+| Level | A badge on the picture's rim, a box on the name's line, or a bare number beside the name | Text on a picture or in a badge on its rim is never a name, stack or bet. A number on the same line as a name or a stack, next to it, is never a bet, unless it has a currency sign: with eight players a bet can lie beside the next seat's name |
 | Countdown | Big digits on the acting player's picture | On the picture: never a bet. The ring round the picture is the turn |
 | Turn ring | A thin coloured arc round the acting picture; its length is the time left | Measured outside the picture; solid shapes beside it (card backs, chips) don't count. A short arc still counts |
-| Card backs | Beside the picture, coloured or plain grey | Must be card-shaped and solid: hair, shoulders, level boxes, the table's rim and the dealer button are not backs. Plain grey backs are looked for only when no coloured ones are on the table |
-| Face-up cards at showdown | Beside a player | That player is still in. Beside a seat off to the side, they are not yours |
+| Card backs | Beside the picture on either side, coloured, plain grey, or dark inside a thin white edge | Must be card-shaped and solid: hair, shoulders, level boxes, the table's rim and the dealer button are not backs. Looked for on both sides of the picture, as far out as a card or two (with eight players they reach past the name's width). Plain grey backs are looked for only when no coloured ones are on the table |
+| Face-up cards at showdown | Beside a player | That player is still in. Beside a seat off to the side, they are not yours. A player's two cards go to one seat together, by the middle of the pair: the card further out can be nearer the next seat's name |
 | Your hand's strength | "High Card" beside your picture | Never your name |
 | Your name | Can be missed (drawn across the table's edge) | A stack just under your cards is then your seat |
 | Experience counter, bonus, notification count | Corners | "300512 / 512000", "+100%", a lone "3" are no player and no amount |
 | Currency after the number | "12,400$", "20 €" | An amount |
 | A point with three digits after it | "2.035$" | 2,035: money never has three decimals (OCR reads a small comma as a point) |
-| Chip icon before a bet | Read as "0 210" | The lone 0 is the icon |
+| Chip icon before a bet or stack | Read as "0 210", "C210", or "+$ 19700" (a coin before the currency sign) | The icon is dropped. A bare "+30" (a time bank) stays no amount |
+| A stack on the table's rim | The top seat's stack drawn on the felt's edge (eight players) | Under a name or a picture: never the pot |
 | Dealer button touching text | "$ 200D", "D19" (with a level badge) | The character the disc covers is dropped, from the nearer end |
 | Buttons | Stacked in a column at the right edge, or across the bottom of a phone | Both are your buttons. "All in" by your picture is your status, not a button |
 
@@ -179,6 +180,7 @@ What a person goes by, so the reader can go by the same things:
 | This is the button | A round disc on the felt beside one seat, nearer that seat than any other, marked D. It moves one seat clockwise every hand |
 | Other forms of the button | A white puck with a black D, a gold or yellow coin with a D, "DEALER" written on it, a small D on the rim of a player's picture, a "BTN" or "D" tag on the name plate. A number on a picture's rim is a level badge, not the button |
 | Positions | Clockwise from the button: button, small blind, big blind, then the rest, skipping empty seats |
+| Where the middle is | The middle of the board's five places. The flop and the turn fill them from the left, so the cards dealt so far sit left of the middle; before the flop, the middle of the felt |
 
 Done in the reader: bets by the nearest seat toward the middle with the tracker checking the
 stack drop; badges, plates, pot lines and clocks never bets; the stakes from the chips the small
@@ -204,7 +206,7 @@ level number beside every name, toward the middle). And eight, an eight-seat tab
 `docs/research/runs/selftest.md`.
 
     python tools/selftest.py --hands 20 --seed 3 --drop 0.1 --out "<folder for examples>"
-    python tools/selftest.py --players 8 --layouts eight,ninemax --hands 20 --seed 30 --drop 0.15
+    python tools/selftest.py --players 8 --layouts eight,ninemax,avatars,stock,portrait --hands 20 --seed 30 --drop 0.15
 
 ## Next
 

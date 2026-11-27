@@ -221,18 +221,74 @@ Still open: at showdown, the river bets already swept into the pot still show as
 out from the stacks (levels and portrait, "bets 3"; the same as round 7's open item). Nothing
 is decided then.
 
-## Eight players (26 Nov, night)
+## Eight players (26 and 27 Nov)
 
 Kevin: "it also needs to be trained on an 8 people table". `--players 8` spreads eight players
 over a layout's seats, and a new eight-seat layout ("eight") was added. Seed 30, 20 hands per
-layout, 15% of pictures skipped.
+layout, 15% of pictures skipped. The first run was on the code before the fixes below, the
+second on the same seed after all of them.
 
 | Layout | Same instruction | Move shown on their turn | Acting seat not read | Mistakes |
 | --- | --- | --- | --- | --- |
-| eight | 26/26 | 0/72 | 0/216 | bets 4 |
+| eight, before | 26/26 | 0/72 | 0/216 | bets 4 |
+| ninemax, before | 26/26 | 0/72 | 0/216 | bets 4 |
+| avatars, before | 26/26 | 0/72 | 19/216 | seat lost 19, pot 13, positions 12, bets 4, in hand 3, stacks unknown 3 |
+| stock, before | 26/26 | 0/72 | 26/216 | bets 4, in hand 2, pot 1 |
+| portrait, before | 20/24 | 0/69 | 0/214 | in hand 199, bets 78, positions 9, seat lost 3, pot 2 |
+| eight, after | 26/26 | 0/72 | 0/216 | bets 2 |
+| ninemax, after | 26/26 | 0/72 | 0/216 | bets 2 |
+| avatars, after | 26/26 | 0/72 | 19/216 | bets 2, stacks unknown 2 |
+| stock, after | 26/26 | 0/72 | 26/216 | bets 2 |
+| portrait, after | 26/26 | 0/72 | 0/216 | bets 2 |
 
-The four bet mistakes: the turn's pictures were all skipped, and on the river the stacks just
-after the blinds went in came within the tracker's rounding allowance of the pot (288 against
-291). Being newer than the true start they were taken for it, so the big blind's 2 counted as a
-river bet. Fixed: an older snapshot of the same hand that adds up to the chip wins over a
-newer one that adds up only roughly (`test_a_skipped_street_does_not_turn_the_blinds_into_bets`).
+What the first run found, each fixed with a test (`app/tests/test_avatar_tables.py` unless
+named):
+
+- Every layout, bets 4: the turn's pictures were all skipped, and on the river the stacks just
+  after the blinds went in came within the tracker's rounding allowance of the pot (288 against
+  291). Being newer than the true start they were taken for it, so the big blind's 2 counted as
+  a river bet. An older snapshot of the same hand that adds up to the chip now wins over a newer
+  one that adds up only roughly (`test_tracker.py`,
+  `test_a_skipped_street_does_not_turn_the_blinds_into_bets`).
+- Portrait, four CHECKs where the truth was FOLD, with a Call 200 button on screen: the blinds
+  were lost (below), you read as the big blind, and "you see the flop for free" was shown
+  without a Check button. CHECK is never shown now without a Check button
+  (`test_posted_blinds.py`, `test_never_check_with_a_call_button`,
+  `test_a_free_look_is_only_free_with_a_check_button`).
+- Portrait: the coin before a stack read as "+" ("+$ 19700"), so that seat was lost and every
+  position after it moved.
+- Portrait: the blinds' chips lie beside the next seat's name and stack and were dropped as
+  level numbers (bets 78). An amount with a currency sign is never a level.
+- Portrait: card backs lying across the table's black rim, dark inside a thin white edge, were
+  missed (in hand 199).
+- Avatars: the top seat's stack sits on the table's rim, and with no pot on the felt it was
+  taken for the pot (seat lost 19, pot 13, positions 12). A number under a name or a picture is
+  never the unlabelled pot.
+- Avatars: a seat on the right has its backs on the left of its picture, further out than the
+  name is wide. The search cut the outer card off, and the inner one, between the picture and
+  the timer ring, was no clean card: that player read as folded on their turn.
+- Stock, at showdown: a player's second card lay nearer the next seat's name, and one card at a
+  time it made a folded player one still in. A pair of cards now goes to one seat together.
+- Stock, on the flop: the middle of the three cards dealt was taken for the table's middle, one
+  card left of it. A bet then went to the folded neighbour, the tracker found it again from its
+  own player's stack, and the pot came out a bet too big. The middle is now the middle of the
+  board's five places.
+
+Left after the fixes:
+
+- Bets 2 on every layout: at an all-in showdown, bets worked out from the stacks after the
+  chips went in (the open item from round 7). Nothing is decided then.
+- Acting seat not read on avatars (19) and stock (26): your own turns. Your picture's ring is
+  half under your cards, and the buttons decide then. On avatars the four pictures saved were
+  all your own turns (stock: all 26 are).
+
+Six players after the fixes, same seeds as the earlier rounds, to check nothing got worse:
+
+| Layouts (seed) | Same instruction | Move shown on their turn | Mistakes before, after |
+| --- | --- | --- | --- |
+| avatars, stock, portrait, levels (25, round 13) | 160/160 | 0/344 | bets 35, 12; in hand 13, 0; stacks unknown 21, 21 |
+| lvtext, held out (27) | 53/53 | 0/123 | bets 2, 2 |
+| the six older layouts (26) | 150/150 | 0/368 | bets 13, 10; seat lost 1, 1 (tags) |
+
+The stacks unknown on stock (17) and avatars (4) were there in round 13 too; the instructions
+were all right.

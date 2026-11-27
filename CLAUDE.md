@@ -138,7 +138,8 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   and the bets.
 - Reader work Kevin asked for on 26 Nov: the self-test (`tools/selftest.py`) on twelve layouts, two
   held out, with skipped pictures and fresh seeds: round pictures with level badges and
-  countdowns, bare level numbers beside names, grey card backs, eight players. Other players' turn
+  countdowns, bare level numbers beside names, grey card backs, eight players (27 Nov: 130/130
+  instructions right on five layouts with eight players, after nine misreads fixed). Other players' turn
   is read from the timer bar, the glow or the ring round a picture (WAIT on their turn). The blinds
   come from the chips the small and big blind posted, and the big blind's own chips are never a
   raise (Kevin's report from 247). Lone single-digit bets come back UNKNOWN (the OCR can't read them
