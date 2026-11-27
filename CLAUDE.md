@@ -105,6 +105,11 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   a compact strategy file that plays as `lbr`'s `Strategy` and as the arena agent
   `blueprint:<file>`, the Phase 5 gate runner, and the `tools/cloud` trainer contract. The Phase
   5 gate's plan, scripts and results are in `docs/research/runs/phase5_gate/`.
+- `engine/crates/search`: depth-limited search on the blueprint (Phase 7 groundwork, Modicum):
+  Bayesian ranges from the blueprint, river and turn subgames solved with `subgame`, a
+  depth-limited flop whose leaves let the opponent pick among four continuation strategies,
+  off-menu bets added and the street re-solved (unsafe, as Pluribus). The arena agent
+  `search:<file>` (leaf tables in `<file>.leaf`, built by `search leaf`). See its README.
 - `engine/crates/arena`: matches between agents, heads-up to six-max, duplicate deals and the all-in
   equity adjustment, bb/100 with its standard error (the tool behind the 2.5 SE rule). The `arena`
   binary plays the built-in bots.
@@ -207,6 +212,13 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   always-wrong check flagged 9 jams with AKo facing big re-raises from the LBR random
   strategies: a false alarm (the check ignores the bet faced). B0 calls a 100 big blind jam with
   JJ or better only.
+- Phase 7 groundwork, 27 Nov 2026: the `search` crate, measured on a 20 big blind Phase 5
+  blueprint (pre-registered; `experiments.md`, Phase 7 groundwork). It doesn't beat its own
+  blueprint head-to-head (-2.51 ± 4.56 bb/100, 3,000 deals), but LBR with 56 bet sizes wins
+  35.8 ± 5.7 bb/100 less against it (z -6.3, repeated on fresh seeds), most likely from
+  re-solving bets off the menu. Decisions on 4 threads take 0.5 s on the flop (p95 0.75 s) and
+  2.2 s on the turn (p95 6 s). The 200bb game would need 9.7 GB of leaf tables, about 134
+  core-hours to build.
 - Reader bugs already reported still get fixed (no new reader work otherwise, unless Kevin asks).
   Kevin presses "Save last reads" when an instruction is wrong. Folders go to
   `~/Documents/PokerScribe reads/<time>`, and to his private reads repository once Settings, Send
