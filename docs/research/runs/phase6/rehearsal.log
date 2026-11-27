@@ -1,5 +1,5 @@
 config: /opt/pscloud/bundle/files/k200 -> ~/abstraction/k200
-machine 1: fresh start (/home/user/pokerscribe/engine/target/release/blueprint --threads 4)
+machine 1: fresh start (engine/target/release/blueprint --threads 4)
 machine 1: 2 stage(s) in the bucket (2,000,000 iterations), trainer at 2,000,000; SIGTERM to every process (Google stops the machine)
 machine 1: trainer saved at iteration 2,038,070 and exited 75; stopped 12.7 s after SIGTERM; 3 checkpoint(s) and 4 artifact(s) in the bucket
 machine 2: new machine, empty disk
