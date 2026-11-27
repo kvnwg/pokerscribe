@@ -576,8 +576,9 @@ def markdown(s: dict) -> str:
             continue
         out.append(f"- Reported: LBR {setting} from {fmt(r['first'])} to {fmt(r['last'])} bb/100, "
                    f"last minus first {fmt(r['difference'])} +- {fmt(r['se'], sign=False)} "
-                   f"(z {fmt(r['z'], 2)}); of {r['steps']} steps it fell at {r['fell']}, by 2.5 SE "
-                   f"at {r['fell_by_2_5_se']}, and rose by 2.5 SE at {r['rose_by_2_5_se']}")
+                   f"(z {fmt(r['z'], 2)}); from one file to the next, {r['steps']} "
+                   f"step{'' if r['steps'] == 1 else 's'}: it fell at {r['fell']}, by 2.5 SE at "
+                   f"{r['fell_by_2_5_se']}, and rose by 2.5 SE at {r['rose_by_2_5_se']}")
     return "\n".join(out) + "\n"
 
 

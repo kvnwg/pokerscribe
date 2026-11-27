@@ -269,13 +269,15 @@ show that every measurement works, and what each costs.
 | --- | ---: | ---: | ---: |
 | LBR `fcpa14`, bb/100 | +311 ± 34 | +264 ± 30 | -48 ± 36 (z -1.3) |
 | LBR `b56_14`, bb/100 | +476 ± 36 | +394 ± 32 | -81 ± 39 (z -2.1) |
-| Head to head, 20,000 deals | | | 2M wins +150.4 ± 14.2 (z +10.6) |
+| Head to head, 200,000 deals | | | 2M wins +120.9 ± 4.5 (z +26.8) |
 | B0, 4,000 deals | | the blueprint loses -96 ± 20 (z -4.7) | |
 
 - **LBR**: 3.7 minutes once for the exact preflop equity, then 6 seconds (`fcpa14`) and 17 to
   19 seconds (`b56_14`) per file at 20,000 hands. All 14 stages at 20,000 hands take about 10
   minutes; at 200,000 hands (an SE of about 10 bb/100) about an hour and a half.
-- **Head to head**: 40,000 hands of play in 0.14 seconds, plus loading the two files.
+- **Head to head**: 400,000 hands of play in about 2 seconds, plus about 15 seconds to load
+  the two files. A first try at 20,000 deals gave +150.4 ± 14.2: the default is now 200,000,
+  for an SE near 5 bb/100.
 - **B0**: 15 to 18 hands a second per process at 200bb (41 to 43 ms an instruction, about 1.5
   instructions a hand), 61 a second on 4 processes. 11,752 instructions, none that couldn't be
   played as said and none flagged by the simulator's always-wrong checks.
@@ -318,7 +320,53 @@ Measured, for the rented machine:
 
 ## The small-scale check of the settings
 
-TBD_CHECK
+`python docs/research/runs/phase6/pruning_check.py --tables ~/abstraction/k200 --work DIR`
+(results in `check.md`): two runs of the Phase 6 game here, through the real trainer as on the
+rented machine, on 4 threads to 8M iterations, with every iteration count in `trainer.json` and
+the pruning threshold multiplied by 0.004 (8M / 2e9): linear weighting every 7,000 iterations up
+to 280,000, pruning from 140,000 at -12,000 big blinds with probability 0.95. The two runs
+differ only in pruning. Pre-registered in the script before it ran: training seed 1, LBR seed
+6001 and 20,000 hands, head to head seed 6101 and 20,000 deals; pruning "trains" if the pruned
+run is not worse by 2.5 SE on either measure and pruning skipped something.
+
+| At 8M iterations | Pruning | No pruning |
+| --- | ---: | ---: |
+| Training time, 0 to 8M | 724 s | 754 s |
+| Iterations a second, 4M to 8M | 11,448 | 10,718 |
+| States a second, 4M to 8M | 9.41M | 9.46M |
+| States per iteration, 4M to 8M | 822 | 883 |
+| Actions skipped by pruning, in all | 98.4M (25.6M by 4M) | 0 |
+| Change from the 4M file | 0.1345 | 0.1341 |
+| Preflop, flop, turn, river slots below the threshold | 3.96%, 0.77%, 0.35%, 0.16% | |
+| Lowest regret (preflop), big blinds | -631,837 | -830,191 |
+| LBR `fcpa14`, bb/100 | +111.2 ± 28.0 | +137.1 ± 27.7 |
+| LBR `b56_14`, bb/100 | +389.4 ± 30.3 | +412.2 ± 29.3 |
+
+- **LBR**, pruning minus no pruning on the same deals: -25.9 ± 33.7 (`fcpa14`, z -0.77) and
+  -22.9 ± 32.0 (`b56_14`, z -0.71). The pruned strategy is no easier to exploit.
+- **Head to head**: pruning against no pruning +2.1 ± 10.9 bb/100 over 40,000 hands, no
+  difference.
+- **Speed**: the same states a second, 6.9% fewer states an iteration, so 6.8% more iterations a
+  second from 4M to 8M (4% less training time over the whole check). The saving grows with the
+  run: the actions skipped went from 25.6M by 4M to 98.4M by 8M. How much it saves on the full
+  run is for the calibration's stages to show (the trainer's counters at every stage).
+- **The regrets**: by the end, 4% of the preflop slots and under 1% of the others were below
+  the threshold, a little more than the extrapolation above gives by 1.2e9 iterations (2.4%,
+  0.5% and 0.2% of the preflop, flop and turn slots). The river is never pruned, so its 0.16% is
+  only measured. The pruned actions fell more slowly (lowest -632k against -830k): below the
+  threshold they are updated only in the 5% of traversals that don't prune.
+- **Verdict**: pruning trains (not worse by 2.5 SE on LBR or head to head, and it skipped
+  98.4M actions).
+
+What the check doesn't cover:
+
+- **The floor** was not scaled: it stayed at -3.1M big blinds, which no regret reached (lowest
+  -830k), so the check says nothing about it. On the rented machine it sits 3% under the
+  threshold, as in Pluribus, so a pruned action can't sink far below the threshold and needs to
+  gain little to be explored again.
+- **A scaled run is not the real one**: regrets grow with the iterations, so scaling the
+  threshold by the run's length keeps the share of slots pruned about right, but the speed of
+  64 threads and the regrets after 2e9 iterations are only measured on the rented machine.
 
 ## The plan
 

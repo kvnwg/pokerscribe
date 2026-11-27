@@ -151,15 +151,26 @@ def write_md(work, arms, results, h2h, factor):
         st = arm["stages"][-1] if arm["stages"] else {}
         for street, r in ((st.get("regrets") or {}).get("streets") or {}).items():
             lines.append(f"| {name} | {street} | {r['below_1e3']:.4f} | {r['below_1e4']:.5f} | "
-                         f"{r['below_1e5']:.6f} | {r['below_1e6']:.6f} | {r['below_threshold']:.6f} | "
+                         f"{r['below_1e5']:.6f} | {r['below_1e6']:.6f} | "
+                         f"{'' if r['below_threshold'] is None else f'{r['below_threshold']:.6f}'} | "
                          f"{r['lowest']:,.0f} |")
     lines += ["", "| LBR | pruning | no pruning | difference | SE | z |", "| --- | ---: | ---: | ---: | ---: | ---: |"]
     for s in ("fcpa14", "b56_14"):
         p, n, d = results[(s, "pruning")], results[(s, "no-pruning")], results[(s, "difference")]
         lines.append(f"| {s} | {p['bb_per_100']:+.1f} | {n['bb_per_100']:+.1f} | {d['difference']:+.1f} | "
                      f"{d['std_err']:.1f} | {d['z']:+.2f} |")
-    lines += ["", f"Head to head, pruning against no pruning: {h2h['bb_per_100']:+.2f} +- {h2h['se']:.2f} "
+    lines += ["", f"Head to head, pruning against no pruning: {h2h['bb_per_100']:+.2f} ± {h2h['se']:.2f} "
                   f"bb/100 over {h2h['hands']:,} hands."]
+    # The pre-registered reading (the docstring): not worse by 2.5 SE on either measure, and
+    # pruning skipped something.
+    worse_lbr = [s for s in ("fcpa14", "b56_14") if results[(s, "difference")]["z"] > 2.5]
+    worse_h2h = h2h["bb_per_100"] < -2.5 * h2h["se"]
+    skipped = (arms["pruning"]["stages"][-1].get("pruning") or {}).get("pruned_traversals", 0) > 0
+    trains = not worse_lbr and not worse_h2h and skipped
+    lines += ["", f"Pruning trains: {'yes' if trains else 'no'} (worse on LBR by 2.5 SE: "
+                  f"{', '.join(worse_lbr) or 'none'}; worse head to head by 2.5 SE: "
+                  f"{'yes' if worse_h2h else 'no'}; pruning skipped something: "
+                  f"{'yes' if skipped else 'no'})."]
     with open(os.path.join(work, "check.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
