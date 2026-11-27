@@ -124,8 +124,8 @@ def compare(before: str, after: str) -> None:
               f"after; other always-wrong after: {totals[f'other{p}'] or 'none'}; instructions changed "
               f"{totals[f'said{p}']}; hands whose result changed {totals[f'net{p}']}.")
     if changes:
-        print("\nEvery instruction that changed (hand number in its run; street as cards on the board; "
-              "before -> after; change in the hand's result in big blinds, or False if none):\n")
+        print("\nEvery instruction that changed (hand number in its run, cards on the board, before -> after, "
+              "and the change in the hand's result in big blinds):\n")
         for c in changes:
             lab, p, seed, k, u, v, dnet = c
             print(f"- {p} players, {lab}, seed {seed}, hand {k}, {u[0]} cards: {u[3]} -> {v[3]}"
