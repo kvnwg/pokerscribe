@@ -14,7 +14,7 @@ from tools.cloud import fake_trainer, local_test, settings
 
 def test_sigterm_halfway_then_resume_on_a_new_machine(tmp_path):
     out = local_test.run(str(tmp_path), iterations=400, say=lambda _line: None)
-    assert 200 <= out["stopped_at"] < 400
+    assert out["stopped_at"] == 200                # the fake trainer holds there until SIGTERM
     assert out["resumed_at"] == out["stopped_at"]
     assert out["digest"] == fake_trainer.expected_digest(400)
     assert len(out["kept"]) == 3 and out["sessions"] == 2 and out["state"] == "done"

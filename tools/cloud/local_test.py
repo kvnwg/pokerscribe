@@ -2,9 +2,10 @@
 
 The real supervisor runs the fake trainer, with a local folder standing in for the bucket:
 
-1. Machine 1 starts from nothing and trains. Halfway through, every process on it gets
-   SIGTERM at once, as systemd does when Google stops a Spot machine. The trainer saves; the
-   supervisor uploads that checkpoint and exits, leaving the run open (not a final state).
+1. Machine 1 starts from nothing and trains. Halfway through (the fake trainer waits there),
+   every process on it gets SIGTERM at once, as systemd does when Google stops a Spot
+   machine. The trainer saves; the supervisor uploads that checkpoint and exits, leaving the
+   run open (not a final state).
 2. Machine 2 starts with an empty disk, as a new machine would. Its supervisor downloads the
    newest checkpoint from the bucket and starts the trainer with --resume. The run finishes.
 3. Checks: the second trainer resumed where the first one saved, the final hash equals that
@@ -136,11 +137,16 @@ def run(root: str, iterations: int = 400, say=print) -> dict:
     store_dir = os.path.join(root, "bucket", "runs", "local-test")
     store = LocalStore(store_dir)
     fake_cfg = os.path.join(root, "fake.json")
+    half = iterations // 2
+    # Trainer 1 holds at the halfway iteration until the SIGTERM, so the SIGTERM always comes
+    # halfway, however fast this computer is (fake_trainer.py, hold_at).
+    hold = os.path.join(root, "hold")
     with open(fake_cfg, "w", encoding="utf-8") as f:
         json.dump({"iterations": iterations, "iteration_seconds": 0.01,
                    "checkpoint_seconds": 0.3, "checkpoint_bytes": 64 * 1024,
-                   "save_seconds": 0.05}, f)
-    half = iterations // 2
+                   "save_seconds": 0.05, "hold_at": half, "hold_file": hold}, f)
+    with open(hold, "w", encoding="utf-8"):
+        pass
     out = {}
 
     say("machine 1: fresh start")
@@ -177,6 +183,7 @@ def run(root: str, iterations: int = 400, say=print) -> dict:
     say(f"machine 1: trainer saved at iteration {saved_at}, uploaded as {newest.object}; "
         f"{len(remote)} checkpoint(s) in the bucket")
     out["stopped_at"] = saved_at
+    os.remove(hold)                                    # machine 2 runs to the end
 
     say("machine 2: new machine, empty disk")
     m2 = os.path.join(root, "machine-2")

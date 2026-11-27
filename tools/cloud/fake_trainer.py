@@ -26,6 +26,13 @@ The config is JSON; every field is optional:
 as the blueprint trainer writes its strategy files: ``stage-<i>.bps`` (written whole, then
 renamed) and a line appended to ``stages.jsonl``, which says whether the stage before is on
 the disk (on a new machine it is only there if the supervisor put it back).
+
+``hold_at`` with ``hold_file`` (off by default) makes a test's "halfway" happen before the run
+can finish, however fast the machine: at iteration ``hold_at`` (after its progress line and
+stage), if ``hold_file`` exists, the trainer saves a checkpoint, prints
+``{"event": "holding", ...}`` and waits while the file is there, until SIGTERM (then it saves
+and exits as usual). A run resumed at ``hold_at`` or later never reaches it again, so never
+holds.
 """
 from __future__ import annotations
 
@@ -51,6 +58,8 @@ DEFAULTS = {
     "crash_at": None,
     "stop_exit_code": 75,
     "stage_every": None,
+    "hold_at": None,
+    "hold_file": None,
 }
 
 
@@ -164,6 +173,15 @@ def main(argv=None) -> int:
             say({"iterations": i, "target_iterations": target})
         if cfg["stage_every"] and i % int(cfg["stage_every"]) == 0:
             stage(args.checkpoint_dir, i, int(cfg["stage_every"]), digest)
+        hold = cfg["hold_file"]
+        if cfg["hold_at"] is not None and i == int(cfg["hold_at"]) and hold and \
+                os.path.exists(hold):
+            save(path, encode(i, digest, target, int(cfg["checkpoint_bytes"])),
+                 float(cfg["save_seconds"]))
+            last_save = time.monotonic()
+            say({"event": "holding", "iterations": i, "target_iterations": target})
+            while os.path.exists(hold) and not stop["flag"]:
+                time.sleep(0.01)
         if stop["flag"]:
             save(path, encode(i, digest, target, int(cfg["checkpoint_bytes"])),
                  float(cfg["save_seconds"]))

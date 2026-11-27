@@ -429,21 +429,31 @@ def test_artifacts_lists_and_downloads(tmp_path):
 # --- whole simulated runs ------------------------------------------------------------------------
 
 def simulation(tmp_path, iterations=400):
+    """The trainer holds halfway while tmp_path/hold exists (fake_trainer.py, hold_at), so a
+    test's preemption always comes halfway, however fast the machine. preempt_halfway()
+    removes the file once the first machine has stopped."""
     store_dir = str(tmp_path / "bucket" / "runs" / "hu-test")
     fake_cfg = str(tmp_path / "fake.json")
+    hold = tmp_path / "hold"
+    hold.write_text("")
     with open(fake_cfg, "w") as f:
         json.dump({"iterations": iterations, "iteration_seconds": 0.01,
-                   "checkpoint_seconds": 0.3, "checkpoint_bytes": 16384}, f)
+                   "checkpoint_seconds": 0.3, "checkpoint_bytes": 16384,
+                   "hold_at": iterations // 2, "hold_file": str(hold)}, f)
     fake = FakeCompute(store_dir=store_dir, root=str(tmp_path), fake_cfg=fake_cfg)
     ctx, fake, out = make_ctx(tmp_path, fake=fake, BUDGET_USD="100")
     write_json(ctx.store, BUNDLE + "manifest.json", {"version": "v1"})
     return ctx, fake, out
 
 
-def halfway(ctx, iterations):
+def preempt_halfway(ctx, fake, tmp_path, iterations, name="ps-hu-test"):
+    """Waits until the trainer is halfway with a checkpoint in the bucket, then Google takes
+    the machine (preempt waits for its processes to exit) and the hold is lifted."""
     local_test.wait_for(
         lambda: ((read_json(ctx.store, STATUS) or {}).get("progress", {}).get("iterations") or 0)
         >= iterations // 2 and remote_checkpoints(ctx.store), 60, "halfway")
+    fake.preempt(name)
+    (tmp_path / "hold").unlink()
 
 
 def check_finished(ctx, disk_dirs, iterations):
@@ -464,8 +474,7 @@ def test_simulated_preemption_restarts_the_same_machine(tmp_path):
     ctx, fake, out = simulation(tmp_path)
     try:
         control.create_machine(ctx, 0.0, "v1")
-        halfway(ctx, 400)
-        fake.preempt("ps-hu-test")
+        preempt_halfway(ctx, fake, tmp_path, 400)
         assert control.recover(ctx, once=True) == 0, out      # sees the preemption, starts
         assert fake.verbs()[-1] == "start"
         fake.wait_stopped("ps-hu-test")                       # the run finishes, powers off
@@ -482,8 +491,7 @@ def test_simulated_preemption_with_the_machine_deleted_makes_a_new_one(tmp_path)
     ctx, fake, out = simulation(tmp_path)
     try:
         control.create_machine(ctx, 0.0, "v1")
-        halfway(ctx, 400)
-        fake.preempt("ps-hu-test")
+        preempt_halfway(ctx, fake, tmp_path, 400)
         del fake.instances["ps-hu-test"]                      # termination action DELETE
         assert control.recover(ctx, once=True) == 0, out
         assert fake.verbs()[-1] == "create"
