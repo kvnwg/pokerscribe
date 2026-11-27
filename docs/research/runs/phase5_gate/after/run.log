@@ -1,0 +1,89 @@
++ B=/root/bp/blueprint-gate
++ A=/root/bp/after
++ V=/tmp/claude-0/-home-user-pokerscribe/8a0324c3-774b-5b90-a070-b8c2eb12d3d0/scratchpad/venv/bin/python
++ cd /root/bp/after
++ date
+Fri Nov 27 04:54:48 UTC 2026
++ R=18320
++ /root/bp/blueprint-gate reference --stack 20 --hands 100000 --seed 778 --settings b56_14,b56_34,fcpa14,fcpa34,fc34+  --deals /root/bp/gate/references --out /root/bp/after/references.jsonl
+python3 -c import json;print(json.load(open("/root/bp/gate/standard-k200/done.json"))["stage"])
++ STAGE=64000000
++ cd /home/user/pokerscribe
++ /tmp/claude-0/-home-user-pokerscribe/8a0324c3-774b-5b90-a070-b8c2eb12d3d0/scratchpad/venv/bin/python tools/b0_arena.py blueprint:/root/bp/gate/standard-k200/strategy-64000000.bps --stack-bb 20 --deals 1000 --seed 2027 --out /root/bp/after/b0.json
++ wait 18320
++ date
+Fri Nov 27 05:04:21 UTC 2026
++ /root/bp/blueprint-gate bench --spec /root/bp/specs/bench-standard-k200.json --seconds 60 --warmup 60 --threads 1,2,3,4 --out /root/bp/after/bench.jsonl
+{"bytes_per_info_set":60.844969644998045,"command":"bench","info_sets":1098501,"iterations":1000000.0,"iterations_per_second":15027.403111996207,"iterations_per_second_per_thread":15027.403111996207,"nodes_per_second":4286249.10347734,"seconds":66.54509715,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":null,"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":1,"warmup_iterations":1255000}
+{"bytes_per_info_set":60.835349932699124,"command":"bench","info_sets":1098797,"iterations":1800000.0,"iterations_per_second":28042.08459641311,"iterations_per_second_per_thread":14021.042298206556,"nodes_per_second":8610979.163686482,"seconds":64.189236496,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":null,"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":2,"warmup_iterations":2055000}
+{"bytes_per_info_set":60.83211726657069,"command":"bench","info_sets":1098898,"iterations":2800000.0,"iterations_per_second":45055.11329579531,"iterations_per_second_per_thread":15018.371098598436,"nodes_per_second":14861977.956262473,"seconds":62.146109402,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":null,"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":3,"warmup_iterations":3255000}
+{"bytes_per_info_set":60.83151396467064,"command":"bench","info_sets":1098916,"iterations":3400000.0,"iterations_per_second":56057.96908642073,"iterations_per_second_per_thread":14014.492271605182,"nodes_per_second":19039322.294210423,"seconds":60.651501569,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":null,"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":4,"warmup_iterations":4255000}
++ date
+Fri Nov 27 05:12:44 UTC 2026
++ /root/bp/blueprint-gate bench --spec /root/bp/specs/bench-standard-k200.json --seconds 120 --warmup 300 --threads 4 --out /root/bp/after/bench-prune.jsonl
+{"bytes_per_info_set":60.83078754215433,"command":"bench","info_sets":1098938,"iterations":6200000.0,"iterations_per_second":50728.50201533623,"iterations_per_second_per_thread":12682.125503834057,"nodes_per_second":19141761.972747575,"seconds":122.219260449,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":null,"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":4,"warmup_iterations":17455000}
++ /root/bp/blueprint-gate bench --spec /root/bp/specs/bench-standard-k200-prune1e4.json --seconds 120 --warmup 300 --threads 4 --out /root/bp/after/bench-prune.jsonl
+{"bytes_per_info_set":60.8308436524056,"command":"bench","info_sets":1098936,"iterations":6400000.0,"iterations_per_second":51907.22377936451,"iterations_per_second_per_thread":12976.805944841128,"nodes_per_second":17763514.821346816,"seconds":123.296904246,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":{"probability":0.95,"threshold":-10000.0,"warmup":10000000},"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":4,"warmup_iterations":17255000}
++ /root/bp/blueprint-gate bench --spec /root/bp/specs/bench-standard-k200-prune1e5.json --seconds 120 --warmup 300 --threads 4 --out /root/bp/after/bench-prune.jsonl
+{"bytes_per_info_set":60.830888087102515,"command":"bench","info_sets":1098935,"iterations":6400000.0,"iterations_per_second":51830.89980546106,"iterations_per_second_per_thread":12957.724951365264,"nodes_per_second":19776127.327032767,"seconds":123.478466012,"spec":{"abstraction":"/root/abstraction/k200","menu":"standard","stack_bb":20,"training":{"compact_scale":100.0,"linear":[200000,20000000],"pruning":{"probability":0.95,"threshold":-100000.0,"warmup":10000000},"regret_floor":-3100000.0,"seed":1,"threads":4}},"threads":4,"warmup_iterations":16855000}
++ date
+Fri Nov 27 05:34:00 UTC 2026
++ rm -rf /root/bp/after/rich
++ mkdir -p /root/bp/after/rich
++ T=27600
++ sleep 1500
++ /root/bp/blueprint-gate --config /root/bp/after/rich-trainer.json --checkpoint-dir /root/bp/after/rich
++ kill -TERM 27600
++ wait 27600
++ echo exit 75
+exit 75
++ T=28982
++ sleep 300
++ /root/bp/blueprint-gate --config /root/bp/after/rich-trainer.json --checkpoint-dir /root/bp/after/rich --resume --threads 1
++ kill -TERM 28982
++ wait 28982
++ echo exit 75
+exit 75
++ ls -la /root/bp/after/rich
+total 4587936
+drwxr-xr-x 2 root root       4096 Nov 27 06:04 .
+drwxr-xr-x 3 root root       4096 Nov 27 05:59 ..
+-rw-r--r-- 1 root root 4698017824 Nov 27 06:04 checkpoint.ckpt
+-rw-r--r-- 1 root root       4397 Nov 27 06:04 log.jsonl
+-rw-r--r-- 1 root root        268 Nov 27 05:59 spec.json
++ date
+Fri Nov 27 06:04:22 UTC 2026
++ /root/bp/blueprint-gate lbr --strategy /root/bp/gate/standard-k10/strategy-32000000.bps --settings b56_14 --hands 100000 --seed 779 --deals /root/bp/after/check-deals --out /root/bp/after/check-seed779.jsonl
+{"bb_per_100":112.93677,"big_blind_bb_per_100":92.54922,"button_bb_per_100":133.32432,"command":"lbr","deals_file":"/root/bp/after/check-deals/_root_bp_gate_standard-k10_strategy-32000000_bps.b56_14.s779.deals","extra":{"decisions":197121,"iterations":32000000,"off_tree_share":0.17924016213391775,"small_bets":"smallest","train_seconds":417.2123232180001},"hands":100000,"hands_per_second":330.37533305983123,"seconds":302.686036133,"seed":779,"setting":"56 bets, rounds 1-4","stack_bb":20,"std_err":1.7982263258266853,"strategy":"/root/bp/gate/standard-k10/strategy-32000000.bps"}
++ /root/bp/blueprint-gate lbr --strategy /root/bp/gate/small-k10/strategy-8000000.bps --settings b56_14 --hands 100000 --seed 779 --deals /root/bp/after/check-deals --out /root/bp/after/check-seed779.jsonl
+{"bb_per_100":126.19425000000001,"big_blind_bb_per_100":110.93604,"button_bb_per_100":141.45246,"command":"lbr","deals_file":"/root/bp/after/check-deals/_root_bp_gate_small-k10_strategy-8000000_bps.b56_14.s779.deals","extra":{"decisions":197182,"iterations":8000000,"off_tree_share":0.17473704496353623,"small_bets":"smallest","train_seconds":50.065481614},"hands":100000,"hands_per_second":334.49977248628187,"seconds":298.953865519,"seed":779,"setting":"56 bets, rounds 1-4","stack_bb":20,"std_err":1.805794730508083,"strategy":"/root/bp/gate/small-k10/strategy-8000000.bps"}
++ date
+Fri Nov 27 06:14:24 UTC 2026
++ echo CHECK DONE
+CHECK DONE
++ name=small-k10
++ until=64000000
++ rm -rf /root/bp/after/longer/small-k10
++ mkdir -p /root/bp/after/longer
++ cp -r /root/bp/gate/small-k10 /root/bp/after/longer/small-k10
++ rm -f /root/bp/after/longer/small-k10/done.json
++ /root/bp/blueprint-gate train --spec /root/bp/after/longer/small-k10/spec.json --dir /root/bp/after/longer/small-k10 --until 64000000
++ /root/bp/blueprint-gate lbr --strategy /root/bp/after/longer/small-k10/strategy-64000000.bps --settings b56_14,fcpa34 --hands 100000 --seed 778 --deals /root/bp/after/longer/deals --label longer-small-k10-64000000 --out /root/bp/after/longer.jsonl
+{"bb_per_100":125.0167,"big_blind_bb_per_100":116.8341,"button_bb_per_100":133.1993,"command":"lbr","deals_file":"/root/bp/after/longer/deals/longer-small-k10-64000000.b56_14.s778.deals","extra":{"decisions":198509,"iterations":64000000,"off_tree_share":0.1746016553405639,"small_bets":"smallest","train_seconds":412.3622605000001},"hands":100000,"hands_per_second":341.83602320338997,"seconds":292.537922314,"seed":778,"setting":"56 bets, rounds 1-4","stack_bb":20,"std_err":1.7701562599626246,"strategy":"longer-small-k10-64000000"}
+{"bb_per_100":1.4649999999999999,"big_blind_bb_per_100":29.83,"button_bb_per_100":-26.9,"command":"lbr","deals_file":"/root/bp/after/longer/deals/longer-small-k10-64000000.fcpa34.s778.deals","extra":{"decisions":346837,"iterations":64000000,"off_tree_share":0.0,"small_bets":"smallest","train_seconds":412.3622605000001},"hands":100000,"hands_per_second":6036.503084146281,"seconds":16.565882367,"seed":778,"setting":"fcpa, rounds 3-4","stack_bb":20,"std_err":2.414945799549923,"strategy":"longer-small-k10-64000000"}
++ name=small-k200
++ until=256000000
++ rm -rf /root/bp/after/longer/small-k200
++ mkdir -p /root/bp/after/longer
++ cp -r /root/bp/gate/small-k200 /root/bp/after/longer/small-k200
++ rm -f /root/bp/after/longer/small-k200/done.json
++ /root/bp/blueprint-gate train --spec /root/bp/after/longer/small-k200/spec.json --dir /root/bp/after/longer/small-k200 --until 256000000
++ /root/bp/blueprint-gate lbr --strategy /root/bp/after/longer/small-k200/strategy-256000000.bps --settings b56_14,fcpa34 --hands 100000 --seed 778 --deals /root/bp/after/longer/deals --label longer-small-k200-256000000 --out /root/bp/after/longer.jsonl
+{"bb_per_100":131.39953,"big_blind_bb_per_100":126.53194,"button_bb_per_100":136.26712,"command":"lbr","deals_file":"/root/bp/after/longer/deals/longer-small-k200-256000000.b56_14.s778.deals","extra":{"decisions":205375,"iterations":256000000,"off_tree_share":0.1811661594643944,"small_bets":"smallest","train_seconds":2091.622542758},"hands":100000,"hands_per_second":302.789741512474,"seconds":330.262179625,"seed":778,"setting":"56 bets, rounds 1-4","stack_bb":20,"std_err":1.8679350783801854,"strategy":"longer-small-k200-256000000"}
+{"bb_per_100":6.744,"big_blind_bb_per_100":34.29,"button_bb_per_100":-20.802,"command":"lbr","deals_file":"/root/bp/after/longer/deals/longer-small-k200-256000000.fcpa34.s778.deals","extra":{"decisions":353023,"iterations":256000000,"off_tree_share":0.0,"small_bets":"smallest","train_seconds":2091.622542758},"hands":100000,"hands_per_second":5622.059704377852,"seconds":17.787075424,"seed":778,"setting":"fcpa, rounds 3-4","stack_bb":20,"std_err":2.406382592777779,"strategy":"longer-small-k200-256000000"}
++ date
+Fri Nov 27 06:57:34 UTC 2026
++ echo LONGER DONE
+LONGER DONE
++ echo ALL DONE
+ALL DONE

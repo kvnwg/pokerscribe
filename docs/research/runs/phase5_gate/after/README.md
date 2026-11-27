@@ -18,8 +18,10 @@ in `docs/research/experiments.md`, "Phase 5: the gate". Steps 1 to 4 were planne
 | `check-seed779.jsonl` | Step 5: standard-k10 and small-k10 on seed 779 |
 | `longer.jsonl`, `longer/` | Step 6: small-k10 trained on to 64M and small-k200 to 256M, measured on the final deals |
 | `seed779.jsonl` | `extra.sh`: all eight runs, `b56_14`, seed 779, 100,000 hands |
+| `recheck778.jsonl` | Last, by hand: standard-k10 on seed 778 again (its gate figure was about 3 SE below its other two deal sets) |
 | `specs/` | The specs of steps 2 to 4 |
-| `deals.tar.xz` | The per-deal results of steps 5, 6 and `extra.sh` |
+| `deals.tar.xz` | The per-deal results of steps 5, 6, `extra.sh` and the recheck |
+| `pack.sh` | How these files were copied here and the two `deals.tar.xz` packed |
 
 The per-deal results are kept, packed, because training on 4 lock-free threads does not repeat
 exactly, so they could not be rebuilt from the scripts. `../checks.py` reads them:

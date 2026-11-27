@@ -1,0 +1,12 @@
+2 players [b0 blueprint:/root/bp/gate/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 2027
+1000 deals x 2 = 2000 hands, duplicate, scored as all-in equity (at most 10000 boards) (38 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+b0                 1     -24.89     6.78    -3.7       9.12         0
+  BTN/SB                 -22.55    11.18
+  BB                     -27.23    10.32
+blueprint:/root/bp/gate/standard-k200/strategy-64000000.bps     1     +24.89     6.78    +3.7       9.12         0
+  BTN/SB                 +27.23    10.32
+  BB                     +22.55    11.18
+282.65 s, 7 hands/s on 1 threads
+b0: 4111 instructions in 2000 hands; not legal as said: none; the simulator's always-wrong checks: none
+time: 282.7 s, 7.1 hands/s, 68.8 ms per B0 instruction. In B0: advice 280.4 s, building the spot 0.4 s, checks and mapping 1.6 s; the rest (arena, Rust agent, crossing to Python) 0.2 s

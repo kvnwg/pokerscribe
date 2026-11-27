@@ -1,0 +1,14 @@
+{"event":"started","iterations":0,"target_iterations":100000000000,"threads":4}
+{"info_sets":55048112,"iterations":1000000,"iterations_per_second":13447.970792736956,"resident_bytes":5235118080,"save_seconds":5.024258136,"stopped":false,"table_bytes":3929114448,"target_iterations":100000000000}
+{"info_sets":71698349,"iterations":2613756,"iterations_per_second":14216.918473605156,"resident_bytes":5735682048,"save_seconds":8.909526407,"stopped":false,"table_bytes":4429678164,"target_iterations":100000000000}
+{"info_sets":80410037,"iterations":4319786,"iterations_per_second":12152.56901714568,"resident_bytes":5993156608,"save_seconds":7.847264121,"stopped":false,"table_bytes":4687152972,"target_iterations":100000000000}
+{"info_sets":84583719,"iterations":5778094,"iterations_per_second":11699.023983048197,"resident_bytes":6115127296,"save_seconds":11.390455929,"stopped":false,"table_bytes":4809128832,"target_iterations":100000000000}
+{"info_sets":87003425,"iterations":7181976,"iterations_per_second":11063.884029706129,"resident_bytes":6185287680,"save_seconds":9.65454463,"stopped":false,"table_bytes":4879286508,"target_iterations":100000000000}
+{"info_sets":88983021,"iterations":8509642,"iterations_per_second":10503.812364123256,"resident_bytes":6242500608,"save_seconds":9.398443654,"stopped":false,"table_bytes":4936500120,"target_iterations":100000000000}
+{"info_sets":90243668,"iterations":9770099,"iterations_per_second":9881.83967466886,"resident_bytes":6278688768,"save_seconds":11.205135937,"stopped":false,"table_bytes":4972686984,"target_iterations":100000000000}
+{"info_sets":91238613,"iterations":10955919,"iterations_per_second":9259.446898381286,"resident_bytes":6307139584,"save_seconds":12.373354853,"stopped":false,"table_bytes":5001136140,"target_iterations":100000000000}
+{"info_sets":91929155,"iterations":12067052,"iterations_per_second":9923.265440805266,"resident_bytes":6326812672,"save_seconds":10.05975061,"stopped":false,"table_bytes":5020811988,"target_iterations":100000000000}
+{"info_sets":92548611,"iterations":13257843,"iterations_per_second":9867.39277750033,"resident_bytes":6344429568,"save_seconds":9.679128757,"stopped":false,"table_bytes":5038429008,"target_iterations":100000000000}
+{"info_sets":93077108,"iterations":14441930,"iterations_per_second":9854.336992162327,"resident_bytes":6359437312,"save_seconds":11.45031228,"stopped":false,"table_bytes":5053434504,"target_iterations":100000000000}
+{"info_sets":93344588,"iterations":15107138,"iterations_per_second":9444.477424091045,"resident_bytes":6367014912,"save_seconds":11.143002252,"stopped":true,"table_bytes":5061015036,"target_iterations":100000000000}
+{"event":"saved on SIGTERM","iterations":15107138,"target_iterations":100000000000}

@@ -6,8 +6,8 @@
    100,000 hands, `after/seed779/`), and the gate's comparisons on it next to the same
    comparisons on the final deals (seed 778). M was `b56_14` for every run on seed 778.
 2. The same measurement twice: standard-k10 and small-k10 were measured on seed 779 twice, by
-   different processes (`after/check-deals/` and `after/seed779/`); the two must agree deal by
-   deal.
+   different processes (`after/check-deals/` and `after/seed779/`), and standard-k10 on seed 778
+   again (`after/recheck778/`); each must agree deal by deal with the other measurement.
 3. Longer training: small-k10 trained on to 64M iterations (8 times its stop) and small-k200 to
    256M (4 times its stop), measured on the final deals (`after/longer/deals/`).
 
@@ -77,16 +77,17 @@ def main():
              ("Equity - OCHS, small", "small-k50", "small-k50eq"),
              ("Equity - OCHS, standard", "standard-k50", "standard-k50eq")]
     say("\nThe gate's comparisons on `b56_14` (the second run minus the first, paired on each seed's deals):\n")
-    say("| Comparison | Seed 778 | Seed 779 | Gap between the seeds |")
-    say("| --- | ---: | ---: | ---: |")
+    say("| Comparison | Seed 778 | Seed 779 | Gap between the seeds | Both (200,000 hands) |")
+    say("| --- | ---: | ---: | ---: | ---: |")
     for name, x, y in comps:
         if any(d[r] is None for d in (s778, s779) for r in (x, y)):
             continue
         d8, e8 = minus(s778[y], s778[x])
         d9, e9 = minus(s779[y], s779[x])
         se = (e8 ** 2 + e9 ** 2) ** 0.5
+        both, eb = (d8 + d9) / 2, se / 2
         say(f"| {name} | {fmt(d8, e8)} ({d8 / e8:+.1f} SE) | {fmt(d9, e9)} ({d9 / e9:+.1f} SE) | "
-            f"{d9 - d8:+.1f} ({(d9 - d8) / se:+.1f} SE) |")
+            f"{d9 - d8:+.1f} ({(d9 - d8) / se:+.1f} SE) | {fmt(both, eb)} ({both / eb:+.1f} SE) |")
 
     say("\n## 2. The same measurement twice (seed 779)\n")
     for r in ["standard-k10", "small-k10"]:
@@ -98,6 +99,12 @@ def main():
         differ = sum(1 for p, q in zip(twice["won"], s779[r]["won"]) if p != q)
         say(f"- {r}: {fmt(*result(twice))} and {fmt(*result(s779[r]))}; "
             f"{'identical deal by deal' if differ == 0 else f'{differ} of {n} deals differ'}")
+
+    again = one(os.path.join(a.after, "recheck778", "standard-k10.b56_14.s778.deals"))
+    if again is not None and s778["standard-k10"] is not None:
+        same = again["won"] == s778["standard-k10"]["won"]
+        say(f"- standard-k10 on seed 778, measured again after the checks: {fmt(*result(again))}, "
+            f"{'identical deal by deal to the gate' if same else 'not the same as the gate'}'s final measurement")
 
     say("\n## 3. Longer training (seed 778, the final deals, 100,000 hands), bb/100\n")
     say("| Run | Setting | At its stop | Trained on | Difference (paired) |")
