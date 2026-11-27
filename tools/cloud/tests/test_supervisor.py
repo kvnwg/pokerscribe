@@ -87,6 +87,44 @@ def test_fake_trainer_saves_on_sigterm(tmp_path):
     assert saved and ckpt_iteration(ck / "fake.ckpt") == saved[0]["iterations"] > 0
 
 
+def test_fake_trainer_holds_until_sigterm(tmp_path):
+    # While the hold file exists the trainer waits at hold_at, with a checkpoint saved there,
+    # until SIGTERM. Resumed from there, or started without the file, it never holds.
+    hold = tmp_path / "hold"
+    hold.write_text("")
+    cfg = fake_config(tmp_path, iterations=40, iteration_seconds=0.001, checkpoint_seconds=1000,
+                      hold_at=20, hold_file=str(hold))
+    ck = tmp_path / "ck"
+    p = subprocess.Popen([sys.executable, FAKE, "--config", cfg, "--checkpoint-dir", str(ck)],
+                         stdout=subprocess.PIPE, text=True)
+    holding = None
+    for line in p.stdout:
+        if '"holding"' in line:
+            holding = json.loads(line)
+            break
+    assert holding and holding["iterations"] == 20
+    assert ckpt_iteration(ck / "fake.ckpt") == 20
+    time.sleep(0.3)
+    assert p.poll() is None                                    # still waiting
+    p.terminate()
+    out, _ = p.communicate(timeout=30)
+    assert p.returncode == 75
+    saved = [json.loads(x) for x in out.splitlines() if "saved on SIGTERM" in x]
+    assert [s["iterations"] for s in saved] == [20] and ckpt_iteration(ck / "fake.ckpt") == 20
+
+    def run(ckdir, *extra):
+        return subprocess.run([sys.executable, FAKE, "--config", cfg, "--checkpoint-dir",
+                               str(ckdir), *extra], capture_output=True, text=True, timeout=60)
+
+    r = run(ck, "--resume")                                    # the file is still there
+    assert r.returncode == 0 and '"holding"' not in r.stdout
+    assert json.loads(r.stdout.strip().splitlines()[-1])["digest"] == \
+        fake_trainer.expected_digest(40)
+    hold.unlink()
+    r = run(tmp_path / "ck2")                                  # fresh, no file: no hold
+    assert r.returncode == 0 and '"holding"' not in r.stdout
+
+
 # --- crashes -------------------------------------------------------------------------------------
 
 def test_crash_is_restarted_with_resume(tmp_path):
@@ -286,3 +324,67 @@ def test_uploads_are_never_torn(tmp_path):
     for c in objs:
         ckpt_iteration(store.url(c.object))                      # raises if torn
     assert [c.seq for c in objs] == list(range(1, len(objs) + 1))
+
+
+# --- artifacts: the trainer's other results ------------------------------------------------------
+
+def test_artifacts_are_uploaded_kept_and_put_back_on_a_new_machine(tmp_path):
+    # Machine 1 writes stage files and a stages log, then Google takes it. Machine 2 starts
+    # with an empty disk: the supervisor puts the stage files back before the trainer starts,
+    # so the trainer finds the stage before each new one, and every stage stays in the bucket.
+    # Trainer 1 holds at iteration 150 until it is stopped, so the stop always comes halfway,
+    # however fast the machine (without the hold a fast one could finish first).
+    hold = tmp_path / "hold"
+    hold.write_text("")
+    fake = fake_config(tmp_path, iterations=400, stage_every=50, checkpoint_seconds=0.2,
+                       hold_at=150, hold_file=str(hold))
+    over = dict(artifact_patterns=["*.bps", "*.jsonl"], keep_checkpoints=2)
+    run1, store, m1 = make_run(tmp_path, "m1", fake=fake, **over)
+    cfg = sup.load_run_config(run1)
+    s1 = sup.Supervisor(cfg)
+
+    def halfway():
+        names = [n for n, _ in store.list(sup.ARTIFACTS)]
+        return sup.ARTIFACTS + "stage-150.bps" in names and remote_checkpoints(store)
+
+    t = threading.Thread(target=lambda: s1.run(install_signals=False))
+    t.start()
+    local_test.wait_for(halfway, 60, "three stages in the bucket")
+    s1.request_stop("shutdown")
+    t.join(60)
+    assert not t.is_alive()
+    hold.unlink()                                                 # machine 2 runs to the end
+    assert read_json(store, STATE) is None
+    saved = [e for e in events(m1) if e.get("event") == "saved on SIGTERM"]
+    assert [e["iterations"] for e in saved] == [150]
+    st1 = read_json(store, STATUS)["artifacts"]
+    assert st1["uploads"] >= 4 and st1["upload_failures"] == 0
+
+    run2, _, m2 = make_run(tmp_path, "m2", fake=fake, **over)
+    rc, err = run_supervisor(run2)
+    assert rc == 0, err
+    assert read_json(store, STATE)["state"] == "done"
+    st2 = read_json(store, STATUS)["artifacts"]
+    assert st2["restored"] >= 4                                   # stages and the log
+    names = sorted(n[len(sup.ARTIFACTS):] for n, _ in store.list(sup.ARTIFACTS))
+    assert names == sorted([f"stage-{i}.bps" for i in range(50, 401, 50)] + ["stages.jsonl"])
+    assert len(remote_checkpoints(store)) == 2                    # checkpoints are still pruned
+    # The log in the bucket is the whole log, both machines' lines, and after the resume each
+    # stage found the one before on the disk.
+    log = [json.loads(x) for x in (store.get_bytes(sup.ARTIFACTS + "stages.jsonl") or b"")
+           .decode().splitlines()]
+    assert [x["iterations"] for x in log][-1] == 400
+    assert all(x["previous_on_disk"] in (True, None) for x in log), log
+    assert (m2 / "checkpoints" / "stages.jsonl").read_bytes() == \
+        store.get_bytes(sup.ARTIFACTS + "stages.jsonl")
+
+
+def test_artifacts_off_by_default_and_never_checkpoints(tmp_path):
+    fake = fake_config(tmp_path, iterations=100, stage_every=50)
+    run_json, store, mdir = make_run(tmp_path, fake=fake)
+    rc, err = run_supervisor(run_json)
+    assert rc == 0, err
+    assert store.list(sup.ARTIFACTS) == []
+    assert (mdir / "checkpoints" / "stage-100.bps").exists()
+    local = sup.local_artifacts(str(mdir / "checkpoints"), ["*"], "*.ckpt")
+    assert "fake.ckpt" not in [n for n, _ in local]

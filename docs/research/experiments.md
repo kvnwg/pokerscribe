@@ -2352,12 +2352,225 @@ the run's state is "done". The rich run above used the same contract.
 
 - **Why the buckets half fails** is not tested. The cheapest next step is the bucket half at 100
   big blinds (standard menu, 10, 50 and 200 buckets; 7.2M information sets at 200), about 3 to 4
-  hours here.
+  hours here. (Done after the gate: "Phase 5 check: buckets at 100 big blinds", below.)
 - **Bucket counts above 200**, and potential-aware river buckets.
 - **Pruning on a long run**, and Linear CFR's interval and length (Pluribus's, unchanged).
 - **The speed on Arm and on 64 threads**: guessed above, not measured.
 - **LBR's `fc14`** (30 times slower) and settings with more sizes on the flop only.
 - **Phase 6 itself.** Nothing was rented.
+
+## Phase 5 check: buckets at 100 big blinds (27 Nov 2026)
+
+A check added after the gate, not a gate run. At 20 big blinds more buckets didn't lower LBR's
+win rate; Kevin asked whether that is the stack depth or will carry into Phase 6. The plan
+(`docs/research/runs/phase5_100bb/README.md`, `plan.json`) was committed before training
+(350f9c4): heads-up, 100 big blinds, the standard menu, OCHS on the river, 10, 50 and 200 buckets
+a street, the gate's training settings and stop rule (change at most 0.08, LBR flat, cap 256M),
+then LBR on the same 100,000 deals (seed 778) for all three with six settings (the gate's five
+and `fc14`). Results, tables and files are in that folder (`results.md`, `checks.md`).
+
+- **Training.** All three converged: standard-k10 at 16M iterations (7 minutes), standard-k50
+  at 64M (40 minutes), standard-k200 at 128M (1.6 hours, 22,786 iterations a second, 1.6 GB).
+  M is `b56_14` for all three: 592.6 ± 7.9, 575.6 ± 7.7 and 592.9 ± 7.7 bb/100.
+- **The plan's verdict**: buckets help from 10 to 50 (M -16.9 ± 7.8, 2.2 paired SE), then M
+  rises again from 50 to 200 (+17.3 ± 7.0, 2.5 SE), so it doesn't flatten. None of the plan's
+  four outcomes fits; standard-k200's M equals standard-k10's (+0.4 ± 7.7).
+- **On a second deal set** (seed 779, not pre-registered): 10 to 50 is -24.0 ± 7.7 (3.1 SE),
+  50 to 200 +7.0 ± 7.0. Pooled over both: -20.5 ± 5.5 (3.7 SE), +12.2 ± 5.0 (2.5 SE), and 10 to
+  200 -8.3 ± 5.4 (1.5 SE). All of the fall from 10 to 50 is with the blueprint on the button.
+- **Near the menu, more buckets are more exploitable.** From 10 to 200 buckets (seed 778):
+  `fcpa14` +36.5 (4.9 SE), `fcpa34` +42.8 (6.6 SE), `b56_34` +42.3 (6.1 SE), `fc34` +13.5 (3.6
+  SE); at 20 big blinds the same settings moved by at most 2.7 SE. With `fcpa14` only 1.5% to
+  1.7% of the blueprint's decisions are off the tree, so this is not mainly the bet translation.
+- **Answer.** Partly the stack depth: at 100 big blinds 10 buckets are measurably too coarse.
+  But LBR shows no gain from 50 to 200 buckets, and the near-menu settings get worse at every
+  step, more than at 20 big blinds, so this is likely to carry into Phase 6.
+- **For Phase 6.** Its gate is head to head and against B0, with LBR only reported (Phase 5: the
+  gate, Decision), so the gate is unchanged. But LBR at 100 big blinds goes against 200 buckets
+  over 50 (M +12.2 ± 5.0 pooled, `fcpa34` +18.5 ± 6.5), and Phase 6's LBR readings shouldn't be
+  expected to show what 200 buckets buy. LBR measures the worst case, not play against a real
+  opponent: if 200 buckets are to be checked before the full run, the cheap way is standard-k50
+  against standard-k200 head to head at 100 big blinds in the arena (done after the check:
+  standard-k200 wins, below). Why finer buckets are more exploitable is not tested (the gate's
+  three candidates stand).
+- **Scale.** LBR wins 1,671.7 ± 10.9 bb/100 from always calling at 100 big blinds; the three
+  blueprints give it 34% to 35% of that (33% to 40% at 20 big blinds).
+
+### Head to head: standard-k50 against standard-k200 (added after the check)
+
+Informational, not a gate run. The plan (`docs/research/runs/phase5_100bb_h2h/plan.md`) was
+committed before the main run (171028d), with the manager's rule: standard-k200 ahead by 2.5 SE
+means the extra buckets pay off in play; standard-k50 ahead by 2.5 SE is flagged before Phase
+6's full run; anything else is inconclusive. The check's final strategy files, the Rust arena
+(duplicate deals with the seats swapped, the all-in equity adjustment), 2,000,000 deals a match,
+sized from a pilot on other seeds.
+
+- **standard-k200 beats standard-k50 by 3.74 ± 0.48 bb/100 (7.7 SE)**, and by 3.74 ± 0.49 on
+  fresh deals: the extra buckets pay off in play. Nothing to flag; Phase 6's gate is unchanged.
+- **The sanity check passes**: standard-k50 beats standard-k10 by 13.28 ± 0.52 (25.7 SE), as LBR
+  found from 10 to 50. standard-k200 beats standard-k10 by 15.03 ± 0.52. Each step up in
+  buckets wins, by less each time.
+- **By seat** (each figure includes the button's advantage of about 15 bb/100): standard-k200
+  wins 19.29 ± 0.91 on the button and loses 11.81 ± 0.91 in the big blind against standard-k50.
+- **So from 50 to 200 buckets, play and LBR disagree**: LBR found standard-k200 more exploitable
+  (M +12.2 ± 5.0 pooled), yet it beats standard-k50. This supports Phase 6's 200 buckets, and
+  says again that Phase 6's LBR readings are not the value of its card abstraction. Both
+  blueprints share the menu, so the match doesn't test play against bets off it.
+- **Added after review** (not pre-registered; doesn't change the decision): the main match and
+  the replication agreed to 0.0023 bb/100, by chance. Their deals differ, and ten more fresh
+  seeds (9203 to 9212) give +2.41 to +4.33 with the spread their SEs predict (p = 0.38). Pooled
+  over 12 seeds: +3.57 ± 0.14 bb/100 (`runs/phase5_100bb_h2h/extra.md`).
+
+## Phase 6: ready to launch (27 Nov 2026)
+
+Phase 6 of the roadmap: the heads-up blueprint, Linear Monte Carlo CFR with negative-regret
+pruning, trained on a rented Google Cloud machine. This gets it ready: when Kevin approves the
+spending, one `python -m tools.cloud launch` on his computer starts the run, and one command
+measures every strategy file it writes. Nothing was rented or launched. The plan, the settings
+and how they were chosen, the costs and the gate's readings: `runs/phase6/README.md`.
+
+In short:
+
+- **The run** (`runs/phase6/trainer.json`): 200 big blinds, the `rich` menu, 200 buckets a
+  postflop street with OCHS on the river, seed 1, 64 threads on a c4a-highcpu-64 (64 Arm cores,
+  128 GB; $1.4714 an hour all in at Google's Spot price of 27 Nov 2026; the trainer needs 9 GB at
+  most). Linear weighting every 1.75M
+  iterations up to 70M, pruning from 35M at -3 million big blinds with probability 0.95:
+  Pluribus's schedule as fractions of a nominal run of 2e9 iterations, the middle of the Phase 5
+  projection, and Pluribus's threshold, checked against the regrets this game reaches.
+- **A strategy file at each doubling**, 1M to 8,192M (14 files of 0.5 GB), each with the change
+  from the stage before, the regrets by street and what pruning skipped, kept in the bucket and
+  downloaded with `python -m tools.cloud artifacts --download DIR`. Any other checkpoint can be
+  exported off the machine (`blueprint export`).
+- **The bucket tables** go in the launch bundle (138 MB), not built on the machine: cheaper, and
+  the machine trains with exactly the bytes Kevin's evaluation reads.
+- **One evaluation command**, `tools/blueprint_eval.py`: LBR (`fcpa14` and `b56_14`) on the same
+  deals for every file, head to head in the arena between consecutive files and last against
+  first, B0 at 200bb split over processes, the stop rule at each stage, a projection of where it
+  stops, and the gate's reading.
+- **The dress rehearsal** passed here (`python -m tools.cloud local-test` with the real trainer
+  and `trainer.json`, 4 threads, 19.2 minutes): a SIGTERM saved at 2,038,070 iterations, a new
+  machine with an empty disk got the checkpoint and the strategy files back and resumed at
+  exactly that iteration, and the stop marker ended it "stopped" at 8,033,450.
+- **The small-scale check** (`runs/phase6/check.md`): the settings scaled to 8M iterations, two
+  runs here with pruning on and off. Pruning trains: on the same deals LBR wins -26 ± 34
+  (`fcpa14`) and -23 ± 32 (`b56_14`) bb/100 less against the pruned strategy, head to head it
+  is +2.1 ± 10.9, and it skipped 98.4M actions, for 6.8% more iterations a second by the end.
+- **The plan**: the cheap real test (a few cents), then a calibration run of about 2 hours (about
+  $3, capped at $10) that measures the speed on 64 Arm threads and the start of the convergence
+  curve, then the same run going on to the stop rule, with a cap worked out from what the
+  calibration measured. At the Phase 5 projection's speeds it stops at the stage at 1,024M (2.9
+  hours, $4.30) or 8,192M (23 hours, $33.80), centrally; 45 hours ($66.70) at the high end.
+- **The gate**, Kevin's wording of 27 Nov 2026, pre-registered (`runs/phase6/README.md`, "The
+  gate"): the last stage file beats the first (1M) head to head by 2.5 SE (200,000 deals, seed
+  6101), and beats B0 heads-up by 2.5 SE, in a match sized from a 4,000-deal sizing match's sd
+  for an edge of 10 bb/100 (seeds 7201 on). LBR (`fcpa14`, `b56_14`, 20,000 hands, seed 6001) is
+  reported at every stage.
+
+### What was built
+
+- **Strategies at stages** (`engine/crates/blueprint`, the cloud trainer): with
+  `"strategies": {"first": F, "factor": K}` in the config, it writes `strategy-<iterations>.bps`
+  at F, F x K, ... and the end, and a line in `stages.jsonl`: the change from the latest earlier
+  stage on the disk (so after a resume on a new machine it is measured from the file that came
+  back), the regrets by street (the share below -1,000 to -1,000,000 big blinds and below the
+  pruning threshold, the lowest), pruning's counters, the export and measure times and the
+  memory. A session never runs past the next stage.
+- **A streaming export** (`cfr`, `Mccfr::for_each_set`, 17 lines with a test): the strategy file
+  is written from one information set at a time. Before, an export copied every regret and
+  strategy sum first, about 10 GB more for the Phase 6 game. This is the one change to the cfr
+  crate; nothing in training changed.
+- **`blueprint export`**: the strategy file of any checkpoint, off the machine.
+- **`blueprint lbr --strategy A,B,...`**: several files in one process, so LBR's exact preflop
+  win probabilities (about 3.8 minutes on 4 cores at the start of each process) are worked out
+  once. Before, every file paid it.
+- **`blueprint:<file>?tables=<dir>`** in `pokerscribe_engine` (`engine/crates/py`): a file
+  trained on another machine played with the local copy of its tables (the checksums are still
+  checked). The arena and B0 need it for files trained in the cloud.
+- **`tools/cloud`**: artifacts (files matching `ARTIFACT_PATTERNS`, by default the strategy files
+  and the trainer's JSON logs, uploaded as they are written, put back on a new machine, listed and
+  downloaded by `artifacts`); `TRAINER_FILES` (files sent in the bundle, such as the tables);
+  c4a-highcpu-64 as a documented option, with `check` testing the trainer's memory
+  (`TRAINER_MEMORY_GB`) against the machine type in each zone and the disk against
+  `CHECKPOINT_GB` and `ARTIFACTS_GB`; `watch` warns when the trainer's memory passes 90% of the
+  machine; `local-test --trainer T --config C` is the dress rehearsal. With Google's figures
+  of 27 Nov 2026 (from Kevin's console, through the manager session): c4a-highcpu-64 is the
+  default machine, the prices are Google's, a Spot machine's IP is priced on its own ($0.0025 an
+  hour), the disk is $0.08 a GB a month and provisioned IOPS and throughput above Hyperdisk
+  Balanced's free baseline are counted in the cost, and `check` reads the C4A quota as Google
+  names it ("CPUs per VM family", vm_family C4A) through the Cloud Quotas API, keeping the
+  `C4A_CPUS` path and a "?" line when neither works. The Cloud Quotas path is tested only on a
+  sample written from Google's documented format. 14 new tests.
+- **`tools/blueprint_eval.py`** with `app/tests/test_blueprint_eval.py` (7 tests, on fake
+  measurements).
+
+### The evaluation on two early files
+
+The rehearsal's 1M and 2M files (0.05% and 0.1% of the nominal run), to check every measurement
+and what it costs (`runs/phase6/eval-early.md`):
+
+| Measurement | 1M | 2M | 2M against 1M |
+| --- | ---: | ---: | ---: |
+| LBR `fcpa14`, bb/100 | +311 ± 34 | +264 ± 30 | -48 ± 36 (z -1.3) |
+| LBR `b56_14`, bb/100 | +476 ± 36 | +394 ± 32 | -81 ± 39 (z -2.1) |
+| Head to head, 200,000 deals | | | 2M wins +120.9 ± 4.5 (z +26.8) |
+| B0, 4,000 deals | | the blueprint loses -96 ± 20 (z -4.7) | |
+
+- B0 at 200bb: 15 to 18 hands a second per process, 11,752 instructions, none that couldn't be
+  played as said and none flagged by the simulator's always-wrong checks.
+- B0's sd was 1,291 bb/100 a deal. At that sd a 2.5 SE result needs 833,000 hands at an edge of
+  5 bb/100, 208,000 at 10 and 52,000 at 20 (on 10 cores, 1.4 hours, 22 minutes and 5 minutes).
+  Against a trained file the sd may be quite different; the summary measures it each time.
+- LBR: 6 seconds (`fcpa14`) and 17 to 19 seconds (`b56_14`) per file at 20,000 hands after the
+  start-up. Head to head: 400,000 hands in about 2 seconds of play, plus about 15 seconds to
+  load the two files (a first try at 20,000 deals gave +150.4 ± 14.2; the default is now
+  200,000).
+
+### The small-scale check of the settings
+
+`docs/research/runs/phase6/pruning_check.py` (results in `runs/phase6/check.md`): two runs of
+the Phase 6 game on 4 threads to 8M iterations through the real trainer, with every iteration
+count in `trainer.json` and the threshold multiplied by 0.004 (8M / 2e9): linear weighting every
+7,000 up to 280,000, pruning from 140,000 at -12,000 big blinds, probability 0.95. Pruning on in
+one, off in the other. Pre-registered in the script before it ran: training seed 1, LBR seed
+6001 and 20,000 hands, head to head seed 6101 and 20,000 deals; pruning "trains" if the pruned
+run is not worse by 2.5 SE on either measure and pruning skipped something.
+
+| At 8M iterations | Pruning | No pruning |
+| --- | ---: | ---: |
+| Training time | 724 s | 754 s |
+| Iterations a second, 4M to 8M | 11,448 | 10,718 |
+| States per iteration, 4M to 8M | 822 | 883 |
+| Actions skipped by pruning | 98.4M (25.6M by 4M) | 0 |
+| Change from the 4M file | 0.1345 | 0.1341 |
+| LBR `fcpa14`, bb/100 | +111.2 ± 28.0 | +137.1 ± 27.7 |
+| LBR `b56_14`, bb/100 | +389.4 ± 30.3 | +412.2 ± 29.3 |
+
+- LBR, pruning minus no pruning on the same deals: -25.9 ± 33.7 (`fcpa14`, z -0.77) and
+  -22.9 ± 32.0 (`b56_14`, z -0.71). Head to head, pruning against no pruning: +2.1 ± 10.9
+  bb/100 over 40,000 hands.
+- The same states a second; 6.9% fewer states an iteration, so 6.8% more iterations a second at
+  the end. The saving grows with the run (25.6M actions skipped by 4M, 98.4M by 8M); the
+  calibration's stages measure it on the real run.
+- At 8M, 4.0% of the preflop slots were below the threshold, 0.77% of the flop, 0.35% of the
+  turn and 0.16% of the river (never pruned, only measured).
+- **Pruning trains**, by the pre-registered reading.
+- Not covered: the regret floor was not scaled (it stayed at -3.1M, which nothing reached), and
+  the speed on 64 threads and the regrets of a real 2e9 run are only measured on the rented
+  machine.
+
+### Not done
+
+- **Anything on Google's side.** Nothing was rented: not the cheap real test, not a C4A machine,
+  not a real preemption notice.
+- **The speed on 64 Arm threads**, and the Arm build: the calibration run measures them.
+- **Whether `abstraction-build` gives the same tables on Arm as on x86.** Copying the tables makes
+  it not matter for this run.
+- **Stage pauses.** The export and the measures run on one thread while the other 63 wait, about
+  1.5 minutes a stage (14 to 17 minutes of the calibration's 2 hours, 21 minutes over a whole
+  run). A parallel export, or one from a checkpoint in a separate process, would save most of it.
+- **The Cloud Quotas API on a real project**: `check`'s reading of the C4A quota is tested on
+  Google's documented format only.
 
 ## Phase 7 groundwork: depth-limited search (27 Nov 2026)
 

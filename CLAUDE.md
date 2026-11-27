@@ -62,6 +62,13 @@ the Rust engine as it does. README.md, "Checks", has the rest.
 - `tools/selftest.py`: PokerScribe plays on our own demo table (`app/tests/demo_table.py`, twelve
   layouts, `--players` for other table sizes) and every read and instruction is checked against the
   truth. Results in `docs/research/runs/selftest.md`. Run it after any reader change.
+- `app/interact/`: clicks, typing and keys in our own programs only (the simulator, the demo table,
+  our own Qt windows through QtTest), kept apart from the poker engine: plans of steps, a runner
+  that checks each target and the state after it, switches, dry run, emergency stop, a log.
+  Backends for the game in `tools/interact_backends.py`; `tools/selftest.py --interact` plays
+  your moves through it. No backend for the system pointer or keyboard, and none is to be added
+  (rule 4; Kevin: no live poker client integration, nothing to evade bot detection). See
+  `docs/research/INTERACT.md`.
 - `tools/simulate.py`, `tools/compare.py`: the simulator (six-max, or heads-up with `--players 2`)
   and paired comparisons. By default a comparison deals duplicate decks (heads-up: each deal twice
   with the seats swapped) and replays each hand that differs 6 times from where the variants part,
@@ -178,8 +185,10 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   cloud trainer). Its gate failed (3 of 7 conditions) and Kevin accepted it: at 20 big blinds
   more bet sizes lower LBR at every bucket count (8.5 to 10.5 SE) and more buckets don't, and
   most of what LBR wins comes from bets off the menu (about 18% of the blueprint's decisions).
-  OCHS stays on the river. Being checked: the buckets half at 100 big blinds
-  (`experiments.md`, Phase 5: the gate).
+  OCHS stays on the river. Checked after the gate at 100 big blinds (`experiments.md`, Phase 5
+  check: buckets at 100 big blinds): LBR wins less from 10 to 50 buckets but not from 50 to 200,
+  yet 200 buckets beat 50 head to head by 3.57 ± 0.14 bb/100 (12 seeds). So Phase 6 keeps 200
+  buckets, and its LBR readings don't show what the buckets are worth.
 - Phase 6 is next: the heads-up blueprint at 200bb (the `rich` menu, 200 buckets: 97M
   information sets, about 7 GB) on a c4a-highcpu-64, after a calibration run of about 2 hours
   capped at $10 (Kevin, 27 Nov 2026). Its gate changed the same day: the last checkpoint beats
