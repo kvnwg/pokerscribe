@@ -225,6 +225,11 @@ pub struct Export {
 impl StrategyFile {
     /// The average strategy of a trained solver. Information sets that have regrets but
     /// no strategy sums get their current strategy (regret matching) instead.
+    ///
+    /// The solver is read one information set at a time (`Mccfr::for_each_set`), so this
+    /// needs the file and the weights on top of the solver's own memory, nothing more: for
+    /// the Phase 6 game, 1.3 GB rather than the 10 GB or so that copying every regret and
+    /// strategy sum first would take.
     pub fn from_solver<B: Bucketer + Sync>(
         solver: &Mccfr<AbstractGame<B>>,
         spec: Option<Spec>,
@@ -237,9 +242,6 @@ impl StrategyFile {
         let game = solver.game();
         let layout = Layout::of(game);
         let nodes = game.tree().len() as u64;
-        let table = solver.table();
-        let sums = solver.strategy_sums();
-        let regrets = solver.regrets();
         let mut probs = vec![0u16; layout.slots as usize];
         let mut weights = vec![0.0f64; layout.info_sets as usize];
         let mut weight_index = Vec::with_capacity(nodes as usize);
@@ -250,8 +252,7 @@ impl StrategyFile {
         }
         let (mut visited, mut from_regrets) = (0u64, 0u64);
         let mut positive = Vec::new();
-        for (i, set) in table.sets().iter().enumerate() {
-            let key = table.key(i as u32);
+        solver.for_each_set(|key, regrets, sums| {
             let node = (key % nodes) as u32;
             let bucket = key / nodes;
             let street = game.tree().node(node).street;
@@ -260,17 +261,16 @@ impl StrategyFile {
                 "bucket {bucket} on the {street:?} is outside the bucketer's count: the dense \
                  layout needs buckets numbered from 0"
             );
-            assert_eq!(set.num_actions as usize, layout.actions(node));
+            assert_eq!(sums.len(), layout.actions(node));
             let start = layout.start(node, bucket);
-            let out = &mut probs[start..start + set.num_actions as usize];
-            let s = &sums[set.range()];
-            let weight: f64 = s.iter().sum();
+            let out = &mut probs[start..start + sums.len()];
+            let weight: f64 = sums.iter().sum();
             weights[(weight_index[node as usize] + bucket) as usize] = weight;
             if weight > 0.0 {
-                quantize(s, out);
+                quantize(sums, out);
             } else {
                 positive.clear();
-                positive.extend(regrets[set.range()].iter().map(|&r| r.max(0.0)));
+                positive.extend(regrets.iter().map(|&r| r.max(0.0)));
                 if positive.iter().sum::<f64>() > 0.0 {
                     quantize(&positive, out);
                     from_regrets += 1;
@@ -279,7 +279,7 @@ impl StrategyFile {
             if out.iter().any(|&q| q > 0) {
                 visited += 1;
             }
-        }
+        });
         let header = Header {
             format: FORMAT_VERSION,
             built_by: format!("blueprint {}", env!("CARGO_PKG_VERSION")),

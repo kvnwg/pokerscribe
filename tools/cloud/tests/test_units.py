@@ -89,10 +89,81 @@ def test_prices(tmp_path):
     s = make_settings(tmp_path, DISK_SIZE_GB=365, DISK_PRICE_PER_GB_MONTH=0.10)
     assert s.machine_price == 2.0461
     assert s.disk_price_per_hour == pytest.approx(365 * 0.10 / 730)
-    assert s.price_per_hour == pytest.approx(2.0461 + 0.005 + 0.05)
+    # A Spot machine's external IP costs half an on-demand one's (Google, 27 Nov 2026).
+    assert s.ip_price == 0.0025
+    assert s.price_per_hour == pytest.approx(2.0461 + 0.0025 + 0.05)
     std = make_settings(tmp_path, PROVISIONING="standard")
     assert std.PROVISIONING == "STANDARD" and std.machine_price == 3.7722
+    assert std.ip_price == 0.005
     assert s.vcpus() == 64 and make_settings(tmp_path, MACHINE_TYPE="c4a-highmem-64-lssd").vcpus() == 64
+
+
+def test_disk_price_counts_iops_and_throughput_above_the_baseline(tmp_path):
+    base = make_settings(tmp_path, DISK_SIZE_GB=80)
+    assert base.DISK_PRICE_PER_GB_MONTH == 0.08
+    assert base.disk_price_per_hour == pytest.approx(80 * 0.08 / 730)
+    # 400 MiB/s is 260 above the free 140; 3,000 IOPS is the free baseline.
+    fast = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=400, DISK_IOPS=3000)
+    assert fast.disk_price_per_hour == pytest.approx((80 * 0.08 + 260 * 0.04) / 730)
+    more = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_IOPS=6000)
+    assert more.disk_price_per_hour == pytest.approx((80 * 0.08 + 3000 * 0.005) / 730)
+    # Below the baseline costs nothing extra, and other disk types aren't priced that way.
+    low = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=100)
+    assert low.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
+    pd = make_settings(tmp_path, DISK_SIZE_GB=80, DISK_TYPE="pd-balanced", DISK_IOPS=6000)
+    assert pd.disk_price_per_hour == pytest.approx(base.disk_price_per_hour)
+
+
+def test_vm_family_quota_from_the_cloud_quotas_api():
+    # A QuotaInfo as the Cloud Quotas API documents it (and gcloud beta quotas info describe
+    # prints it as JSON): int64 values come as strings, and an entry with fewer dimensions is
+    # the default for the others.
+    info = {
+        "name": "projects/123/locations/global/services/compute.googleapis.com/quotaInfos/"
+                "CPUS-PER-VM-FAMILY-per-project-region",
+        "quotaId": "CPUS-PER-VM-FAMILY-per-project-region",
+        "metric": "compute.googleapis.com/cpus_per_vm_family",
+        "service": "compute.googleapis.com",
+        "isPrecise": True,
+        "containerType": "PROJECT",
+        "dimensions": ["region", "vm_family"],
+        "metricDisplayName": "CPUs per VM family",
+        "quotaDisplayName": "CPUs per VM Family per project per region",
+        "metricUnit": "1",
+        "quotaIncreaseEligibility": {"isEligible": True},
+        "dimensionsInfos": [
+            {"dimensions": {"region": "us-central1", "vm_family": "C4A"},
+             "details": {"value": "64"}, "applicableLocations": ["us-central1"]},
+            {"dimensions": {"region": "us-central1"}, "details": {"value": "24"},
+             "applicableLocations": ["us-central1"]},
+            {"dimensions": {"region": "europe-west4", "vm_family": "C4A"},
+             "details": {"value": "8"}, "applicableLocations": ["europe-west4"]},
+            {"details": {"value": "0"}},
+        ],
+    }
+    q = gce.parse_vm_family_quota(info, "us-central1", "C4A")
+    assert q["limit"] == 64 and q["dimensions"]["vm_family"] == "C4A"
+    assert gce.parse_vm_family_quota(info, "europe-west4", "c4a")["limit"] == 8
+    # A family with no entry of its own gets the region's default, then the global one.
+    assert gce.parse_vm_family_quota(info, "us-central1", "N4")["limit"] == 24
+    assert gce.parse_vm_family_quota(info, "asia-east1", "C4A")["limit"] == 0
+    # A list (gcloud beta quotas info list) with other quotas in it; -1 is no limit.
+    other = {"quotaId": "CPUS-per-project-region", "metric": "compute.googleapis.com/cpus",
+             "dimensionsInfos": [{"dimensions": {"region": "us-central1"},
+                                  "details": {"value": "500"}}]}
+    unlimited = dict(info, dimensionsInfos=[{"dimensions": {"region": "us-central1",
+                                                            "vm_family": "C4A"},
+                                             "details": {"value": -1}}])
+    assert gce.parse_vm_family_quota([other, info], "us-central1", "C4A")["limit"] == 64
+    assert gce.parse_vm_family_quota([other, unlimited], "us-central1", "C4A")["limit"] == \
+        float("inf")
+    # Anything else: None, so check says it couldn't read the quota.
+    for bad in (None, [], {}, [other], "text", {"metric": gce.VM_FAMILY_METRIC},
+                dict(info, dimensionsInfos=[{"dimensions": {"region": "us-central1",
+                                                            "vm_family": "C4A"},
+                                             "details": {"value": "many"}}]),
+                dict(info, dimensionsInfos="?")):
+        assert gce.parse_vm_family_quota(bad, "us-central1", "C4A") is None
 
 
 def elf_header(machine: int) -> bytes:
@@ -130,6 +201,32 @@ def test_example_settings_file_loads_and_has_no_secrets():
     for key in settings.SPEC:
         assert key in text, f"{key} is not documented in settings.example.env"
     assert "@" not in text.replace("@example", "")    # no email addresses
+
+
+def test_phase6_settings_example(tmp_path):
+    """docs/research/runs/phase6/cloud.env.example: it loads, names no project, bucket or
+    account, and with a project and bucket filled in has no problems and the planned price."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(settings.__file__)))
+    path = os.path.join(repo, "docs", "research", "runs", "phase6", "cloud.env.example")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    values = settings.parse_env_file(text)
+    assert set(values) <= set(settings.SPEC)
+    assert values["PROJECT"] == "" and values["BUCKET"] == "" and values["SERVICE_ACCOUNT"] == ""
+    assert "@" not in text
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r")
+    filled = tmp_path / "cloud.env"
+    filled.write_text(text.replace("PROJECT=\n", "PROJECT=test-project\n")
+                      .replace("BUCKET=\n", "BUCKET=test-bucket\n")
+                      .replace("TRAINER_FILES=~/abstraction/k200", f"TRAINER_FILES={tables}"))
+    s = settings.load(str(filled), environ={})
+    assert s.problems(for_launch=False) == []
+    assert s.MACHINE_TYPE == "c4a-highcpu-64" and s.BUDGET_USD == 10
+    # $1.445888 + $0.0025 + 80 GB at $0.08 and 260 MiB/s at $0.04 a month.
+    assert s.price_per_hour == pytest.approx(1.445888 + 0.0025 + (80 * 0.08 + 260 * 0.04) / 730)
+    assert s.disk_needed_gb() <= s.DISK_SIZE_GB
 
 
 # --- checkpoint names, restore, retention --------------------------------------------------------
@@ -306,7 +403,7 @@ def test_create_command_spot(tmp_path):
     md = control.instance_metadata(s, "abc123")
     cmd = gce.create_command(s, "us-central1-b", 7200, md, "/x/startup.sh")
     assert cmd[:5] == ["beta", "compute", "instances", "create", "ps-hu-test"]
-    for flag in ("--zone=us-central1-b", "--machine-type=c4a-highmem-64",
+    for flag in ("--zone=us-central1-b", "--machine-type=c4a-highcpu-64",
                  "--provisioning-model=SPOT", "--instance-termination-action=STOP",
                  "--max-run-duration=2h", "--image-family=debian-12-arm64",
                  "--image-project=debian-cloud", "--boot-disk-size=200GB",
@@ -492,3 +589,90 @@ def test_cli_help_runs():
     p = subprocess.run([sys.executable, "-m", "tools.cloud", "--help"], capture_output=True,
                        text=True, cwd=settings.REPO)
     assert p.returncode == 0 and "local-test" in p.stdout
+
+
+# --- trainer files, memory and disk --------------------------------------------------------------
+
+def test_known_machines_memory_and_disk_rules(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    assert s.vcpus() == 64 and s.machine_memory_gb() == 128.0
+    assert make_settings(tmp_path).machine_memory_gb() == 128.0        # the default
+    assert make_settings(tmp_path, MACHINE_TYPE="c4a-highmem-64").machine_memory_gb() == 512.0
+    assert make_settings(tmp_path, MACHINE_TYPE="n2-custom-8-1024").machine_memory_gb() is None
+    # The Phase 6 trainer (7.4 GB at its peak) fits; 120 GB does not leave 10% spare.
+    assert make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64",
+                         TRAINER_MEMORY_GB="7.4").problems() == []
+    big = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64", TRAINER_MEMORY_GB="120")
+    assert any("does not fit c4a-highcpu-64 (128 GB)" in p for p in big.problems())
+    # The disk holds 4 checkpoints, the artifacts and 30 GB for the system.
+    disk = make_settings(tmp_path, CHECKPOINT_GB="4.9", ARTIFACTS_GB="7", DISK_SIZE_GB="50")
+    assert disk.disk_needed_gb() == pytest.approx(56.6)
+    assert any("DISK_SIZE_GB 50 is too small" in p and "56.6 GB" in p for p in disk.problems())
+    assert make_settings(tmp_path, CHECKPOINT_GB="4.9", ARTIFACTS_GB="7",
+                         DISK_SIZE_GB="80").problems() == []
+    assert make_settings(tmp_path).disk_needed_gb() is None
+
+
+def test_trainer_files_must_exist_and_cover_the_config(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 100)
+    cfg = tmp_path / "phase6.json"
+    cfg.write_text(json.dumps({"spec": {"abstraction": "/opt/pscloud/bundle/files/k200",
+                                        "stack_bb": 200}}))
+    none = make_settings(tmp_path, TRAINER_CONFIG=str(cfg))
+    assert any("names /opt/pscloud/bundle/files/k200" in p and "called k200" in p
+               for p in none.problems())
+    good = make_settings(tmp_path, TRAINER_CONFIG=str(cfg), TRAINER_FILES=str(tables))
+    assert good.problems() == [] and good.trainer_files() == [str(tables)]
+    missing = make_settings(tmp_path, TRAINER_FILES=str(tmp_path / "nope"))
+    assert any("does not exist" in p for p in missing.problems())
+    other = tmp_path / "other" / "k200"
+    other.mkdir(parents=True)
+    twice = make_settings(tmp_path, TRAINER_FILES=f"{tables},{other}")
+    assert any("two entries are called k200" in p for p in twice.problems())
+
+
+def test_bundle_with_trainer_files(tmp_path):
+    tables = tmp_path / "k200"
+    tables.mkdir()
+    (tables / "river.abs").write_bytes(b"r" * 1000)
+    (tables / "flop.abs").write_bytes(b"f" * 10)
+    (tables / ".DS_Store").write_bytes(b"x")
+    s = make_settings(tmp_path, TRAINER_FILES=str(tables))
+    m = control.build_bundle(s, str(tmp_path / "a"))
+    assert m["extra_files"] == ["files/k200/flop.abs", "files/k200/river.abs"]
+    assert set(m["extra_files"]) <= set(m["files"])
+    assert (tmp_path / "a" / "files" / "k200" / "river.abs").read_bytes() == b"r" * 1000
+    assert m["bytes"] >= 1010
+    run = json.loads((tmp_path / "a" / "run.json").read_text())
+    assert run["artifact_patterns"] == ["*.bps", "*.jsonl"]
+    sup.check_run_config(run)
+    assert control.build_bundle(s, str(tmp_path / "b"))["version"] == m["version"]
+    (tables / "river.abs").write_bytes(b"R" * 1000)           # other tables: another bundle
+    assert control.build_bundle(s, str(tmp_path / "c"))["version"] != m["version"]
+    plain = control.build_bundle(make_settings(tmp_path), str(tmp_path / "d"))
+    assert plain["extra_files"] == []
+    off = make_settings(tmp_path, ARTIFACT_PATTERNS="none")
+    assert control.run_config(off)["artifact_patterns"] == []
+
+
+def test_format_watch_artifacts_and_memory_warning(tmp_path):
+    s = make_settings(tmp_path, MACHINE_TYPE="c4a-highcpu-64")
+    now = 100000.0
+    status = {"updated_at": now - 20,
+              "memory": {"trainer_rss_bytes": 7.3e9, "trainer_peak_bytes": 7.4e9,
+                         "total_bytes": 135e9, "available_bytes": 126e9},
+              "artifacts": {"uploads": 3, "in_bucket": 4, "restored": 1,
+                            "last_uploaded_name": "strategy-4000000.bps",
+                            "last_uploaded_at": now - 60, "upload_failures": 0}}
+    inst = {"name": "ps-hu-test", "zone": "us-central1-a", "status": "RUNNING",
+            "machine_type": "c4a-highcpu-64", "provisioning": "SPOT", "last_start_at": now - 900}
+    sn = {"now": now, "instance": inst, "status": status, "state": None, "stop_requested": False,
+          "restarts": {"events": []}, "checkpoints": [], "preempted_at": None, "cost": 1.0}
+    text = "\n".join(control.format_watch(sn, s))
+    assert "artifacts   4 in the bucket; last strategy-4000000.bps 60 s ago; 1 put back" in text
+    assert "WARNING" not in text
+    full = dict(status, memory=dict(status["memory"], trainer_peak_bytes=125e9))
+    text = "\n".join(control.format_watch(dict(sn, status=full), s))
+    assert "WARNING     memory reached 93% of the machine" in text
