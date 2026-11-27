@@ -1,2 +1,8 @@
 b0 bet_size 0.5: 236 s
 b0, plain: 144 s
+call: 441 s
+tag: 189 s
+tag-loose: 277 s
+b0: 65 s
+fold: 22 s
+lbr-random: 129 s
