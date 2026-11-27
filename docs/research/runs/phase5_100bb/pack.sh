@@ -8,7 +8,7 @@ mkdir -p $D
 cp $B/out.log $B/err.log $D/
 for r in standard-k10 standard-k50 standard-k200; do
   mkdir -p $D/$r
-  for f in spec.json stages.jsonl lbr.jsonl final.jsonl log.jsonl done.json; do
+  for f in spec.json stages.jsonl progress.jsonl lbr.jsonl final.jsonl log.jsonl done.json; do
     [ -f $B/$r/$f ] && cp $B/$r/$f $D/$r/
   done
 done
