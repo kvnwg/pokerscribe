@@ -332,7 +332,7 @@ def advise(state: GameState, computed: Optional[dict] = None, range_spec: Option
     waiting = _waiting_on_others(s)
     if waiting:
         return Advice("wait", "WAIT", waiting, basis="none", hand=text)
-    adv = _never_fold_a_free_check(s, _preflop(s) if not board else _postflop(s))
+    adv = _never_fold_a_free_check(s, _never_check_a_bet(s, _preflop(s) if not board else _postflop(s)))
     adv.hand = text
     if not state.hero_to_act.known:
         adv.detail = _join(adv.detail, "(No action buttons visible: this is the plan for when it's your turn.)")
@@ -340,6 +340,18 @@ def advise(state: GameState, computed: Optional[dict] = None, range_spec: Option
 
 
 # ---------------------------------------------------------------- shared
+def _never_check_a_bet(s: _Spot, adv: Advice) -> Advice:
+    """The other last check: CHECK only when checking is possible. With a Call button and no
+    Check button (or a bet worked out to call), a free look isn't on offer: the instruction
+    wanted to put nothing in, so it folds. (8-player self-test: a seat missed, you were read
+    as the big blind, and "CHECK" was shown over a Call 200 button.)"""
+    if adv.action != "check" or s.can_check is not False:
+        return adv
+    owed = f"There's {_amt(s.to_call)} to call" if s.to_call else "There's a bet to call"
+    return Advice("fold", "FOLD", f"{owed}, so it isn't free, and this hand was only worth a free look. Fold.",
+                  basis=adv.basis, detail=adv.detail, hand=adv.hand)
+
+
 def _never_fold_a_free_check(s: _Spot, adv: Advice) -> Advice:
     """The last check on every instruction: folding when checking costs nothing is never
     right. When it can't tell whether there's a bet, say both."""
@@ -832,7 +844,9 @@ def _preflop(s: _Spot) -> Advice:
                              "standard play.")
         return _fold_or_check(s, f"You have about {int(my_bb)} big blinds left. Wait for a better hand than "
                                  f"{name}.")
-    if s.pos == "BB" or (s.can_check and not limpers):
+    if (s.pos == "BB" and s.can_check is not False) or (s.can_check and not limpers):
+        # (the big blind sees the flop for free only when checking is on offer: with a Call
+        # button and no Check, the seat was misread or someone put in more)
         if charts.vs_limpers("BB", cls) == "raise" and s.can_raise:
             to = (3.5 + limpers) * s.bb if s.bb else None
             return _aggressive(s, "raise", to, f"{name} is a {top} hand. Raise instead of checking.",

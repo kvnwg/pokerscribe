@@ -80,3 +80,28 @@ def test_a_tag_on_your_big_blind_is_not_your_raise():
     adv = advise(st)
     assert "re-raise" not in adv.reason.lower()
     assert adv.action in ("call", "raise")
+
+
+def test_never_check_with_a_call_button():
+    """8-player self-test, phone table: a seat beside the blinds was missed, so you (under the
+    gun) were read as the big blind. The buttons said Fold, Call 200, Raise, and the instruction
+    was CHECK, "No one raised, so you see the flop for free". Checking isn't on offer: never
+    CHECK without a Check button."""
+    seats = ("BB", "UTG", "LJ", "HJ", "CO", "BTN", "SB")
+    bets = [0, 0, 0, 0, 0, 0, 200]
+    buttons = [FOLD, Action("call", 200), RAISE]
+    weak = spot(table(bets, positions=seats), ["8c", "2d"], 200.0, buttons)
+    adv = advise(weak)
+    assert adv.action == "fold" and "free" not in adv.headline.lower()
+    strong = spot(table(bets, positions=seats), ["Ah", "Ad"], 200.0, buttons)
+    assert advise(strong).action in ("raise", "call", "all-in")
+
+
+def test_a_free_look_is_only_free_with_a_check_button():
+    """The same spot read right: the big blind with nobody raising and Check on the buttons
+    still checks a weak hand."""
+    seats = ("BB", "UTG", "LJ", "HJ", "CO", "BTN", "SB")
+    bets = [200, 200, 0, 0, 0, 0, 100]
+    st = spot(table(bets, positions=seats), ["8c", "2d"], 0.0, [CHECK, RAISE])
+    st.blinds = Field.manual((100.0, 200.0))
+    assert advise(st).action == "check"
