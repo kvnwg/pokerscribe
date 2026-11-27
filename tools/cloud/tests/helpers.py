@@ -40,6 +40,31 @@ def make_settings(tmp_path, **over) -> settings.Settings:
     return settings.load(str(tmp_path / "no-such-settings.env"), environ=environ)
 
 
+def cargo_workspace(root, members, lock=True):
+    """A Cargo workspace of empty library crates (no outside crates, so cargo needs no network),
+    locked with the real cargo if ``lock``. Adding a member afterwards makes the lockfile stale,
+    as the search crate did to Kevin's on 27 Nov 2026."""
+    from tools.cloud import control
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "Cargo.toml").write_text('[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n')
+    for m in members:
+        add_crate(root, m)
+    if lock:
+        cargo = control.cargo_command()
+        assert cargo, "these tests need Rust's cargo (python.yml has it): https://rustup.rs"
+        subprocess.run([cargo, "generate-lockfile", "--offline"], cwd=root, check=True,
+                       capture_output=True)
+    return root
+
+
+def add_crate(root, name):
+    src = root / "crates" / name / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (root / "crates" / name / "Cargo.toml").write_text(
+        f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n')
+    (src / "lib.rs").write_text("")
+
+
 def iso(t: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S.000-00:00", time.gmtime(t))
 
@@ -70,7 +95,7 @@ class FakeCompute:
 
     # --- the machines ---
 
-    def add(self, name, zone="us-central1-a", status="RUNNING", started=None):
+    def add(self, name, zone="us-central1-a", status="RUNNING", started=None, stopped=None):
         self.instances[name] = {
             "name": name, "zone": f"https://compute/projects/p/zones/{zone}", "status": status,
             "machineType": f"https://compute/zones/{zone}/machineTypes/c4a-highmem-64",
@@ -78,6 +103,8 @@ class FakeCompute:
             "creationTimestamp": iso(started or time.time()),
             "lastStartTimestamp": iso(started or time.time()),
             "labels": {"pscloud-run": "hu-test"}, "id": "1"}
+        if stopped is not None:
+            self.instances[name]["lastStopTimestamp"] = iso(stopped)
 
     def status(self, name):
         self.poll()
@@ -176,6 +203,8 @@ class FakeCompute:
                     os.killpg(p.pid, signal.SIGTERM)
                     p.wait(timeout=60)
                     self.poll()
+                if inst["status"] != "TERMINATED":
+                    inst["lastStopTimestamp"] = iso(time.time())
                 inst["status"] = "TERMINATED"
             elif verb == "delete":
                 del self.instances[name]

@@ -79,6 +79,9 @@ SPEC = {
                                                "a new machine is made in the next zone"),
     "RESTART_ANY_STOP": ("bool", False, "also restart after a stop that wasn't a preemption"),
     "RECOVER_POLL_SECONDS": ("int", 60, "how often the recovery loop looks"),
+    "SILENT_STOP_MINUTES": ("int", 30, "the recovery loop stops a running machine that has "
+                                       "sent no report this long after it started (its setup "
+                                       "is stuck); 0: never"),
     # the trainer
     "TRAINER_MODE": ("str", "build", "build (cargo on the machine, from ENGINE_DIR) or copy "
                                      "(TRAINER_PATH, already built for aarch64 Linux)"),
@@ -325,7 +328,8 @@ class Settings:
             out.append("PREEMPTION_NOTICE_SECONDS must be 0 or 120")
         if v.get("BUDGET_USD") is None or v["BUDGET_USD"] <= 0:
             out.append("BUDGET_USD is not set (the hard cap is required)")
-        for key in ("MAX_RESTARTS", "RECREATE_AFTER_FAILED_STARTS", "MAX_TRAINER_CRASHES"):
+        for key in ("MAX_RESTARTS", "RECREATE_AFTER_FAILED_STARTS", "MAX_TRAINER_CRASHES",
+                    "SILENT_STOP_MINUTES"):
             if v.get(key) is None or v[key] < 0:
                 out.append(f"{key} must be 0 or more")
         if (v.get("KEEP_CHECKPOINTS") or 0) < 1:

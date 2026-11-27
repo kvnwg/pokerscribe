@@ -176,6 +176,12 @@ How the trainer gets to the machine:
   `--features <TRAINER_CARGO_FEATURES>`, and `--locked` when there is a `Cargo.lock`). That is a
   native Arm build, so there is no cross-compiling on the Mac. The first machine of a run saves
   the built program to the bucket; later machines of the run download it instead of building.
+  `engine/Cargo.lock` is in the repo, and CI fails if it doesn't list every crate of the
+  workspace. `check`, `launch` and `launch --dry-run` check the local one too
+  (`cargo update --workspace --locked`, which changes nothing), and refuse to launch if it doesn't
+  match: with `--locked`, the machine's build would stop at once. That happened on the first
+  Phase 6 calibration launch (27 Nov 2026), with a lockfile written before a pull that added the
+  `search` crate.
 - `TRAINER_MODE=copy`: `TRAINER_PATH` is copied as it is. It must be an aarch64 Linux program
   (the settings check reads its header) or a script, such as `tools/cloud/fake_trainer.py`.
 - `TRAINER_CONFIG` is copied and passed as `--config`. `TRAINER_ARGS` adds arguments, such as
@@ -280,7 +286,11 @@ where the run is in the bucket, and which bundle version to install. At every bo
 4. writes the systemd service `pscloud-trainer` and starts it.
 
 If any step fails, the script uploads its log to `logs/`, marks the run failed, and powers the
-machine off, so a broken setup doesn't bill for hours.
+machine off, so a broken setup doesn't bill for hours. A failed build also prints the end of
+cargo's output on the serial console (`get-serial-port-output`). Before 27 Nov 2026 a failure
+inside one of the script's functions (the build, a download) skipped all of that, and the machine
+sat there billing: the script now runs with `set -E`. If the setup hangs instead, `recover`
+stops the machine after `SILENT_STOP_MINUTES` with no report (below).
 
 systemd runs the supervisor (`supervisor.py`), and the supervisor runs the trainer. The service is
 enabled, so a reboot starts it again, and it resumes. `Restart=on-failure` brings the supervisor
@@ -329,6 +339,7 @@ the bucket's older one.
 |---|---|
 | the run is done, failed, budget or stopped | exits |
 | a stop was requested | exits |
+| the machine has run `SILENT_STOP_MINUTES` (default 30) since it started without a single report | stops it, marks the run failed and exits: its setup is stuck or failed without powering off (0 turns this off; a machine that reported and then went quiet is left alone, and `watch` warns about it) |
 | the machine is running (or starting) | waits |
 | the cost is within `BUDGET_MARGIN_MINUTES` of the cap, or less than 10 minutes of budget is left | gives up |
 | `MAX_RESTARTS` restarts already used | gives up |
@@ -361,7 +372,10 @@ To go on after a "budget" stop, raise `BUDGET_USD` and run `resume`.
 
 It counts the machine and its external IP for each boot, from the boot to the last report plus
 one status interval, at the prices in the settings, and the disk for every hour since the first
-boot, running or stopped. It doesn't count:
+boot, running or stopped. A boot that never reported (its setup failed before the supervisor
+started) counts from the boot to the time Google stopped the machine. `stop`, `cleanup` and
+`recover` write such a boot to the bucket's `sessions/` (`unreported-*.json`) before the machine
+goes, so `launch` and every later supervisor still count it. It doesn't count:
 
 - the bucket's storage (3 checkpoints of 5 GB cost well under a dollar a month; Standard storage
   is about $0.02 per GB per month);

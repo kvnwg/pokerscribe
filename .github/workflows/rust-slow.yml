@@ -26,12 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Resolve dependencies
+      # engine/Cargo.lock is committed (see rust.yml): used as it is (--locked).
+      - name: Check the lockfile
         id: deps
         run: |
           rustc --version
           cargo --version
-          cargo generate-lockfile
+          cargo update --workspace --locked
           echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
       # Keep the path and key the same as in rust.yml: this reads the cache that rust.yml
@@ -64,7 +65,7 @@ jobs:
       - name: Build the bucket tables
         if: steps.tables.outputs.cache-hit != 'true'
         run: |
-          cargo build --release -p abstraction --bin abstraction-build
+          cargo build --release --locked -p abstraction --bin abstraction-build
           ./target/release/abstraction-build build --out ~/abstraction/k10 --buckets 10
           ./target/release/abstraction-build build --out ~/abstraction/k50 --buckets 50
 
@@ -80,4 +81,4 @@ jobs:
           export BLUEPRINT_TABLES="$HOME/abstraction/k10"
           export BLUEPRINT_OTHER_TABLES="$HOME/abstraction/k50"
           export ABSTRACTION_TABLES="$HOME/abstraction/k50"
-          cargo test --release -- --ignored
+          cargo test --release --locked -- --ignored

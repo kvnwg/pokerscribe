@@ -99,7 +99,7 @@ jobs:
         run: |
           rustc --version
           python -m pip install ./engine/crates/py
-          cargo build --release --bin subgame-solve --manifest-path engine/Cargo.toml
+          cargo build --release --locked --bin subgame-solve --manifest-path engine/Cargo.toml
 
       - name: python -m pytest
         run: python -m pytest -rfEs --durations=15 --junitxml="$RUNNER_TEMP/pytest.xml"

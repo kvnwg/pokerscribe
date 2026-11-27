@@ -32,14 +32,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # engine/Cargo.lock is not committed, so the versions of the outside crates are worked
-      # out here and the cache below is named after the result.
-      - name: Resolve dependencies
+      # engine/Cargo.lock is committed: the cloud trainer is built from it with --locked
+      # (tools/cloud), so it must list every crate of the workspace. This fails if it doesn't
+      # (a crate added without the lockfile updated): run `cargo update --workspace` in engine/
+      # and commit Cargo.lock. Every cargo command below uses it as it is (--locked).
+      - name: Check the lockfile
         id: deps
         run: |
           rustc --version
           cargo --version
-          cargo generate-lockfile
+          cargo update --workspace --locked
           echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
 
       # Keep the path and key the same as in rust-slow.yml: both workflows share this cache.
@@ -57,7 +59,7 @@ jobs:
             cargo-release-${{ runner.os }}-${{ runner.arch }}-rustc${{ steps.deps.outputs.rustc }}-
 
       - name: cargo test --release
-        run: cargo test --release
+        run: cargo test --release --locked
 
       # Only main saves the cache. Every pull request can read what main saved, but a cache
       # saved from a pull request is visible to that pull request alone.

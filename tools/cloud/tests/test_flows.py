@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 
 import pytest
@@ -15,7 +16,7 @@ from tools.cloud import control, fake_trainer, gce, local_test
 from tools.cloud.supervisor import (BUNDLE, LAUNCH, RESTARTS, STATE, STATUS, STOP_MARKER,
                                     LocalStore, read_json, remote_checkpoints, write_json)
 
-from .helpers import FakeCompute, iso, make_settings
+from .helpers import FakeCompute, add_crate, cargo_workspace, iso, make_settings
 
 STOCKOUT = ("ERROR: (gcloud.compute.instances.start) The zone 'us-central1-a' does not have "
             "enough resources available to fulfill the request. ZONE_RESOURCE_POOL_EXHAUSTED")
@@ -110,6 +111,32 @@ def test_launch_refusals(tmp_path):
     ctx, fake, out = make_ctx(tmp_path / "d", BUDGET_USD="")
     assert control.launch(ctx) == 2 and any("BUDGET_USD" in x for x in out)
     assert not any("create" in c for c in fake.calls)
+
+
+def test_launch_refuses_a_lockfile_that_doesnt_match_the_workspace(tmp_path):
+    # Phase 6 calibration, 27 Nov 2026: Kevin's engine/Cargo.lock was written before the pull
+    # that added the search crate, and the machine's `cargo build --locked` stopped at once.
+    eng = cargo_workspace(tmp_path / "engine", ["blueprint"])
+    add_crate(eng, "search")
+    over = dict(TRAINER_MODE="build", TRAINER_CARGO_BIN="blueprint", ENGINE_DIR=str(eng))
+    ctx, fake, out = make_ctx(tmp_path, **over)
+    assert control.launch(ctx) == 2
+    assert any("doesn't match the workspace" in x for x in out)
+    assert fake.calls == [] and read_json(ctx.store, BUNDLE + "manifest.json") is None
+    # the dry run says the same, before anything is created
+    s = make_settings(tmp_path, **over)
+    dry = []
+    dctx = control.Ctx(s, gce.Gcloud(s.PROJECT, runner=None, dry_run=True, echo=dry.append),
+                       control.DryStore(s.store_url, dry.append), out=dry.append)
+    assert control.launch(dctx) == 2 and any("doesn't match the workspace" in x for x in dry)
+    rc, text = run_check(s, check_answers(524288))
+    assert rc == 1 and "FIX   Cargo.lock matches the workspace" in text
+    subprocess.run([control.cargo_command(), "update", "--workspace", "--offline"], cwd=eng,
+                   check=True, capture_output=True)
+    rc, text = run_check(s, check_answers(524288))
+    assert "ok    Cargo.lock matches the workspace" in text
+    dry.clear()
+    assert control.launch(dctx) == 0, dry
 
 
 def test_launch_clears_an_earlier_failure_and_resumes_from_the_bucket(tmp_path):
@@ -261,6 +288,76 @@ def test_cleanup_deletes_the_machine_and_keeps_the_bucket(tmp_path):
     delete = next(c for c in fake.calls if "delete" in c)
     assert "--delete-disks=all" in delete
     assert read_json(ctx.store, STATUS) == {"x": 1}            # the bucket is untouched
+
+
+def test_a_boot_that_never_reported_counts_after_stop_cleanup_and_launch(tmp_path):
+    # Phase 6 calibration, 27 Nov 2026: the setup failed before the supervisor started, the
+    # machine ran 51 minutes with no report, and after the stop the tools counted $0.
+    ctx, fake, out = make_ctx(tmp_path)
+    price = ctx.s.price_per_hour
+    fake.add("ps-hu-test", started=time.time() - 51 * 60)
+    assert control.snapshot(ctx)["cost"] == pytest.approx(51 / 60 * price, rel=0.02)
+    assert control.stop(ctx) == 0
+    recs = control.unreported_boots(ctx.store)
+    assert len(recs) == 1 and recs[0]["ended_at"] - recs[0]["started_at"] >= 51 * 60 - 2
+    assert any("never reported" in x for x in out)
+    after = control.snapshot(ctx)["cost"]                       # watch after the stop
+    assert after == pytest.approx(51 / 60 * price, rel=0.02)
+    assert control.cleanup(ctx, yes=True) == 0 and "ps-hu-test" not in fake.instances
+    assert control.unreported_boots(ctx.store) == recs          # once per boot
+    # the next launch counts it: the machine gets the budget that is left
+    assert control.launch(ctx) == 0, out
+    create = next(c for c in fake.calls if "create" in c and "instances" in c)
+    left = control.run_seconds_left(control.boot_cost(recs[0]), ctx.s)
+    assert left < control.run_seconds_left(0.0, ctx.s)
+    assert f"--max-run-duration={gce.duration(left)}" in create
+
+
+def test_a_boot_that_never_reported_is_recorded_before_a_restart(tmp_path):
+    # preempted during its setup, then started again: the new boot replaces GCE's start time
+    ctx, fake, out = make_ctx(tmp_path, RESTART_ANY_STOP="true")
+    started = time.time() - 1200
+    fake.add("ps-hu-test", status="TERMINATED", started=started, stopped=started + 600)
+    assert control.recover(ctx, once=True) == 0 and fake.verbs()[-1] == "start"
+    recs = control.unreported_boots(ctx.store)
+    assert len(recs) == 1 and recs[0]["ended_at"] - recs[0]["started_at"] == pytest.approx(600)
+    snap = control.snapshot(ctx)                     # running again: the old boot still counts
+    assert snap["cost"] >= control.boot_cost(recs[0])
+
+
+def test_a_boot_that_reported_is_not_recorded(tmp_path):
+    ctx, fake, out = make_ctx(tmp_path)
+    started = time.time() - 600
+    fake.add("ps-hu-test", status="TERMINATED", started=started, stopped=started + 300)
+    write_json(ctx.store, STATUS, {"updated_at": started + 290, "cost": {"total_usd": 1.0}})
+    assert control.stop(ctx) == 0
+    assert control.unreported_boots(ctx.store) == []
+
+
+def test_recover_stops_a_machine_that_never_reports(tmp_path):
+    ctx, fake, out = make_ctx(tmp_path)
+    fake.add("ps-hu-test", started=time.time() - 31 * 60)
+    assert control.recover(ctx, once=True) == 1
+    assert fake.verbs() == ["stop"] and "stop-silent" in "\n".join(out)
+    state = read_json(ctx.store, STATE)
+    assert state["state"] == "failed" and "stopped by recover" in state["detail"]
+    assert len(control.unreported_boots(ctx.store)) == 1
+    assert control.recover(ctx, once=True) == 0 and fake.verbs() == ["stop"]   # finished
+
+
+@pytest.mark.parametrize("minutes,reported,setting", [
+    (20, False, "30"),          # still setting up
+    (120, True, "30"),          # reported in this boot, then went quiet: watch warns only
+    (120, False, "0"),          # turned off
+])
+def test_recover_leaves_a_machine_alone(tmp_path, minutes, reported, setting):
+    ctx, fake, out = make_ctx(tmp_path, SILENT_STOP_MINUTES=setting)
+    started = time.time() - minutes * 60
+    fake.add("ps-hu-test", started=started)
+    if reported:
+        write_json(ctx.store, STATUS, {"updated_at": started + 120, "cost": {"total_usd": 0.1}})
+    assert control.recover(ctx, once=True) == 0
+    assert fake.verbs() == [] and "wait" in out[-1]
 
 
 def test_leftovers_lists_what_costs_money(tmp_path):

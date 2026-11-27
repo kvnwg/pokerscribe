@@ -170,6 +170,69 @@ def test_failed_setup_marks_the_run_and_powers_off(tmp_path):
     assert not (box.root / "opt" / "pscloud" / "installed-version").exists()
 
 
+def build_mode_settings(tmp_path, lock=True):
+    eng = tmp_path / "engine"
+    (eng / "crates" / "trainer" / "src").mkdir(parents=True)
+    (eng / "Cargo.toml").write_text("[workspace]\nmembers = [\"crates/*\"]\n")
+    (eng / "crates" / "trainer" / "src" / "main.rs").write_text("fn main() {}\n")
+    if lock:
+        (eng / "Cargo.lock").write_text("version = 4\n")
+    return make_settings(tmp_path, TRAINER_MODE="build", TRAINER_CARGO_BIN="blueprint",
+                         TRAINER_CARGO_PACKAGE="trainer", ENGINE_DIR=str(eng))
+
+
+def test_failed_build_marks_the_run_saves_the_log_and_powers_off(tmp_path):
+    # Phase 6 calibration, 27 Nov 2026: the lockfile in the bundle didn't list a new crate,
+    # `cargo build --locked` exited with 101, and the script ended there: no log in the bucket,
+    # no failed state, no power-off, and the machine billed for nothing until stopped by hand.
+    s = build_mode_settings(tmp_path)
+    box = Sandbox(tmp_path, s)
+    stub(box.bin / "cargo", f'''echo "$PWD $@" >> "{tmp_path}/cargo.log"
+echo "error: cannot update the lock file Cargo.lock because --locked was passed" >&2
+exit 101
+''')
+    m = box.publish()
+    p = box.run()
+    assert p.returncode == 1, p.stderr
+    assert box.log("cargo.log")[0].endswith("build --release --bin blueprint -p trainer --locked")
+    state = json.loads((box.bucket / "state.json").read_text())
+    assert state["state"] == "failed" and "cargo build exited with status 101" in state["detail"]
+    assert box.log("systemctl.log") == ["poweroff"]
+    # cargo's error is on the serial console and in the log saved to the bucket
+    assert "cargo: error: cannot update the lock file" in p.stderr
+    logs = list((box.bucket / "logs").glob("startup-*.log"))
+    assert len(logs) == 1 and "cannot update the lock file" in logs[0].read_text()
+    assert not (box.root / "opt" / "pscloud" / "installed-version").exists()
+    assert not (box.bucket / "bundle" / f"trainer-built-{m['version']}").exists()
+
+
+def test_a_failure_inside_any_function_powers_off(tmp_path):
+    # fetch() fails (a bundle file is missing from the bucket): the same clean failure as a
+    # failure in the main script, once.
+    s = make_settings(tmp_path)
+    box = Sandbox(tmp_path, s)
+    box.publish()
+    (box.bucket / "bundle" / "supervisor.py").unlink()
+    p = box.run()
+    assert p.returncode == 1
+    state = json.loads((box.bucket / "state.json").read_text())
+    assert state["state"] == "failed"
+    assert "gave up after 6 attempts: gcloud storage cp" in p.stderr
+    assert "bundle/supervisor.py" in p.stderr
+    assert box.log("systemctl.log") == ["poweroff"]
+    assert p.stderr.count("FAILED:") == 1
+    assert list((box.bucket / "logs").glob("startup-*.log"))
+
+
+def test_build_without_a_lockfile_is_not_locked(tmp_path):
+    s = build_mode_settings(tmp_path, lock=False)
+    box = Sandbox(tmp_path, s)
+    box.publish()
+    p = box.run()
+    assert p.returncode == 0, p.stderr
+    assert box.log("cargo.log")[0].endswith("build --release --bin blueprint -p trainer")
+
+
 def test_missing_metadata_fails_cleanly(tmp_path):
     s = make_settings(tmp_path)
     box = Sandbox(tmp_path, s)

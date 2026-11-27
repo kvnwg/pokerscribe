@@ -13,6 +13,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import time
@@ -20,9 +21,9 @@ import time
 from . import gce
 from .gce import GcloudError
 from .settings import VM_FILES, Settings, executable_kind, tracked_by_git
-from .supervisor import (ARTIFACTS, BUNDLE, FINAL_STATES, LAUNCH, LOGS, RESTARTS, STATE, STATUS,
-                         STOP_MARKER, GcsStore, StoreError, read_json, remote_checkpoints,
-                         write_json)
+from .supervisor import (ARTIFACTS, BUNDLE, FINAL_STATES, LAUNCH, LOGS, RESTARTS, SESSIONS,
+                         STATE, STATUS, STOP_MARKER, GcsStore, StoreError, read_json,
+                         remote_checkpoints, write_json)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STARTUP_SCRIPT = os.path.join(HERE, "vm", "startup.sh")
@@ -116,20 +117,97 @@ def utc(t: float | None) -> str:
 
 # --- cost ----------------------------------------------------------------------------------------
 
-def estimate_cost(status: dict | None, inst: dict | None, now: float, s: Settings) -> float:
+UNREPORTED = SESSIONS + "unreported-"
+
+
+def boot_unreported(inst: dict | None, status: dict | None) -> bool:
+    """The stopped machine's last boot ran and no report covers it: its setup failed before the
+    supervisor started (Phase 6 calibration, 27 Nov 2026: 51 minutes billed, no report)."""
+    if inst is None or inst["status"] not in gce.STOPPED_STATES:
+        return False
+    start, stop = inst.get("last_start_at"), inst.get("last_stop_at")
+    if not start or not stop or stop < start:
+        return False
+    return not status or float(status.get("updated_at") or 0) < start
+
+
+def unreported_boots(store) -> list[dict]:
+    """The boots recorded by record_unreported_boot, from the bucket's sessions ledger."""
+    out = []
+    for name, _size in store.list(SESSIONS):
+        if not name.startswith(UNREPORTED):
+            continue
+        rec = read_json(store, name)
+        if isinstance(rec, dict) and "started_at" in rec and "ended_at" in rec:
+            out.append(rec)
+    return out
+
+
+def boot_cost(rec: dict) -> float:
+    hours = max(0.0, float(rec["ended_at"]) - float(rec["started_at"])) / 3600.0
+    return hours * sum(float(rec.get(k) or 0.0)
+                       for k in ("machine_per_hour", "ip_per_hour", "disk_per_hour"))
+
+
+def estimate_cost(status: dict | None, inst: dict | None, now: float, s: Settings,
+                  unreported: list[dict] = ()) -> float:
     """Cost so far: the machine's last report, plus the time since then at the current price
-    if the machine is running (or the disk alone if it is stopped)."""
+    if the machine is running (or the disk alone if it is stopped). Boots no report covers count
+    too: those recorded in the bucket after the last report (a later supervisor counts them in
+    its own reports), and the stopped machine's last boot if no report covers it."""
     total = float(((status or {}).get("cost") or {}).get("total_usd") or 0.0)
     since = (status or {}).get("updated_at")
+    recorded = set()
+    for rec in unreported:
+        recorded.add(float(rec["started_at"]))
+        if not since or float(since) < float(rec.get("recorded_at") or 0):
+            total += boot_cost(rec)
     if inst is None:
         return total
     if inst["status"] in gce.RUNNING_STATES:
         start = inst.get("last_start_at") or inst.get("created_at") or now
         begin = max(float(since), start) if since else start
         total += max(0.0, now - begin) / 3600.0 * s.price_per_hour
-    elif since:
+        return total
+    if boot_unreported(inst, status):
+        start, stop = float(inst["last_start_at"]), float(inst["last_stop_at"])
+        if start not in recorded:
+            total += (stop - start) / 3600.0 * s.price_per_hour
+        since = stop
+    if since:
         total += max(0.0, now - float(since)) / 3600.0 * s.disk_price_per_hour
     return total
+
+
+def record_unreported_boot(ctx: Ctx, inst: dict | None, status: dict | None) -> dict | None:
+    """If the stopped machine's last boot ran without a report, write it to the bucket's
+    sessions ledger (with the time Google stopped it), so its cost still counts after the
+    machine is deleted: in launch here, and in every later supervisor's budget. Once per boot."""
+    if not boot_unreported(inst, status):
+        return None
+    start, stop = float(inst["last_start_at"]), float(inst["last_stop_at"])
+    sid = f"unreported-{inst.get('id') or inst['name']}-{int(start)}"
+    for name, _size in ctx.store.list(SESSIONS):
+        rec = read_json(ctx.store, name)
+        if not isinstance(rec, dict) or "started_at" not in rec:
+            continue
+        if rec.get("session") == sid:
+            return None                                     # recorded already
+        if not rec.get("unreported") and start - 600 <= float(rec["started_at"]) <= stop:
+            return None                                     # a supervisor ran in this boot
+    s = ctx.s
+    rec = {"session": sid, "run": s.RUN_NAME, "unreported": True,
+           "started_at": start, "last_seen_at": stop, "ended_at": stop,
+           "recorded_at": ctx.clock(), "instance": inst["name"], "zone": inst.get("zone"),
+           "machine_type": inst.get("machine_type"), "provisioning": inst.get("provisioning"),
+           "machine_per_hour": s.machine_price, "ip_per_hour": s.ip_price,
+           "disk_per_hour": s.disk_price_per_hour,
+           "why": "the machine ran without the supervisor ever reporting (its setup failed?)"}
+    write_json(ctx.store, f"{SESSIONS}{sid}.json", rec)
+    ctx.out(f"recorded {inst['name']}'s last boot, which never reported: "
+            f"{age(stop - start)} at ${s.price_per_hour:.4f}/h, about ${boot_cost(rec):.2f}, "
+            f"now in the run's cost")
+    return rec
 
 
 def run_seconds_left(cost: float, s: Settings) -> int:
@@ -149,6 +227,7 @@ def snapshot(ctx: Ctx) -> dict:
     stop = ctx.store.get_bytes(STOP_MARKER) is not None
     restarts = read_json(ctx.store, RESTARTS) or {"events": []}
     ckpts = remote_checkpoints(ctx.store)
+    unreported = unreported_boots(ctx.store)
     preempted_at = None
     if inst and inst["status"] in gce.STOPPED_STATES:
         if status and status.get("stop_reason") == "preempted" and \
@@ -159,7 +238,21 @@ def snapshot(ctx: Ctx) -> dict:
                                                inst.get("last_start_at"))
     return {"now": now, "instance": inst, "status": status, "state": state,
             "stop_requested": stop, "restarts": restarts, "checkpoints": ckpts,
-            "preempted_at": preempted_at, "cost": estimate_cost(status, inst, now, s)}
+            "preempted_at": preempted_at, "unreported": unreported,
+            "cost": estimate_cost(status, inst, now, s, unreported)}
+
+
+def silent_seconds(snap: dict) -> float | None:
+    """How long the running machine has gone without a single report since it started, or None
+    if it has reported in this boot (a machine that reported and then went quiet may be training
+    fine with its uploads failing: watch warns about it, nothing stops it)."""
+    inst = snap.get("instance")
+    if inst is None or inst["status"] != "RUNNING" or not inst.get("last_start_at"):
+        return None
+    last = (snap.get("status") or {}).get("updated_at")
+    if last and float(last) >= inst["last_start_at"]:
+        return None
+    return snap["now"] - inst["last_start_at"]
 
 
 def restarts_used(snap: dict) -> int:
@@ -176,6 +269,11 @@ def decide(snap: dict, s: Settings, failed_starts: int = 0) -> tuple[str, str]:
     if snap.get("stop_requested"):
         return "finished", "a stop was requested (python -m tools.cloud resume clears it)"
     if inst is not None and inst["status"] in gce.RUNNING_STATES:
+        silent = silent_seconds(snap)
+        limit = float(s.SILENT_STOP_MINUTES or 0) * 60
+        if limit and silent is not None and silent > limit:
+            return "stop-silent", (f"no report from the machine in the {age(silent)} since it "
+                                   f"started: its setup is stuck or failed without powering off")
         return "wait", f"machine {inst['status']}"
     if inst is not None and inst["status"] == "SUSPENDED":
         return "give-up", "the machine is suspended, which these tools never do: look at it"
@@ -222,6 +320,42 @@ def engine_tarball(engine_dir: str) -> bytes:
                     with open(full, "rb") as f:
                         tar.addfile(info, f)
     return buf.getvalue()
+
+
+def cargo_command() -> str | None:
+    """This computer's cargo, or None."""
+    found = shutil.which("cargo")
+    if found:
+        return found
+    home = os.path.expanduser("~/.cargo/bin/cargo")
+    return home if os.access(home, os.X_OK) else None
+
+
+def lockfile_problem(engine_dir: str, cargo: str | None = None) -> str | None:
+    """Build mode: what is wrong with ENGINE_DIR's Cargo.lock, or None.
+
+    The machine builds with --locked when there is a lockfile, and cargo then stops at once if
+    the lockfile doesn't match the workspace (a crate added since it was written: Phase 6
+    calibration, 27 Nov 2026). `cargo update --workspace --locked` finds that here in a second,
+    without downloading crates or changing the file. None as well when there is no lockfile, or
+    no cargo to check it with (``check`` says so)."""
+    lock = os.path.join(engine_dir, "Cargo.lock")
+    cargo = cargo or cargo_command()
+    if not os.path.exists(lock) or cargo is None:
+        return None
+    cmd = [cargo, "update", "--workspace", "--locked", "--manifest-path",
+           os.path.join(engine_dir, "Cargo.toml")]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"couldn't check {lock} with cargo: {e}"
+    if p.returncode == 0:
+        return None
+    said = " ".join(line.strip() for line in p.stderr.strip().splitlines()[-3:])
+    return (f"{lock} doesn't match the workspace, and the machine builds with --locked, so "
+            f"its build would stop at once. Take the repo's lockfile (git pull) or update this "
+            f"one (cd {engine_dir} && cargo update --workspace), then check again. cargo: "
+            f"{said}")
 
 
 def run_config(s: Settings) -> dict:
@@ -466,6 +600,10 @@ def launch(ctx: Ctx, force: bool = False) -> int:
     if s.source and tracked_by_git(s.source):
         problems.append(f"the settings file {s.source} is inside the repo and not ignored by "
                         f"git: move it to ~/.config/pokerscribe/cloud.env")
+    if s.TRAINER_MODE == "build" and not any("ENGINE_DIR" in p for p in problems):
+        lock = lockfile_problem(os.path.expanduser(s.ENGINE_DIR))
+        if lock:
+            problems.append(lock)
     if problems:
         ctx.out("Fix the settings first:")
         for p in problems:
@@ -482,7 +620,7 @@ def launch(ctx: Ctx, force: bool = False) -> int:
                 f"machine on it again.")
         return 2
     status = read_json(ctx.store, STATUS)
-    cost = estimate_cost(status, None, ctx.clock(), s)
+    cost = estimate_cost(status, None, ctx.clock(), s, unreported_boots(ctx.store))
     if run_seconds_left(cost, s) < MIN_RUN_SECONDS:
         ctx.out(f"run {s.RUN_NAME} has cost about ${cost:.2f} already; BUDGET_USD "
                 f"${float(s.BUDGET_USD):.2f} leaves too little. Raise BUDGET_USD.")
@@ -692,7 +830,20 @@ def recover(ctx: Ctx, once: bool = False) -> int:
                 return 0
             if action == "give-up":
                 return 1
+            if action == "stop-silent":
+                inst = snap["instance"]
+                write_json(ctx.store, STATE, {"state": "failed", "at": ctx.clock(),
+                                              "session": None,
+                                              "detail": f"stopped by recover: {why}"})
+                ctx.gcloud(gce.stop_command(inst["name"], inst["zone"]))
+                ctx.out(f"  {done(ctx, 'stopped')} {inst['name']}. Its startup output: gcloud "
+                        f"compute instances get-serial-port-output {inst['name']} --zone "
+                        f"{inst['zone']} --project {s.PROJECT}")
+                record_unreported_boot(ctx, gce.find_instance(ctx.gcloud, s.instance_name),
+                                       snap["status"])
+                return 1
             if action == "start":
+                record_unreported_boot(ctx, snap["instance"], snap["status"])
                 try:
                     start_machine(ctx, snap["instance"], snap["cost"])
                     record_restart(ctx, "start", snap["instance"]["zone"], why)
@@ -708,6 +859,7 @@ def recover(ctx: Ctx, once: bool = False) -> int:
                 if snap["instance"] is not None:
                     old = snap["instance"]
                     zone_index = (s.zones.index(old["zone"]) + 1) if old["zone"] in s.zones else 0
+                    record_unreported_boot(ctx, old, snap["status"])
                     ctx.gcloud(gce.delete_command(old["name"], old["zone"]))
                     ctx.out(f"  deleted {old['name']} in {old['zone']} (its disk too)")
                 zones = s.zones[zone_index:] + s.zones[:zone_index]
@@ -735,6 +887,7 @@ def stop(ctx: Ctx, timeout: float | None = None, poll: float = 10.0) -> int:
     inst = gce.find_instance(ctx.gcloud, s.instance_name)
     if inst is None or inst["status"] in gce.STOPPED_STATES:
         ctx.out(f"{s.instance_name}: " + ("none" if inst is None else inst["status"]))
+        record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
         return print_leftovers(ctx)
     status = read_json(ctx.store, STATUS) or {}
     now = ctx.clock()
@@ -755,6 +908,8 @@ def stop(ctx: Ctx, timeout: float | None = None, poll: float = 10.0) -> int:
         ctx.out("the machine is still up: stopping it through GCE (the trainer still gets "
                 "SIGTERM from the shutdown)")
         ctx.gcloud(gce.stop_command(inst["name"], inst["zone"]))
+        inst = gce.find_instance(ctx.gcloud, s.instance_name)
+    record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
     state = read_json(ctx.store, STATE)
     ckpts = remote_checkpoints(ctx.store)
     ctx.out(f"stopped. Run state: {(state or {}).get('state', 'open')}; "
@@ -790,6 +945,7 @@ def resume(ctx: Ctx) -> int:
             zone = create_machine(ctx, snap["cost"], bundle_version(ctx))
             record_restart(ctx, "create", zone, "resume", counted=False)
         else:
+            record_unreported_boot(ctx, inst, snap["status"])
             start_machine(ctx, inst, snap["cost"])
             zone = inst["zone"]
             record_restart(ctx, "start", zone, "resume", counted=False)
@@ -816,6 +972,7 @@ def cleanup(ctx: Ctx, yes: bool = False, ask=input) -> int:
             stop(ctx)
         else:
             write_json(ctx.store, STOP_MARKER, {"requested_at": ctx.clock()})
+            record_unreported_boot(ctx, inst, read_json(ctx.store, STATUS))
         ctx.gcloud(gce.delete_command(inst["name"], inst["zone"]))
         ctx.out(f"deleted {inst['name']} and its disk; kept {s.store_url}")
     else:
@@ -863,6 +1020,16 @@ def check(ctx: Ctx) -> int:
     if s.source:
         ok(not tracked_by_git(s.source), "settings file kept out of git",
            "move it to ~/.config/pokerscribe/cloud.env")
+    if s.TRAINER_MODE == "build" and not any("ENGINE_DIR" in p for p in problems):
+        eng = os.path.expanduser(s.ENGINE_DIR)
+        if not os.path.exists(os.path.join(eng, "Cargo.lock")):
+            ctx.out("  note  ENGINE_DIR has no Cargo.lock: the machine builds without --locked")
+        elif cargo_command() is None:
+            ctx.out("  note  cargo isn't installed here: Cargo.lock is not checked")
+        else:
+            lock = lockfile_problem(eng)
+            ok(lock is None, "Cargo.lock matches the workspace (the machine builds with --locked)",
+               lock or "")
     out = ctx.gcloud(["config", "get-value", "account"], mutating=False, check=False)
     ok(bool(out and out.strip()), "gcloud is logged in", "run: gcloud auth login")
     proj = ctx.gcloud(["projects", "describe", s.PROJECT], json_out=True, mutating=False,

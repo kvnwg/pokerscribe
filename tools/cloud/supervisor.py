@@ -435,9 +435,13 @@ def session_rate(s: dict) -> float:
 
 def session_end(s: dict, now: float | None, tail: float) -> float:
     """A live session runs to ``now``; a closed one to its last report plus ``tail`` (the minute
-    or so between the last report and the power-off that no report covers)."""
+    or so between the last report and the power-off that no report covers), or to ``ended_at``
+    when it has one (a boot no supervisor reported, recorded from Kevin's computer with the time
+    Google stopped the machine: control.record_unreported_boot)."""
     if now is not None:
         return now
+    if s.get("ended_at") is not None:
+        return float(s["ended_at"])
     return float(s["last_seen_at"]) + tail
 
 
