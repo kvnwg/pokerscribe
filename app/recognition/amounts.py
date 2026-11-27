@@ -99,15 +99,23 @@ def find_amounts(text: str) -> List[Tuple[Amount, int, int]]:
 
 def parse_amount(text: str) -> Optional[Amount]:
     """The amount when `text` is essentially just an amount (e.g. a stack label)."""
-    stripped = text.strip()
+    # full-width signs from the OCR: a "$" read as "：" ("：1300") is a colon like any other
+    stripped = unicodedata.normalize("NFKC", text).strip()
+    # the rounded end of a plate read as a bracket on one side only: "[1,136$", "(1,185$"
+    if stripped[:1] in "[({" and not re.search(r"[\])}]", stripped):
+        stripped = stripped[1:].lstrip()
+    elif stripped[-1:] in "])}" and not re.search(r"[\[({]", stripped):
+        stripped = stripped[:-1].rstrip()
     # a chip or coin icon before the number, read as a lone "0", "o" or "@" ("0 210"): no
     # amount starts with a lone 0. Or glued to the number as a round letter ("C210", "©70";
     # an "O" becomes a 0 anyway)
     stripped = re.sub(r"^[0oO@©®•°*]\s+(?=[$€£¥₹]?\s*\d)", "", stripped)
-    # a coin icon before the currency sign, read as a symbol: "+$ 19700". (A bare "+30", a time
-    # bank, stays no amount)
-    stripped = re.sub(r"^[cCGeQ@©®•°*+·]\s*(?=[$€£¥₹]\s*\d)", "", stripped)
+    # a coin icon before the currency sign, read as a symbol or a round letter: "+$ 19700",
+    # "O$ 19700". (A bare "+30", a time bank, stays no amount)
+    stripped = re.sub(r"^[cCGeQOo0@©®•°*+·]\s*(?=[$€£¥₹]\s*\d)", "", stripped)
     stripped = re.sub(r"^[cCGeQ@©®•°*](?=\d[\d.,]*\d)", "", stripped)
+    # a gap read after the thousands comma: "$ 3, 940" is one amount, not a 3 and a 940
+    stripped = re.sub(r"(?<=\d),\s+(?=\d{3}(?!\d))", ",", stripped)
     found = find_amounts(stripped)
     if len(found) != 1:
         return None

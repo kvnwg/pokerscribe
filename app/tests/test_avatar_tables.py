@@ -572,3 +572,115 @@ def test_a_blind_beside_a_stack_is_a_bet_by_its_chip(rec):
     seat = {min(range(8), key=lambda i: (plates[i][0] - s.center[0]) ** 2 + (plates[i][1] - s.center[1]) ** 2): s
             for s in res.layout.seats}
     assert [bet(seat[i]) for i in (5, 6, 7)] == [0, 1 * lay.unit, 2 * lay.unit]
+
+
+def test_a_plate_end_or_a_wide_colon_beside_an_amount():
+    """Self-test with the tables drawn in another font (DejaVu): the OCR read the rounded end
+    of a stack plate as a bracket ("[1,136$"), the "$" before a bet as a full-width colon
+    ("：1300") and the coin before a stack as an O ("O$ 19700"). None was an amount, so a seat
+    was lost or your own bet was missed."""
+    assert parse_amount("[1,136$").value == 1136
+    assert parse_amount("(1,185$").value == 1185
+    assert parse_amount("904$)").value == 904
+    assert parse_amount("：1300").value == 1300
+    assert parse_amount("O$ 19700").value == 19700
+    assert parse_amount("(3)") is None  # brackets on both sides: not a plate's end
+    assert parse_amount("O") is None
+    # eight-player stock table: the second read of "$ 3,940" had a gap after the comma, so no
+    # two reads agreed and the stack was left unknown
+    assert parse_amount("$ 3, 940").value == 3940
+    assert parse_amount("3, 94") is None
+
+
+@needs_ocr
+def test_round_pictures_in_another_font_keep_every_seat(rec):
+    """Six-player self-test, round pictures drawn in DejaVu: two stacks were read with the
+    plate's rounded end as a bracket ("[1,136$", "(1,185$"). One seat had no stack and the
+    other was lost, so every position after it moved one seat."""
+    import dataclasses
+
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(LAY["avatars"], text_font=find_font("DejaVuSans.ttf"))
+    stacks = [180.8, 237, 329, 227.2, 178, 197]
+    seats = [SeatView(name, stacks[i], 0.0, has_cards=i in (2, 3)) for i, name in enumerate(NAMES)]
+    view = TableView(seats, [], ["Th", "5h", "Kh"], 16.0, 1, 2, [], hand_no=7, timer_left=0.6)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+    seat = {min(range(6), key=lambda i: (plates[i][0] - s.center[0]) ** 2 + (plates[i][1] - s.center[1]) ** 2): s
+            for s in res.layout.seats}
+    assert sorted(seat) == list(range(6))
+    assert [seat[i].stack.value for i in range(6)] == [s * lay.unit for s in stacks]
+    positions = {p.seat: p.position.value for p in res.state.players}
+    assert [positions[i] for i in range(6)] == ["CO", "BTN", "SB", "BB", "UTG", "HJ"], positions
+
+
+@needs_ocr
+def test_a_turn_ring_hugging_a_picture_in_another_font(rec):
+    """Six-player self-test, phone table drawn in DejaVu: with 6 seconds left the turn ring is
+    a short arc hugging the picture, and the name touches the picture's top. A circle a few
+    pixels too big (on the ring, the name and the stack plate) matched as well as the picture's
+    own outline and was kept, so the ring lay inside it and went unseen. Nobody was acting,
+    and you were shown a move on Panther's turn."""
+    import dataclasses
+
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(LAY["portrait"], text_font=find_font("DejaVuSans.ttf"))
+    stacks = [175.5, 206, 312, 269.5, 352, 188]
+    bets = {0: 2.0, 5: 1.0}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0)) for i, name in enumerate(NAMES)]
+    view = TableView(seats, ["As", "Qh"], [], 0.0, 4, 1, [], hand_no=16, timer_left=0.42)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+    acting = res.layout.seats[res.layout.acting_seat] if res.layout.acting_seat is not None else None
+    assert acting is not None, res.layout.warnings
+    x, y = acting.center
+    assert min(range(6), key=lambda i: (plates[i][0] - x) ** 2 + (plates[i][1] - y) ** 2) == 1
+
+
+@needs_ocr
+def test_a_bet_beside_a_folded_stack_with_its_dollar_lost(rec):
+    """Eight-player self-test, phone table drawn in DejaVu: Otto's bet ("$ 800", chip first)
+    lies beside folded Ines's stack. The OCR read "800" without its "$", so the chip was a
+    sign's width before the number: too far for the chip check, and the bet was taken for a
+    level and dropped (53 bets wrong in that run)."""
+    import dataclasses
+
+    from app.tests.demo_table import amount_text
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(for_players(LAY["portrait"], 8), text_font=find_font("DejaVuSans.ttf"))
+    stacks = [199, 198, 192, 200, 192, 200, 200, 192]
+    bets = {0: 1, 1: 2, 2: 8, 4: 8, 7: 8}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0), has_cards=i not in (3, 5, 6))
+             for i, name in enumerate(NAMES8)]
+    view = TableView(seats, ["Th", "Qd"], [], 0.0, 7, 0, ["Fold", "Call " + amount_text(7, lay), "Raise"],
+                     hand_no=1, timer_left=0.48)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    plates = meta["plates"]
+    seat = {min(range(8), key=lambda i: (plates[i][0] - s.center[0]) ** 2 + (plates[i][1] - s.center[1]) ** 2): s
+            for s in res.layout.seats}
+    assert sorted(seat) == list(range(8))
+    assert [bet(seat[i]) for i in range(8)] == [bets.get(i, 0) * lay.unit for i in range(8)]
+
+
+@needs_ocr
+def test_eight_stacks_in_another_font_on_the_stock_table(rec):
+    """Eight-player self-test, stock table drawn in DejaVu: a stack's second read came back as
+    "$ 3, 940" (a gap after the comma), no two reads agreed, and the stack was left unknown
+    (65 times in that run)."""
+    import dataclasses
+
+    from app.tests.synthetic import find_font
+
+    lay = dataclasses.replace(for_players(LAY["stock"], 8), text_font=find_font("DejaVuSans.ttf"))
+    stacks = [200, 290.5, 194, 394, 180, 210, 205, 199]
+    seats = [SeatView(name, stacks[i], 0.0) for i, name in enumerate(NAMES8)]
+    view = TableView(seats, ["As", "Kd"], [], 0.0, 5, None, [], hand_no=14, timer_left=0.6)
+    img, meta = render(view, lay)
+    res = rec.recognize(img)
+    assert [p.stack.value for p in res.state.players] == [s * lay.unit for s in stacks]

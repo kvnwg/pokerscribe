@@ -668,7 +668,7 @@ def _chip_before(image: Optional[np.ndarray], b: TextBox, boxes) -> bool:
         return False
     H, W = image.shape[:2]
     h = b.h
-    x0, x1 = int(max(0, b.x - 2.0 * h)), int(min(W, b.x + 0.2 * h))
+    x0, x1 = int(max(0, b.x - 3.2 * h)), int(min(W, b.x + 0.2 * h))
     y0, y1 = int(max(0, b.cy - 1.0 * h)), int(min(H, b.cy + 1.0 * h))
     roi = image[y0:y1, x0:x1].astype(np.int16)
     if roi.shape[0] < 4 or roi.shape[1] < 4:
@@ -685,8 +685,8 @@ def _chip_before(image: Optional[np.ndarray], b: TextBox, boxes) -> bool:
             continue
         if area < 0.5 * cw * ch:
             continue  # a ring or a letter's stroke, not a solid chip
-        if x0 + cx + cw > b.x + 0.3 * h or b.x - (x0 + cx + cw) > 0.9 * h:
-            continue  # not just before the number
+        if x0 + cx + cw > b.x + 0.3 * h or b.x - (x0 + cx + cw) > 1.5 * h:
+            continue  # not just before the number (or before a "$" the OCR left out of its box)
         if abs((y0 + cy + ch / 2) - b.cy) > 0.5 * h:
             continue
         return True
@@ -1102,11 +1102,17 @@ def _find_pictures(image: np.ndarray, text_h: float) -> List[Tuple[float, float,
                             best = (s, x0 + dx, y0 + dy, r0 + dr)
         if best[0] >= PICTURE_SUPPORT:
             out.append(best)
-    keep: List[Tuple[float, float, float]] = []
+    keep: List[Tuple[float, float, float, float]] = []  # x, y, r and the best outline's share
     for s, x, y, r in sorted(out, reverse=True):
-        if all(math.hypot(x - kx, y - ky) > 0.8 * max(r, kr) for kx, ky, kr in keep):
-            keep.append((x, y, r))
-    return keep
+        same = [k for k, (kx, ky, kr, _) in enumerate(keep) if math.hypot(x - kx, y - ky) <= 0.8 * max(r, kr)]
+        if not same:
+            keep.append((x, y, r, s))
+        elif len(same) == 1 and r < keep[same[0]][2] and s >= keep[same[0]][3] - 0.03:
+            # Two outlines round one picture, about as complete: the smaller is the picture. The
+            # other ran round a turn ring hugging it, with a name or plate touching it on the
+            # other sides, and the ring just outside the picture went unseen.
+            keep[same[0]] = (x, y, r, keep[same[0]][3])
+    return [(x, y, r) for x, y, r, _ in keep]
 
 
 # ------------------------------------------------------------- whose turn
