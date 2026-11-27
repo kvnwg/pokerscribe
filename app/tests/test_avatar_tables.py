@@ -535,3 +535,17 @@ def test_eight_shown_cards_stay_together(rec):
     assert sorted(seats) == list(range(8))
     assert [seats[i].has_cards for i in (2, 4, 7)] == [True, True, True]
     assert seats[3].has_cards is False  # Jasper folded
+
+
+@needs_ocr
+def test_eight_a_bet_goes_to_its_own_seat_on_the_flop(rec):
+    """8-player self-test, stock table, on the flop: the three cards dealt fill the board's left
+    places, and taken for the table's middle they put it one card to the left. Otto's bet then
+    lay a little nearer the line from Ines (folded) to that middle than his own, and went to her:
+    two bets counted for one and the pot came out 140 too big."""
+    stacks = [192, 207.5, 194, 376, 154, 176, 199, 239.5]
+    res, seats, unit = read8(rec, "stock", stacks, bets={1: 14, 7: 14}, folded=(2, 3, 4, 5, 6), button=6, acting=0,
+                             hero_cards=("Kh", "8h"), board=("3s", "Th", "Qs"), collected=24,
+                             buttons=["Fold", "Call 14", "Raise"])
+    assert sorted(seats) == list(range(8))
+    assert [bet(seats[i]) for i in (1, 6, 7)] == [14 * unit, 0, 14 * unit]

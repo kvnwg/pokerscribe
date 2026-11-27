@@ -186,7 +186,7 @@ def analyse(image: np.ndarray, readings: List[CardReading], boxes: List[TextBox]
 
     boxes = [b for b in boxes if b.text.strip() and not inside_card(b)]
     if res.board:
-        res.center = (float(np.mean([r.center[0] for r in res.board])), float(np.mean([r.center[1] for r in res.board])))
+        res.center = _board_middle(res.board)
     else:
         res.center = (W / 2.0, H * 0.45)
     med_text_h = float(np.median([b.h for b in boxes])) if boxes else 14.0
@@ -852,6 +852,21 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         for s in res.seats:
             if not s.is_hero and s.has_cards is None:
                 s.has_cards, s.cards_conf = False, 0.75
+
+
+def _board_middle(board: List[CardReading]) -> Tuple[float, float]:
+    """The middle of the table: the middle of the board's five places. The flop and the turn fill
+    the places from the left, so the cards dealt so far sit left of the middle; taken for it, a
+    bet on a crowded table (eight players) went to the seat beside its own."""
+    cards = sorted(board, key=lambda r: r.center[0])
+    xs = [r.center[0] for r in cards]
+    cy = float(np.mean([r.center[1] for r in cards]))
+    if 3 <= len(cards) < 5:
+        step = float(np.median(np.diff(xs)))
+        w = float(np.median([r.box[2] for r in cards]))
+        if 0.9 * w <= step <= 2.0 * w:  # side by side in their places
+            return xs[0] + 2 * step, cy
+    return float(np.mean(xs)), cy
 
 
 def _hands_shown(cards: List[CardReading]) -> List[List[CardReading]]:
