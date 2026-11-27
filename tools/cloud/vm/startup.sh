@@ -16,7 +16,12 @@
 # replaces the metadata server (a file:// folder works), PSCLOUD_POWEROFF the power-off command,
 # PSCLOUD_RETRY_WAIT the first retry delay, and stub commands come first on PATH.
 # It keeps to bash 3.2 so the test also runs on macOS.
-set -euo pipefail
+#
+# -E (errtrace): the ERR trap below also runs for a command that fails inside a function, a
+# $(...) or a ( ... ). Without it, a failure in build_trainer (say) ended the script with no
+# log in the bucket and no power-off, and the machine sat there billing (Phase 6 calibration,
+# 27 Nov 2026).
+set -Eeuo pipefail
 
 ROOT="${PSCLOUD_ROOT:-}"
 META="${PSCLOUD_METADATA_URL:-http://metadata.google.internal/computeMetadata/v1/instance/attributes/}"
@@ -37,6 +42,9 @@ log() {
 
 fail() {
   trap - ERR
+  if [ "${BASH_SUBSHELL:-0}" -gt 0 ]; then
+    exit 1          # in a $(...) or ( ... ): the main script sees it fail and comes here
+  fi
   log "FAILED: $1"
   if [ -n "$STORE" ] && command -v gcloud >/dev/null 2>&1; then
     gcloud storage cp "$LOG" \
@@ -61,6 +69,7 @@ retry() {  # retry <attempts> <command...>
   shift
   until "$@"; do
     if [ "$i" -ge "$attempts" ]; then
+      log "gave up after $attempts attempts: $*"
       return 1
     fi
     log "retrying in ${wait} s ($i of $attempts failed): $*"
@@ -125,7 +134,14 @@ build_trainer() {
   if [ -n "$feat" ]; then args=("${args[@]}" --features "$feat"); fi
   if [ "$(mget has_lock)" = "true" ]; then args=("${args[@]}" --locked); fi
   log "building the trainer: cargo ${args[*]}"
-  (cd "$src/engine" && cargo "${args[@]}") >>"$LOG" 2>&1
+  local out="$ROOT$VAR/cargo-build.log" rc=0
+  (cd "$src/engine" && cargo "${args[@]}") >"$out" 2>&1 || rc=$?
+  cat "$out" >>"$LOG"
+  if [ "$rc" -ne 0 ]; then
+    # The end of cargo's output on the serial console too, where it's easiest to read.
+    tail -n 40 "$out" | sed 's/^/cargo: /' >&2
+    fail "cargo build exited with status $rc (its output is above)"
+  fi
   cp "$src/engine/target/release/$bin" "$ROOT$BUNDLE/trainer"
   # The next machine of this run downloads this instead of building again.
   retry 3 gcloud storage cp "$ROOT$BUNDLE/trainer" "$STORE/bundle/trainer-built-$version"

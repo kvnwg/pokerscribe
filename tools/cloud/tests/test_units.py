@@ -18,7 +18,7 @@ from tools.cloud import control, gce, settings, supervisor as sup
 from tools.cloud.supervisor import (GcsStore, LocalStore, RemoteCheckpoint, checkpoint_object,
                                     parse_checkpoint_object, plan_restore, retention, run_cost)
 
-from .helpers import FAKE_GCLOUD, make_settings
+from .helpers import FAKE_GCLOUD, add_crate, cargo_workspace, make_settings
 
 
 # --- settings ------------------------------------------------------------------------------------
@@ -354,6 +354,53 @@ def test_estimate_cost_adds_time_since_the_last_report(tmp_path):
     assert control.estimate_cost(None, None, 99.0, s) == 0.0
     assert control.run_seconds_left(0.0, s) == int(40 / s.price_per_hour * 3600)
     assert control.run_seconds_left(41.0, s) == 0
+
+
+def test_estimate_cost_counts_a_boot_no_report_covers(tmp_path):
+    # Phase 6 calibration, 27 Nov 2026: the setup failed before the supervisor started, the
+    # machine ran 51 minutes with no report, and once it was stopped the estimate said $0.
+    s = make_settings(tmp_path)
+    p, d = s.price_per_hour, s.disk_price_per_hour
+    stopped = {"status": "TERMINATED", "last_start_at": 1000.0, "last_stop_at": 4600.0}
+    assert control.estimate_cost(None, stopped, 8200.0, s) == pytest.approx(p + d)
+    earlier = {"updated_at": 900.0, "cost": {"total_usd": 5.0}}      # an earlier boot's report
+    assert control.estimate_cost(earlier, stopped, 8200.0, s) == pytest.approx(5.0 + p + d)
+    # recorded in the bucket (record_unreported_boot): counted once, and still after the
+    # machine is deleted
+    rec = {"started_at": 1000.0, "ended_at": 4600.0, "recorded_at": 5000.0,
+           "machine_per_hour": s.machine_price, "ip_per_hour": s.ip_price, "disk_per_hour": d}
+    assert control.boot_cost(rec) == pytest.approx(p)
+    assert control.estimate_cost(None, stopped, 8200.0, s, [rec]) == pytest.approx(p + d)
+    assert control.estimate_cost(None, None, 8200.0, s, [rec]) == pytest.approx(p)
+    assert control.estimate_cost(earlier, None, 8200.0, s, [rec]) == pytest.approx(5.0 + p)
+    # a later supervisor's report includes it (it reads the whole ledger)
+    later = {"updated_at": 6000.0, "cost": {"total_usd": 7.0}}
+    assert control.estimate_cost(later, None, 8200.0, s, [rec]) == pytest.approx(7.0)
+    # a boot that reported is left as before: the report, then the disk
+    reported = {"updated_at": 4500.0, "cost": {"total_usd": 5.0}}
+    assert control.estimate_cost(reported, stopped, 4500.0 + 3600, s) == pytest.approx(5.0 + d)
+
+
+def test_a_session_closed_from_the_laptop_ends_where_it_says():
+    rec = {"session": "unreported-1-0", "started_at": 0.0, "last_seen_at": 3600.0,
+           "ended_at": 3600.0, "machine_per_hour": 2.0, "ip_per_hour": 0.0}
+    c = run_cost([rec], now=7200.0, tail=120.0)
+    assert c["machine_hours"] == pytest.approx(1.0)          # no tail added
+    assert c["machine_usd"] == pytest.approx(2.0)
+
+
+def test_lockfile_problem_needs_a_lockfile_and_cargo(tmp_path, monkeypatch):
+    eng = cargo_workspace(tmp_path / "a", ["blueprint"], lock=False)
+    assert control.lockfile_problem(str(eng)) is None          # no lockfile: built unlocked
+    eng = cargo_workspace(tmp_path / "b", ["blueprint"])
+    assert control.lockfile_problem(str(eng)) is None          # it matches
+    add_crate(eng, "search")
+    lock = (eng / "Cargo.lock").read_text()
+    problem = control.lockfile_problem(str(eng))
+    assert problem and "doesn't match the workspace" in problem and "git pull" in problem
+    assert (eng / "Cargo.lock").read_text() == lock            # the check changes nothing
+    monkeypatch.setattr(control, "cargo_command", lambda: None)
+    assert control.lockfile_problem(str(eng)) is None          # no cargo here: not checked
 
 
 # --- progress ------------------------------------------------------------------------------------

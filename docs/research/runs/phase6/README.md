@@ -50,6 +50,12 @@ On Kevin's computer, from the repo root.
    python -m tools.cloud watch --every 60
    ```
 
+   `check` and `launch` refuse a local `engine/Cargo.lock` that doesn't match the workspace (the
+   first calibration launch stopped at the machine's build on one: `experiments.md`, "The
+   calibration launch"). `git pull` brings the repo's lockfile. A machine left by an earlier
+   attempt must go first (`python -m tools.cloud cleanup`), and its cost counts against
+   `BUDGET_USD`.
+
    After about 2 hours of training (`watch`: the machine "RUNNING for 2 h"), or at the first
    stage after that, stop it: `python -m tools.cloud stop` (the trainer saves, the checkpoint is
    uploaded, state "stopped"). If nobody does, the $10 cap stops it after about 6.5 hours;

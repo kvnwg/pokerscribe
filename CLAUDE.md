@@ -200,6 +200,13 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   the first head-to-head by 2.5 SE, and it beats B0 heads-up by 2.5 SE; LBR is reported at
   every checkpoint, not pass or fail. Projected 2.5 to 14 hours at the central speed, uncertain
   by a factor of about 100 (`engine/crates/blueprint/README.md`, Phase 6 projection).
+  The first calibration launch (27 Nov 2026, cap $3.50) trained nothing: the machine's build
+  stopped on Kevin's stale local `engine/Cargo.lock` (it predated the `search` crate), and the
+  startup script's failure handling didn't run, so the machine billed idle (about $1.25 at 51
+  minutes) until stopped. Fixed: `engine/Cargo.lock` is committed and CI builds `--locked`,
+  `check` and `launch` check the lockfile, the startup script powers off on any failure,
+  `recover` stops a machine that never reports, and the cost estimate counts such a boot
+  (`experiments.md`, Phase 6, "The calibration launch"). The next launch is Kevin's decision.
 - Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov 2026).
   Don't use Fable.
 - Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena

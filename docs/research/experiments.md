@@ -2572,6 +2572,47 @@ run is not worse by 2.5 SE on either measure and pruning skipped something.
 - **The Cloud Quotas API on a real project**: `check`'s reading of the C4A quota is tested on
   Google's documented format only.
 
+### The calibration launch (27 Nov 2026): no training, the setup failed
+
+Kevin approved one launch capped at $3.50 (`BUDGET_USD=3.5`, within the $10 approval), run by
+hand from his Mac. `check`, `local-test` and `launch --dry-run` passed.
+
+- **Attempt 1** made nothing: Google refused the create (Hyperdisk Balanced given a throughput
+  needs the IOPS too). Fixed in #44.
+- **Attempt 2** made `ps-hu-blueprint-1` (c4a-highcpu-64, Spot, $1.4714/h, hard stop after
+  2h22m43s; bundle a73c83ca13d54641, which included the Phase 7 groundwork pulled with #44). The
+  startup script stopped at the build one second after it began: `cargo build --release --bin
+  blueprint -p blueprint --locked` exited with 101. The machine then sat idle and billing: no
+  checkpoint, no report, about $1.25 at 51 minutes (`watch` warned "no report from the machine
+  for 51 min"), then Kevin was told to `stop` it.
+
+**Cause, reproduced here.** `engine/Cargo.lock` was not in the repo, so the bundle carried the
+one in Kevin's `engine/`, written by his builds before the pull. It had no entry for the new
+`search` crate, and with `--locked` cargo refuses to add one: "cannot update the lock file ...
+because --locked was passed", exit 101, before compiling anything. The same command on today's
+`main` with an up-to-date lockfile builds the trainer (14 s on x86), and the workspace
+type-checks for aarch64 Linux. The Phase 7 code was not at fault, only the lockfile.
+
+**Why it billed.** The startup script's failure handler (upload the log, mark the run failed,
+power off) is an ERR trap, and bash doesn't run one inside a function without `set -E`. The
+build runs inside one, so the script just exited. Cargo's output went only to the machine's own
+`/var/lib/pscloud/startup.log`, not to the serial console or the bucket. The supervisor never
+started, so the tools' cost estimate counted nothing for the boot after the stop. Only Google's
+`--max-run-duration` still capped the spending.
+
+**Fixed (tools/cloud, with tests):** `engine/Cargo.lock` is committed, and CI builds with
+`--locked` (it fails if the lockfile misses a crate); `check`, `launch` and the dry run check the
+local lockfile before anything is created; the startup script runs with `set -E` and prints the
+end of cargo's output on the serial console; `recover` stops a machine with no report
+`SILENT_STOP_MINUTES` (30) after it started; a boot that never reported counts in the cost
+estimate, and `stop`, `cleanup` and `recover` record it in the bucket's sessions so `launch` and
+later supervisors count it too.
+
+**Not done:** the trainer has still not been built or run on an Arm machine. The next launch is
+Kevin's decision: the stopped machine must go first (`cleanup`; `launch` refuses while it
+exists, and `resume` would boot it with the old bundle), and `BUDGET_USD` sets what the next
+attempt may spend on top of what this one cost (the billing console has the real figure).
+
 ## Phase 7 groundwork: depth-limited search (27 Nov 2026)
 
 Phase 7 of the roadmap (`README.md`): "Depth-limited search on every postflop decision
