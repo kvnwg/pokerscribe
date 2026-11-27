@@ -79,6 +79,10 @@ the Rust engine as it does. README.md, "Checks", has the rest.
   `app/solver/rust_backend.py` runs it, behind the `rust_solver` switch (off).
 - `engine/crates/abstract_game`: the shrunk heads-up game the `cfr` crate trains on (Phase 5): bet-size
   menus, the pseudo-harmonic mapping for bets off the menu, a `Bucketer` trait and `AbstractGame`.
+- `engine/crates/abstraction`: hand buckets (Phase 5): suit isomorphism, the 169 preflop classes,
+  potential-aware flop and turn buckets (k-means with earth mover's distance), OCHS or equity on the
+  river. The tables aren't in the repo; `abstraction-build` makes them (about 7 minutes for 200
+  buckets a street on 4 cores). Its README has the adapter to `abstract_game`'s `Bucketer`.
 - `engine/crates/lbr`: local best response (Lisy and Bowling 2017) for heads-up play (Phase 5). What it
   wins against a `Strategy` is a lower bound on how exploitable that strategy is.
 - `engine/crates/arena`: matches between agents, heads-up to six-max, duplicate deals and the all-in
@@ -103,7 +107,7 @@ the Rust engine as it does. README.md, "Checks", has the rest.
 - `tools/phh/`: the hand history dataset pipeline (PokerKit 0.7.8), shelved for now. The built data
   isn't in the repo (112 MB, from a 17 GB source); rebuild it as `tools/phh/README.md` describes.
 
-## Status, 26 Nov 2026
+## Status, 27 Nov 2026
 
 The roadmap changed today: the rule-engine plan is replaced by a solver-based agent (Modicum
 heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" in
@@ -150,11 +154,18 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   repeat on fresh seeds (+2.0 ± 2.2), so the switch stays off (`experiments.md`, Phase 2, the
   river solver against B0). It hasn't been run with the new ranges, and the new roadmap doesn't
   ask for it.
-- Phase 3 is under way: the Rust core on toy games in `engine/`. Crates so far: `cfr` (CFR
-  library), `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate:
+- Phase 3 is done (26 Nov 2026): the Rust core on toy games in `engine/`: `cfr` (CFR library),
+  `toygames` (Kuhn, Leduc), `nlhe` (rules engine) and `eval` (hand evaluator). Its gate passed:
   Kuhn value -1/18 and exploitability under 0.001, Leduc matches OpenSpiel, evaluator exact on all
-  7-card hands. Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov
-  2026). Don't use Fable.
+  7-card hands.
+- Phase 4 is done (26 Nov 2026): the `subgame` solver passes every gate on the 40 answer-key spots
+  at its default target of 0.2% of the pot (`docs/research/PHASE4.md`).
+- Phase 5 is under way. Built: `abstract_game` (bet menus, mapping rule), `lbr` (the exploiter)
+  and `abstraction` (hand buckets, 27 Nov 2026). Not yet run: its gate, LBR win rate against
+  bucket count and bet menu, which also measures the training speed and memory that Phase 6's
+  cost estimate needs.
+- Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov 2026).
+  Don't use Fable.
 - Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena
   (`tools/b0_arena.py`; `experiments.md`, Phase 6 groundwork). It sees each spot exactly as in
   the simulator. No instruction was illegal in 41145. B0 against B0 is exactly 0, and it beats
