@@ -105,8 +105,8 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
 `docs/research/README.md`, along with what's shelved.
 
 - Phase 0 is done: correct inputs, capture log, frozen B0.
-- Phase 1 is built: duplicate deals, luck adjustment, heads-up simulator mode. Its gate is
-  standard error at least halved and B0 playing heads-up.
+- Phase 1 is done (27 Nov 2026): duplicate deals, luck adjustment, heads-up simulator mode. Its
+  gate is standard error at least halved and B0 playing heads-up.
   Built (for the old roadmap's Phase 1): duplicate deals, the luck adjustment, replays that
   redeal the opponents, AIVAT imaginary observations, held-out tables and the weakness report.
   The SE gate as written was not passed: gate run 5 (pre-registered, seeds 808 and 909) gave a
@@ -122,7 +122,8 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   as before.
   Its gate run (pre-registered, run 5's rule, seeds 1111 to 1414) gave a geometric mean of 0.38
   and a largest r of 0.53, but 1.41 times the CPU (bar 1.25): it fails as written, on CPU only.
-  Whether that is good enough is Kevin's call, as with run 5. The bots keep their six-max
+  The manager session accepted it under Kevin's delegation (`experiments.md`, The gate,
+  heads-up, Decision): per CPU second the SE is 0.45 of classic's. The bots keep their six-max
   styles, so heads-up they fold a lot and B0 beats every table. Not built: head-to-head play
   (two agents against each other heads-up), which Phase 6 will need.
 - Fixed on 27 Nov 2026 (found by the heads-up work): B0 said a bet under the minimum in a tiny
