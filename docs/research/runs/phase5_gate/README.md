@@ -98,3 +98,18 @@ should read small bets as checks or calls is judged on the same 2 SE rule over t
 
 **B0:** one short match, the last run's blueprint against B0 in the arena at 20 big blinds,
 to show the path works end to end. Its result is not evidence of anything.
+
+## Files (added with the results)
+
+Everything below was added after the run; the plan above is unchanged.
+
+| File | What |
+| --- | --- |
+| `plan.json` | The plan the gate ran (`blueprint gate --plan plan.json`) |
+| `gate/` | The gate's logs: `out.log`, `err.log`, and for each run its spec, stages, LBR results, progress, final measurement and stop (`done.json`); `deals.tar.xz` holds the final per-deal results and the references' |
+| `pilot2/` | The second pilot's logs |
+| `analyse.py`, `results.md` | The gate's tables and verdict, and its output |
+| `after/` | The steps after the gate: references, B0, benches, the Phase 6 game, and the checks (its README) |
+| `checks.py`, `checks.md` | The checks on fresh deals, a repeat and longer training, and their output |
+| `projection.py`, `projection.md` | The Phase 6 projection and its output |
+| `cloud_local_test.py` | The blueprint trainer under `tools/cloud`'s real supervisor, as two machines |

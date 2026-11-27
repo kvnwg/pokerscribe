@@ -179,7 +179,95 @@ merged. Where the abstract game can't follow (a raise where the menu has none, o
 in the abstract game but not in the real one) it checks or calls for the rest of the hand;
 `off_tree_share` counts how often.
 
-RESULTS
+## The Phase 5 gate
+
+Run on 27 Nov 2026 with this crate (`docs/research/experiments.md`, "Phase 5: the gate"; plan,
+logs, scripts and tables in `docs/research/runs/phase5_gate/`). Heads-up at 20 big blinds, two
+menus (small, standard) and three bucket counts (10, 50 and 200 per postflop street, OCHS on the
+river), plus 50 buckets with equity on the river; each run trained until LBR was flat and the
+strategy changed by at most 8% over a doubling of the iterations, then measured on the same
+100,000 deals (seed 778) with five LBR settings. M is the largest.
+
+| Run | Information sets | Iterations | M, bb/100 |
+| --- | ---: | ---: | ---: |
+| small-k10 | 14,828 | 8M | 120.4 ± 1.8 |
+| small-k50 | 66,028 | 16M | 125.3 ± 1.8 |
+| small-k200 | 258,028 | 64M | 128.9 ± 1.9 |
+| standard-k10 | 64,580 | 32M | 105.1 ± 1.8 |
+| standard-k50 | 282,340 | 64M | 111.7 ± 1.9 |
+| standard-k200 | 1,098,940 | 64M | 112.3 ± 1.9 |
+| small-k50eq (equity river) | 66,028 | 32M | 127.9 ± 1.8 |
+| standard-k50eq (equity river) | 282,340 | 64M | 107.3 ± 1.8 |
+| Always call (reference) | | | 320.8 ± 2.1 |
+| Random kind of action (reference) | | | 353.3 ± 3.5 |
+| Random action (reference) | | | 465.4 ± 3.8 |
+
+- **The gate fails: 3 of its 7 conditions hold.** More bet sizes lower M by 13.6 to 16.6
+  bb/100 at every bucket count (8.5 to 10.5 paired SE). More buckets don't: from 10 to 50, M
+  rises on both menus (+4.9 and +6.6, 3.2 and 4.6 SE), and from 50 to 200 it rises again on
+  the small menu (+3.6, 2.5 SE) and stays flat on the standard one (+0.6 ± 1.4).
+- **OCHS against equity on the river:** neither is better on both menus (on M, over both deal
+  sets, equity +0.2 ± 1.1 on the small menu and -5.2 ± 1.0 on the standard one), so Phase 6
+  keeps OCHS, as pre-registered. Equity on the standard menu is worth checking again deeper.
+- **Small bets** are best read as the smallest menu size (the default). Reading them as a check
+  or call is worse on every run (by 14 to 32 bb/100 with `b56_34`).
+- **What LBR wins comes mostly from bets that are not on the menu.** With the 56 bet sizes,
+  about 18% of the blueprint's decisions are off the tree, where it checks or calls whatever it
+  holds, and LBR wins 105 to 129 bb/100. With pot and all in only (fcpa) it is under 0.5% and
+  LBR wins -1 to 16.
+
+Checks added after the gate (not pre-registered; `docs/research/runs/phase5_gate/checks.md`):
+
+- **Fresh deals**: all eight runs again on a third deal set (seed 779, `b56_14`). The verdict is
+  the same. Pooled over both deal sets, more sizes lower M by 14.3 to 17.6 bb/100, and more
+  buckets raise it by 4.9 and 4.6 from 10 to 50, then move it by +2.3 and -0.6 from 50 to 200.
+- **Longer training**: small-k10 trained to 8 times its stop and small-k200 to 4 times. Both rose
+  further (+4.6 and +2.5), and small-k200 stayed 6.4 ± 1.4 above small-k10.
+- **Repeatability**: the same strategy file, setting and seed give the same result deal by deal,
+  in another process.
+
+## Speed and memory
+
+At 20 big blinds, 4 threads (this machine: 4 Intel Xeon cores at 2.1 GHz):
+
+| Menu | 10 buckets | 50 buckets | 200 buckets |
+| --- | ---: | ---: | ---: |
+| small, iterations/s | 160,289 | 145,148 | 122,991 |
+| standard, iterations/s | 76,890 | 64,522 | 53,464 |
+
+- An iteration visits about 190 game states on the small menu and 360 to 380 on the standard
+  one, so in states the speed is 18 to 30 million a second, falling as the table grows.
+- **Threads** (standard-k200, linear weighting): 15,027 iterations/s on 1 thread, 28,042 on 2
+  (1.87 times), 45,055 on 3 (3.00), 56,058 on 4 (3.73, 93% of linear).
+- **Memory**: 60 to 65 bytes an information set (12 bytes a slot, 2.5 slots a set, and about 30
+  bytes of index). standard-k200 at 20bb: 1.1M information sets, a 67 MB table, 424 MB for the
+  process with the bucket tables and LBR's tables, a 54 MB checkpoint, a 5.5 MB strategy file.
+- **Pruning** (Pluribus's, thresholds of -10,000 and -100,000 big blinds from 10M iterations):
+  2% faster at 17M iterations, because few regrets are that low yet.
+- **The Phase 6 game** (200bb, `rich`, 200 buckets: 97.2M information sets, 251.7M slots),
+  trained here for 25 minutes on 4 threads and 5 on 1 through the cloud trainer contract:
+  10 to 11 million states a second on 4 threads, 2.7M a thread, the same as on 1
+  thread; 1,134 states an iteration by 15M iterations, with 93.3M information sets met. The table
+  was 5.06 GB (7.22 GB after the resume, which sizes the index with room to grow), the process
+  6.4 to 7.4 GB, the checkpoint 4.69 GB.
+
+## Phase 6 projection
+
+`docs/research/runs/phase5_gate/projection.py` (output in `projection.md` there); the method
+and the caveats are in `docs/research/experiments.md`, "Phase 6 projection".
+
+- **Size**: 97.2M information sets, 251.7M slots.
+- **Memory**: a 5.2 GB table in a fresh run, 7.3 GB after a resume; the process 6.4 to 7.4 GB
+  here; a 4.9 GB checkpoint and a 0.5 GB strategy file. The 512 GB of a c4a-highmem-64 is about
+  60 times that. A c4a-highcpu-64 (the same 64 cores, 128 GB) is enough, at $1.31 an hour spot
+  against $2.05.
+- **Hours on 64 threads**: at the central speed, 2.5 (a power law in iterations fitted to the
+  gate's runs) to 13.9 (states per information set as at 20bb), about $5 to $28 spot. Across all
+  the ranges, 0.5 to 47 hours ($96 at the high end).
+- **The uncertainty is a factor of about 100**, mostly in the work: convergence is read off 20bb
+  games of up to 1.1M information sets and extrapolated 88 times, to a 200bb game. The speed of
+  an Axion core and the scaling to 64 threads are guesses (no Arm machine here). A few hours on
+  the rented machine, with LBR and the change measure at each doubling, would narrow it.
 
 ## Tests
 
