@@ -1,6 +1,8 @@
 //! Builds, inspects and checks the abstraction tables. See the crate's README.
 
-use abstraction::builder::{self, HandEquity, NextEquity, NextLabels, Report, RiverEquity, Settings};
+use abstraction::builder::{
+    self, HandEquity, NextEquity, NextLabels, Report, RiverEquity, Settings,
+};
 use abstraction::table::{Feature, Street, Table};
 use abstraction::{checks, format_cards, parse_cards, Abstraction};
 use std::io::Write;
@@ -80,7 +82,11 @@ fn build(args: &[String]) {
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
-        let mut value = || it.next().unwrap_or_else(|| fail(&format!("{arg} needs a value"))).as_str();
+        let mut value = || {
+            it.next()
+                .unwrap_or_else(|| fail(&format!("{arg} needs a value")))
+                .as_str()
+        };
         match arg.as_str() {
             "--out" => out = Some(PathBuf::from(value())),
             "--buckets" => {
@@ -147,7 +153,9 @@ fn build(args: &[String]) {
     settings.turn.feature = match turn_histogram.as_str() {
         "buckets" => Feature::NextBuckets,
         "equity" => Feature::EquityBins { bins: equity_bins },
-        other => fail(&format!("--turn-histogram is buckets or equity, not {other}")),
+        other => fail(&format!(
+            "--turn-histogram is buckets or equity, not {other}"
+        )),
     };
     let out = out.unwrap_or_else(|| fail("build needs --out DIR"));
     if !(2..=13).contains(&settings.ranks) {
@@ -163,7 +171,8 @@ fn build(args: &[String]) {
     let deck = settings.deck();
     let load = |street: Street| -> Table {
         let path = out.join(street.file_name());
-        Table::load(&path).unwrap_or_else(|e| fail(&format!("{e}\nbuild the {} table first", street.name())))
+        Table::load(&path)
+            .unwrap_or_else(|e| fail(&format!("{e}\nbuild the {} table first", street.name())))
     };
 
     let mut equity: Option<RiverEquity> = None;
@@ -204,8 +213,9 @@ fn build(args: &[String]) {
             }
             Street::Flop => {
                 let turn = turn.get_or_insert_with(|| load(Street::Turn));
-                let turn_equity = turn_equity
-                    .get_or_insert_with(|| builder::hand_equity(deck, Street::Turn, &NextEquity::River(equity)));
+                let turn_equity = turn_equity.get_or_insert_with(|| {
+                    builder::hand_equity(deck, Street::Turn, &NextEquity::River(equity))
+                });
                 let (table, report, _) = builder::build_histogram_street(
                     deck,
                     Street::Flop,
@@ -222,7 +232,9 @@ fn build(args: &[String]) {
         // the turn's equities for a flop built on its own) counts as making the features.
         report.features_seconds += started.elapsed().as_secs_f64() - report.total_seconds;
         let path = out.join(street.file_name());
-        report.file_bytes = table.save(&path).unwrap_or_else(|e| fail(&format!("{}: {e}", path.display())));
+        report.file_bytes = table
+            .save(&path)
+            .unwrap_or_else(|e| fail(&format!("{}: {e}", path.display())));
         report.total_seconds = started.elapsed().as_secs_f64();
         report.peak_memory_mb = builder::peak_memory_bytes() as f64 / (1024.0 * 1024.0);
         print_report(&report, &path);
@@ -291,8 +303,14 @@ fn info(args: &[String]) {
             seconds
         );
         if !table.header().opponent_clusters.is_empty() {
-            let preflop = abstraction::Preflop::with_deck(abstraction::Deck::new(table.header().ranks));
-            let groups = table.header().opponent_clusters.iter().max().map_or(0, |&g| g as usize + 1);
+            let preflop =
+                abstraction::Preflop::with_deck(abstraction::Deck::new(table.header().ranks));
+            let groups = table
+                .header()
+                .opponent_clusters
+                .iter()
+                .max()
+                .map_or(0, |&g| g as usize + 1);
             for g in 0..groups {
                 let mut names: Vec<(u8, u8, String)> = (0..preflop.classes() as u16)
                     .filter(|&c| table.header().opponent_clusters[c as usize] as usize == g)
@@ -303,7 +321,11 @@ fn info(args: &[String]) {
                     .collect();
                 names.sort_by(|a, b| b.cmp(a));
                 let names: Vec<String> = names.into_iter().map(|n| n.2).collect();
-                println!("  opponent group {g} ({} classes): {}", names.len(), names.join(" "));
+                println!(
+                    "  opponent group {g} ({} classes): {}",
+                    names.len(),
+                    names.join(" ")
+                );
             }
         }
         let largest = table.sizes.iter().max().unwrap();
@@ -321,13 +343,22 @@ fn info(args: &[String]) {
 }
 
 fn check(args: &[String]) {
-    let dir = Path::new(args.first().unwrap_or_else(|| fail("check needs the tables' directory")));
+    let dir = Path::new(
+        args.first()
+            .unwrap_or_else(|| fail("check needs the tables' directory")),
+    );
     let started = Instant::now();
     let abstraction = Abstraction::load(dir).unwrap_or_else(|e| fail(&e.to_string()));
-    println!("loaded and checksums verified in {:.3} s", started.elapsed().as_secs_f64());
+    println!(
+        "loaded and checksums verified in {:.3} s",
+        started.elapsed().as_secs_f64()
+    );
     let started = Instant::now();
     drop(Abstraction::load_unchecked(dir).unwrap_or_else(|e| fail(&e.to_string())));
-    println!("loaded without checking in {:.3} s", started.elapsed().as_secs_f64());
+    println!(
+        "loaded without checking in {:.3} s",
+        started.elapsed().as_secs_f64()
+    );
     for street in [Street::Flop, Street::Turn, Street::River] {
         let table = abstraction.table(street).unwrap();
         println!(
@@ -369,7 +400,12 @@ fn check(args: &[String]) {
     let results = checks::run(&abstraction);
     let mut failed = 0;
     for r in &results {
-        println!("{} {}: {}", if r.passed { "ok  " } else { "FAIL" }, r.name, r.detail);
+        println!(
+            "{} {}: {}",
+            if r.passed { "ok  " } else { "FAIL" },
+            r.name,
+            r.detail
+        );
         failed += !r.passed as usize;
     }
     println!("{} checks, {} failed", results.len(), failed);
@@ -382,7 +418,8 @@ fn bucket(args: &[String]) {
     if args.len() < 2 {
         fail("bucket needs the tables' directory and the hole cards");
     }
-    let abstraction = Abstraction::load_unchecked(Path::new(&args[0])).unwrap_or_else(|e| fail(&e.to_string()));
+    let abstraction =
+        Abstraction::load_unchecked(Path::new(&args[0])).unwrap_or_else(|e| fail(&e.to_string()));
     let hole = parse_cards(&args[1]).unwrap_or_else(|e| fail(&e));
     let board = parse_cards(&args[2..].join("")).unwrap_or_else(|e| fail(&e));
     if hole.len() != 2 || ![0, 3, 4, 5].contains(&board.len()) {
@@ -416,10 +453,15 @@ fn gap(args: &[String]) {
     use abstraction::emd::{self, GreedyScratch, Metric};
     use abstraction::rng::Rng;
     use abstraction::HandIndexer;
-    let dir = Path::new(args.first().unwrap_or_else(|| fail("gap needs the tables' directory")));
+    let dir = Path::new(
+        args.first()
+            .unwrap_or_else(|| fail("gap needs the tables' directory")),
+    );
     let hands: usize = args.get(1).map_or(300, |v| number("HANDS", v));
-    let river = Table::load(&dir.join(Street::River.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
-    let turn = Table::load(&dir.join(Street::Turn.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
+    let river =
+        Table::load(&dir.join(Street::River.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
+    let turn =
+        Table::load(&dir.join(Street::Turn.file_name())).unwrap_or_else(|e| fail(&e.to_string()));
     let deck = abstraction::Deck::new(river.header().ranks);
     let Some(Metric::Matrix(metric)) = river.ground_metric() else {
         fail("the river table's buckets are on a line: the distance used is already exact");
@@ -437,7 +479,10 @@ fn gap(args: &[String]) {
     const SCALE: u64 = 1000;
     let total = outcomes as u64 * SCALE;
     let whole = |centre: &[f32]| -> Vec<u64> {
-        let mut counts: Vec<u64> = centre.iter().map(|&x| (x as f64 * total as f64).floor() as u64).collect();
+        let mut counts: Vec<u64> = centre
+            .iter()
+            .map(|&x| (x as f64 * total as f64).floor() as u64)
+            .collect();
         let mut short = total - counts.iter().sum::<u64>();
         let mut order: Vec<usize> = (0..centre.len()).collect();
         order.sort_by(|&a, &b| {
@@ -461,7 +506,15 @@ fn gap(args: &[String]) {
     let mut worst = [1f64; 2];
     for _ in 0..hands {
         let index = rng.below(indexer.size());
-        builder::histogram_row(deck, &indexer, &next_indexer, Some(&next), None, index, &mut row);
+        builder::histogram_row(
+            deck,
+            &indexer,
+            &next_indexer,
+            Some(&next),
+            None,
+            index,
+            &mut row,
+        );
         let mut counts = vec![0u64; next_k];
         for &label in &row {
             counts[label as usize] += SCALE;
@@ -476,11 +529,20 @@ fn gap(args: &[String]) {
         let other = (own + 1 + rng.below(k as u64 - 1) as usize) % k;
         for (which, c) in [own, other].into_iter().enumerate() {
             let centre = &turn.centroids[c * next_k..(c + 1) * next_k];
-            let greedy = metric.greedy(&buckets, &shares, centre, f32::INFINITY, &mut scratch) as f64;
-            let exact = emd::exact(&counts, &whole(centre), |i, j| metric.d[i * next_k + j] as f64);
+            let greedy =
+                metric.greedy(&buckets, &shares, centre, f32::INFINITY, &mut scratch) as f64;
+            let exact = emd::exact(&counts, &whole(centre), |i, j| {
+                metric.d[i * next_k + j] as f64
+            });
             let mut a = vec![0f32; metric.sketch_len()];
             let mut b = vec![0f32; metric.sketch_len()];
-            metric.sketch(buckets.iter().map(|&x| x as usize).zip(shares.iter().cloned()), &mut a);
+            metric.sketch(
+                buckets
+                    .iter()
+                    .map(|&x| x as usize)
+                    .zip(shares.iter().cloned()),
+                &mut a,
+            );
             metric.sketch(centre.iter().cloned().enumerate(), &mut b);
             let bound = metric.lower_bound(&a, &b) as f64;
             sums[which][0] += greedy;
@@ -491,7 +553,10 @@ fn gap(args: &[String]) {
             }
         }
     }
-    for (which, name) in ["its own bucket's centre", "another bucket's centre"].iter().enumerate() {
+    for (which, name) in ["its own bucket's centre", "another bucket's centre"]
+        .iter()
+        .enumerate()
+    {
         let [greedy, exact, bound] = sums[which];
         println!(
             "{hands} turn hands against {name}: exact {:.4}, greedy {:.4} ({:+.1}%, worst hand {:+.1}%), lower bound {:.4} ({:.0}% of exact)",
@@ -507,7 +572,12 @@ fn gap(args: &[String]) {
 
 /// How much of the variation of `value` the buckets explain: 1 minus the variance inside
 /// buckets over the total variance.
-fn explained(value: &[f64], weight: &[u8], bucket: &(dyn Fn(usize) -> usize + Sync), k: usize) -> f64 {
+fn explained(
+    value: &[f64],
+    weight: &[u8],
+    bucket: &(dyn Fn(usize) -> usize + Sync),
+    k: usize,
+) -> f64 {
     let mut sums = vec![[0f64; 3]; k]; // weight, sum, sum of squares
     for i in 0..value.len() {
         let (w, v) = (weight[i] as f64, value[i]);
@@ -516,9 +586,15 @@ fn explained(value: &[f64], weight: &[u8], bucket: &(dyn Fn(usize) -> usize + Sy
         s[1] += w * v;
         s[2] += w * v * v;
     }
-    let all = sums.iter().fold([0f64; 3], |a, s| [a[0] + s[0], a[1] + s[1], a[2] + s[2]]);
+    let all = sums
+        .iter()
+        .fold([0f64; 3], |a, s| [a[0] + s[0], a[1] + s[1], a[2] + s[2]]);
     let total = all[2] - all[1] * all[1] / all[0];
-    let inside: f64 = sums.iter().filter(|s| s[0] > 0.0).map(|s| s[2] - s[1] * s[1] / s[0]).sum();
+    let inside: f64 = sums
+        .iter()
+        .filter(|s| s[0] > 0.0)
+        .map(|s| s[2] - s[1] * s[1] / s[0])
+        .sum();
     1.0 - inside / total
 }
 
@@ -527,7 +603,10 @@ fn slices(value: &[f64], weight: &[u8], k: usize) -> Vec<u16> {
     use rayon::prelude::*;
     let mut order: Vec<u32> = (0..value.len() as u32).collect();
     order.par_sort_unstable_by(|&a, &b| {
-        value[a as usize].partial_cmp(&value[b as usize]).unwrap().then(a.cmp(&b))
+        value[a as usize]
+            .partial_cmp(&value[b as usize])
+            .unwrap()
+            .then(a.cmp(&b))
     });
     let total: f64 = weight.iter().map(|&w| w as f64).sum();
     let mut bucket = vec![0u16; value.len()];
@@ -567,7 +646,11 @@ fn outlook(
                 count += 1.0;
             }
             let mean = sum / count;
-            (mean, (squares / count - mean * mean).max(0.0).sqrt(), indexer.multiplicity(i) as u8)
+            (
+                mean,
+                (squares / count - mean * mean).max(0.0).sqrt(),
+                indexer.multiplicity(i) as u8,
+            )
         })
         .collect();
     (
@@ -583,18 +666,30 @@ fn outlook(
 /// alone.
 fn stats(args: &[String]) {
     use abstraction::HandIndexer;
-    let dir = Path::new(args.first().unwrap_or_else(|| fail("stats needs the tables' directory")));
+    let dir = Path::new(
+        args.first()
+            .unwrap_or_else(|| fail("stats needs the tables' directory")),
+    );
     let abstraction = Abstraction::load_unchecked(dir).unwrap_or_else(|e| fail(&e.to_string()));
     let deck = abstraction.deck();
     let equity = builder::river_equity(deck);
 
     let river = abstraction.table(Street::River).unwrap();
     let weights = builder::multiplicities(&HandIndexer::with_deck(deck, &[2, 5]));
-    let values: Vec<f64> = equity.numerators.iter().map(|&q| q as f64 / equity.denominator as f64).collect();
+    let values: Vec<f64> = equity
+        .numerators
+        .iter()
+        .map(|&q| q as f64 / equity.denominator as f64)
+        .collect();
     println!(
         "river: {} buckets explain {:.1}% of the equity",
         river.buckets(),
-        explained(&values, &weights, &|i| river.bucket(i as u64) as usize, river.buckets()) * 100.0
+        explained(
+            &values,
+            &weights,
+            &|i| river.bucket(i as u64) as usize,
+            river.buckets()
+        ) * 100.0
     );
     drop(values);
 

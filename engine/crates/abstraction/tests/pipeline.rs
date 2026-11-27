@@ -70,7 +70,8 @@ fn outlook(deck: Deck, board: usize, next_value: &dyn Fn(u64) -> f64) -> Outlook
         }
         let mean = sum / count;
         out.mean.push(mean);
-        out.spread.push((squares / count - mean * mean).max(0.0).sqrt());
+        out.spread
+            .push((squares / count - mean * mean).max(0.0).sqrt());
         out.weight.push(indexer.multiplicity(i) as f64);
     }
     out
@@ -92,7 +93,11 @@ fn explained(value: &[f64], weight: &[f64], bucket: &dyn Fn(usize) -> usize, k: 
         all.2 += w * v * v;
     }
     let total = all.2 - all.1 * all.1 / all.0;
-    let inside: f64 = sums.iter().filter(|s| s.0 > 0.0).map(|s| s.2 - s.1 * s.1 / s.0).sum();
+    let inside: f64 = sums
+        .iter()
+        .filter(|s| s.0 > 0.0)
+        .map(|s| s.2 - s.1 * s.1 / s.0)
+        .sum();
     1.0 - inside / total
 }
 
@@ -115,7 +120,10 @@ fn slices_by_mean(mean: &[f64], weight: &[f64], k: usize) -> Vec<usize> {
 fn same_seed_same_tables_whatever_the_thread_count() {
     let settings = small(5, 10);
     let build = |threads: usize, settings: &Settings| {
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
         let (tables, _) = pool.install(|| builder::build_all(settings));
         tables.map(|t| t.to_bytes())
     };
@@ -129,7 +137,10 @@ fn same_seed_same_tables_whatever_the_thread_count() {
     other.seed = 2;
     let other = build(4, &other);
     for street in 0..3 {
-        assert!(other[street] != four[street], "another seed gave the same table");
+        assert!(
+            other[street] != four[street],
+            "another seed gave the same table"
+        );
     }
 }
 
@@ -154,7 +165,10 @@ fn river_buckets_follow_equity() {
         assert_eq!(table.buckets(), 30, "{feature:?}");
         assert_eq!(report.buckets, 30);
         assert_eq!(table.sizes.iter().sum::<u64>(), raw_hands);
-        assert!(table.equity.windows(2).all(|w| w[0] <= w[1]), "buckets are numbered by equity");
+        assert!(
+            table.equity.windows(2).all(|w| w[0] <= w[1]),
+            "buckets are numbered by equity"
+        );
 
         // A hand's equity is close to its bucket's, and the best and worst hands sit in
         // the best and worst buckets.
@@ -166,15 +180,28 @@ fn river_buckets_follow_equity() {
             squares += w * (own - bucket) * (own - bucket);
             total += w;
             if own >= 0.99 {
-                assert!(bucket >= 0.9, "{feature:?}: a hand with equity {own} is in a bucket with {bucket}");
+                assert!(
+                    bucket >= 0.9,
+                    "{feature:?}: a hand with equity {own} is in a bucket with {bucket}"
+                );
             }
             if own <= 0.01 {
-                assert!(bucket <= 0.1, "{feature:?}: a hand with equity {own} is in a bucket with {bucket}");
+                assert!(
+                    bucket <= 0.1,
+                    "{feature:?}: a hand with equity {own} is in a bucket with {bucket}"
+                );
             }
         }
         let rms = (squares / total).sqrt();
-        let limit = if feature == Feature::Equity { 0.02 } else { 0.08 };
-        assert!(rms < limit, "{feature:?}: equity is {rms} from the bucket's on average");
+        let limit = if feature == Feature::Equity {
+            0.02
+        } else {
+            0.08
+        };
+        assert!(
+            rms < limit,
+            "{feature:?}: equity is {rms} from the bucket's on average"
+        );
 
         // The nuts and the near-nuts share a bucket; air sits far below.
         let bucket = |hole: &str, board: &str| {
@@ -188,13 +215,23 @@ fn river_buckets_follow_equity() {
         let aces_full = bucket("AsAd", board);
         let air = bucket("JcTd", "AsAhKsKhQd"); // plays the board, and so does everyone
         let weak = bucket("TcTd", "AhKhQh9c9d"); // two pair, tens and nines
-        assert_eq!(royal as usize, table.buckets() - 1, "{feature:?}: the royal flush is in the top bucket");
+        assert_eq!(
+            royal as usize,
+            table.buckets() - 1,
+            "{feature:?}: the royal flush is in the top bucket"
+        );
         if feature == Feature::Equity {
             // With one number per hand and 30 buckets, the top bucket is the hands that
             // never lose; quads lose to the royal flush and are one bucket down.
-            assert!(royal - quads <= 1, "{feature:?}: quads next to the royal flush");
+            assert!(
+                royal - quads <= 1,
+                "{feature:?}: quads next to the royal flush"
+            );
         } else {
-            assert_eq!(royal, quads, "{feature:?}: the nuts and the near-nuts share a bucket");
+            assert_eq!(
+                royal, quads,
+                "{feature:?}: the nuts and the near-nuts share a bucket"
+            );
         }
         assert!(table.equity[quads as usize] > 0.9, "{feature:?}");
         assert!(table.equity[aces_full as usize] > 0.9, "{feature:?}");
@@ -208,7 +245,13 @@ fn river_buckets_follow_equity() {
 /// The average earth mover's distance from a hand's histogram to the mean histogram of its
 /// bucket, for any way of putting the street's hands in `k` buckets. This is what k-means
 /// makes small.
-fn histogram_cost(deck: Deck, street: Street, next: &Table, bucket: &dyn Fn(usize) -> usize, k: usize) -> f64 {
+fn histogram_cost(
+    deck: Deck,
+    street: Street,
+    next: &Table,
+    bucket: &dyn Fn(usize) -> usize,
+    k: usize,
+) -> f64 {
     use abstraction::emd::{GreedyScratch, Metric};
     let board = street.board_cards() as u8;
     let indexer = HandIndexer::with_deck(deck, &[2, board]);
@@ -222,14 +265,24 @@ fn histogram_cost(deck: Deck, street: Street, next: &Table, bucket: &dyn Fn(usiz
     let mut weights = vec![0f64; k];
     for i in 0..n {
         let row = &mut rows[i * outcomes..(i + 1) * outcomes];
-        builder::histogram_row(deck, &indexer, &next_indexer, Some(&labels), None, i as u64, row);
+        builder::histogram_row(
+            deck,
+            &indexer,
+            &next_indexer,
+            Some(&labels),
+            None,
+            i as u64,
+            row,
+        );
         let w = indexer.multiplicity(i as u64) as f64;
         for &label in row.iter() {
             means[bucket(i) * next_k + label as usize] += w / outcomes as f64;
         }
         weights[bucket(i)] += w;
     }
-    let means: Vec<f32> = (0..k * next_k).map(|x| (means[x] / weights[x / next_k]) as f32).collect();
+    let means: Vec<f32> = (0..k * next_k)
+        .map(|x| (means[x] / weights[x / next_k]) as f32)
+        .collect();
     let mut scratch = GreedyScratch::default();
     let (mut total, mut weight) = (0.0, 0.0);
     for i in 0..n {
@@ -241,8 +294,12 @@ fn histogram_cost(deck: Deck, street: Street, next: &Table, bucket: &dyn Fn(usiz
         let distance = match &metric {
             Metric::Line(line) => line.emd(&hand, mean),
             Metric::Matrix(matrix) => {
-                let (buckets, shares): (Vec<u16>, Vec<f32>) =
-                    hand.iter().enumerate().filter(|(_, &x)| x > 0.0).map(|(b, &x)| (b as u16, x)).unzip();
+                let (buckets, shares): (Vec<u16>, Vec<f32>) = hand
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &x)| x > 0.0)
+                    .map(|(b, &x)| (b as u16, x))
+                    .unzip();
                 matrix.greedy(&buckets, &shares, mean, f32::INFINITY, &mut scratch)
             }
         };
@@ -265,7 +322,9 @@ fn turn_and_flop_buckets_follow_equity_and_potential() {
     let deck = Deck::new(6);
     let equity = builder::river_equity(deck);
     let turn_outlook = outlook(deck, 4, &|river_index| equity.equity(river_index) as f64);
-    let flop_outlook = outlook(deck, 3, &|turn_index| turn_outlook.mean[turn_index as usize]);
+    let flop_outlook = outlook(deck, 3, &|turn_index| {
+        turn_outlook.mean[turn_index as usize]
+    });
 
     for river_feature in [Feature::Ochs { clusters: 8 }, Feature::Equity] {
         let mut settings = small(6, 30);
@@ -273,9 +332,10 @@ fn turn_and_flop_buckets_follow_equity_and_potential() {
         let ([flop, turn, river], _) = builder::build_all(&settings);
         assert_eq!(river.buckets(), 30);
         let plain = river_feature == Feature::Equity;
-        for (table, next, look, street) in
-            [(&turn, &river, &turn_outlook, Street::Turn), (&flop, &turn, &flop_outlook, Street::Flop)]
-        {
+        for (table, next, look, street) in [
+            (&turn, &river, &turn_outlook, Street::Turn),
+            (&flop, &turn, &flop_outlook, Street::Flop),
+        ] {
             let name = format!("{river_feature:?} {}", street.name());
             let k = table.buckets();
             assert_eq!(k, 30);
@@ -292,18 +352,37 @@ fn turn_and_flop_buckets_follow_equity_and_potential() {
                 "{name}: buckets explain {mean:.3} of the mean and {spread:.3} of the spread (slices of the mean: \
                  {spread_by_mean:.3}); distance to the bucket's mean histogram {cost:.4} (slices of the mean: {cost_by_mean:.4})"
             );
-            assert!((cost - table.header().cost).abs() < 0.02 * cost, "{name}: {cost} against {}", table.header().cost);
-            assert!(cost < 0.85 * cost_by_mean, "{name}: cost {cost}, slices of the mean {cost_by_mean}");
+            assert!(
+                (cost - table.header().cost).abs() < 0.02 * cost,
+                "{name}: {cost} against {}",
+                table.header().cost
+            );
+            assert!(
+                cost < 0.85 * cost_by_mean,
+                "{name}: cost {cost}, slices of the mean {cost_by_mean}"
+            );
             if plain {
                 // Everything is measured in equity, so the buckets should explain nearly
                 // all of the average and most of the spread.
-                assert!(mean > 0.95, "{name}: buckets explain only {mean} of the mean equity");
-                assert!(spread > spread_by_mean + 0.15, "{name}: spread {spread} against {spread_by_mean}");
+                assert!(
+                    mean > 0.95,
+                    "{name}: buckets explain only {mean} of the mean equity"
+                );
+                assert!(
+                    spread > spread_by_mean + 0.15,
+                    "{name}: spread {spread} against {spread_by_mean}"
+                );
             } else {
                 // OCHS buckets also tell apart which opponent hands are beaten, so less of
                 // their detail goes to equity.
-                assert!(mean > 0.85, "{name}: buckets explain only {mean} of the mean equity");
-                assert!(spread > spread_by_mean - 0.02, "{name}: spread {spread} against {spread_by_mean}");
+                assert!(
+                    mean > 0.85,
+                    "{name}: buckets explain only {mean} of the mean equity"
+                );
+                assert!(
+                    spread > spread_by_mean - 0.02,
+                    "{name}: spread {spread} against {spread_by_mean}"
+                );
             }
 
             // The bucket's size is the number of deals in it, and its stored equity the
@@ -364,11 +443,17 @@ fn the_other_methods_build_too() {
         1,
     );
     assert_eq!(turn_equity.sums, same_equity.sums);
-    assert_eq!(turn_equity.sums, builder::hand_equity(deck, Street::Turn, &river_equity).sums);
+    assert_eq!(
+        turn_equity.sums,
+        builder::hand_equity(deck, Street::Turn, &river_equity).sums
+    );
     assert_eq!(turn_equity.denominator, 14 * equity.denominator as u64);
     for turn in [&over_bins, &over_buckets] {
         assert_eq!(turn.buckets(), 12);
-        assert_eq!(turn.sizes.iter().sum::<u64>(), choose(20, 2) * choose(18, 4));
+        assert_eq!(
+            turn.sizes.iter().sum::<u64>(),
+            choose(20, 2) * choose(18, 4)
+        );
         assert!(turn.ground_metric().is_some());
     }
     assert!(over_bins.header().built_from.contains("20 slices"));
@@ -393,7 +478,10 @@ fn the_other_methods_build_too() {
         deals += w;
     }
     assert!((total / deals - 0.5).abs() < 1e-9, "{}", total / deals);
-    assert_eq!(flop.sizes.iter().sum::<u64>(), choose(20, 2) * choose(18, 3));
+    assert_eq!(
+        flop.sizes.iter().sum::<u64>(),
+        choose(20, 2) * choose(18, 3)
+    );
     assert!(flop.ground_metric().is_none());
 }
 
@@ -401,11 +489,16 @@ fn the_other_methods_build_too() {
 fn tables_save_load_and_look_up() {
     let settings = small(5, 10);
     let ([flop, turn, river], reports) = builder::build_all(&settings);
-    let dir = std::env::temp_dir().join(format!("abstraction-pipeline-test-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("abstraction-pipeline-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut sizes = Vec::new();
     for table in [&flop, &turn, &river] {
-        sizes.push(table.save(&dir.join(table.header().street.file_name())).unwrap());
+        sizes.push(
+            table
+                .save(&dir.join(table.header().street.file_name()))
+                .unwrap(),
+        );
     }
     // One byte per hand under 257 buckets, plus the header and the centres.
     assert!(sizes[2] > river.len() && sizes[2] < river.len() + 20_000);
@@ -414,7 +507,11 @@ fn tables_save_load_and_look_up() {
     let loaded = Abstraction::load(&dir).unwrap();
     assert_eq!(loaded.deck(), Deck::new(5));
     assert_eq!(loaded.buckets(Street::Preflop), 5 + 10 + 10);
-    for (street, table) in [(Street::Flop, &flop), (Street::Turn, &turn), (Street::River, &river)] {
+    for (street, table) in [
+        (Street::Flop, &flop),
+        (Street::Turn, &turn),
+        (Street::River, &river),
+    ] {
         let back = loaded.table(street).unwrap();
         assert_eq!(back.header(), table.header());
         assert_eq!(back.to_bytes(), table.to_bytes());
@@ -434,14 +531,16 @@ fn tables_save_load_and_look_up() {
             let (hole, rest) = cards[..2 + board].split_at(2);
             let bucket = loaded.bucket(hole, rest);
             assert!((bucket as usize) < loaded.buckets(Street::from_board_cards(board).unwrap()));
-            let rotate = |c: &u8| (c & !3) | ((c & 3) + 1) % 4;
+            let rotate = |c: &u8| (c & !3) | (((c & 3) + 1) % 4);
             let mut hole2: Vec<u8> = hole.iter().map(rotate).collect();
             let mut rest2: Vec<u8> = rest.iter().map(rotate).collect();
             hole2.reverse();
             rest2.reverse();
             assert_eq!(loaded.bucket(&hole2, &rest2), bucket);
             if board > 0 {
-                let table = loaded.table(Street::from_board_cards(board).unwrap()).unwrap();
+                let table = loaded
+                    .table(Street::from_board_cards(board).unwrap())
+                    .unwrap();
                 assert_eq!(table.bucket(loaded.index(hole, rest)), bucket);
             } else {
                 assert_eq!(bucket, loaded.preflop().class(hole[0], hole[1]));
@@ -462,7 +561,10 @@ fn tables_save_load_and_look_up() {
     let at = bytes.len() / 2;
     bytes[at] ^= 1;
     std::fs::write(&path, &bytes).unwrap();
-    let error = Abstraction::load(&dir).err().expect("a damaged table").to_string();
+    let error = Abstraction::load(&dir)
+        .err()
+        .expect("a damaged table")
+        .to_string();
     assert!(error.contains("checksum"), "{error}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -494,7 +596,10 @@ fn fixture_tables_rebuild_exactly() {
             street.name(),
             street.file_name()
         );
-        assert_eq!(&Table::read_header(&dir.join(street.file_name())).unwrap(), table.header());
+        assert_eq!(
+            &Table::read_header(&dir.join(street.file_name())).unwrap(),
+            table.header()
+        );
     }
     // The turn was built from this river and the flop from this turn.
     let river_checksum = stored.table(Street::River).unwrap().checksum();

@@ -99,7 +99,8 @@ impl Showdown {
                     None => 0,
                 };
                 debug_assert!(g < groups);
-                self.sorted.push((strength as u32) << 16 | self.combos.len() as u32);
+                self.sorted
+                    .push((strength as u32) << 16 | self.combos.len() as u32);
                 self.combos.push([a, b]);
                 self.group_of.push(g as u8);
                 self.total[g] += 1;
@@ -173,7 +174,9 @@ impl Showdown {
     /// hold. Divide by [`Showdown::equity_denominator`] for the equity.
     #[inline]
     pub fn equity_numerator(&self, i: usize) -> u16 {
-        self.num[i * self.groups..(i + 1) * self.groups].iter().sum()
+        self.num[i * self.groups..(i + 1) * self.groups]
+            .iter()
+            .sum()
     }
 
     /// Combination `i` against group `g`: twice the wins plus the ties, and twice the number
@@ -202,7 +205,11 @@ mod tests {
         let (mut num, mut den) = (0, 0);
         for a in 0..52u8 {
             for b in a + 1..52 {
-                if board.contains(&a) || board.contains(&b) || hole.contains(&a) || hole.contains(&b) {
+                if board.contains(&a)
+                    || board.contains(&b)
+                    || hole.contains(&a)
+                    || hole.contains(&b)
+                {
                     continue;
                 }
                 if !keep(a, b) {
@@ -240,7 +247,13 @@ mod tests {
         }
         let mut plain = Showdown::new(Deck::FULL, 1);
         let mut grouped = Showdown::new(Deck::FULL, 3);
-        for text in ["AhKhQhJh2c", "Ks9d7h4c2s", "8s8d8h3c3d", "AsKsQsJsTs", "2c3d4h5s7c"] {
+        for text in [
+            "AhKhQhJh2c",
+            "Ks9d7h4c2s",
+            "8s8d8h3c3d",
+            "AsKsQsJsTs",
+            "2c3d4h5s7c",
+        ] {
             let board: [u8; 5] = parse_cards(text).unwrap().try_into().unwrap();
             plain.run(&board, None);
             grouped.run(&board, Some(&table));
@@ -254,7 +267,11 @@ mod tests {
                     for g in 0..3u8 {
                         let (num, den) = slow_equity(&board, hole, |a, b| group_of(a, b) == g);
                         let got = grouped.against_group(i, g as usize);
-                        assert_eq!((got.0 as u32, got.1 as u32), (num, den), "{text} {hole:?} group {g}");
+                        assert_eq!(
+                            (got.0 as u32, got.1 as u32),
+                            (num, den),
+                            "{text} {hole:?} group {g}"
+                        );
                     }
                 }
             }

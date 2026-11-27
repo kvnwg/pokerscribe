@@ -6,7 +6,9 @@
 //! cargo test --release -p abstraction --test real_deck -- --ignored real_river
 //! ```
 //!
-//! The second checks tables that were built with `abstraction-build`:
+//! The second checks tables that were built with `abstraction-build`. Without
+//! `ABSTRACTION_TABLES` it does nothing and passes, so that a run of every ignored test
+//! (the nightly one) is not stopped by it:
 //!
 //! ```bash
 //! ABSTRACTION_TABLES=/path/to/tables cargo test --release -p abstraction --test real_deck -- --ignored built_tables
@@ -35,8 +37,14 @@ fn real_river_table_groups_hands_sensibly() {
         indexer.index(&cards)
     };
     // A set of kings is the nuts here; a royal flush on the board ties everyone.
-    assert_eq!(equity.numerators[index("KhKd", "Ks9d7h4c2s") as usize], 1980);
-    assert_eq!(equity.numerators[index("9h9c", "Ks9d7h4c2s") as usize], 1980 - 2 * 3);
+    assert_eq!(
+        equity.numerators[index("KhKd", "Ks9d7h4c2s") as usize],
+        1980
+    );
+    assert_eq!(
+        equity.numerators[index("9h9c", "Ks9d7h4c2s") as usize],
+        1980 - 2 * 3
+    );
     assert_eq!(equity.numerators[index("2c3d", "AsKsQsJsTs") as usize], 990);
 
     let settings = Settings::new(50);
@@ -51,8 +59,16 @@ fn real_river_table_groups_hands_sensibly() {
     // The nuts and the near-nuts share a bucket: the top one.
     let board = "Ks9d7h4c2s";
     assert_eq!(bucket("KhKd", board), 49, "the nuts are in the top bucket");
-    assert_eq!(bucket("9h9c", board), 49, "the second nuts are with the nuts");
-    assert_eq!(bucket("7s7c", board), 49, "the third nuts are with the nuts");
+    assert_eq!(
+        bucket("9h9c", board),
+        49,
+        "the second nuts are with the nuts"
+    );
+    assert_eq!(
+        bucket("7s7c", board),
+        49,
+        "the third nuts are with the nuts"
+    );
     assert_eq!(bucket("KhQh", "AhJh8h4c2d"), 49, "the nut flush");
     assert_eq!(bucket("QhTh", "AhJh8h4c2d"), 49, "the second nut flush");
     assert!(river.equity[49] > 0.95);
@@ -87,13 +103,25 @@ fn real_river_table_groups_hands_sensibly() {
 #[test]
 #[ignore = "needs built tables: set ABSTRACTION_TABLES to their directory"]
 fn built_tables_pass_the_checks() {
-    let dir = std::env::var("ABSTRACTION_TABLES")
-        .expect("set ABSTRACTION_TABLES to a directory holding flop.abs, turn.abs and river.abs");
+    // The nightly run of every ignored test has no tables: nothing to check there.
+    let Ok(dir) = std::env::var("ABSTRACTION_TABLES") else {
+        println!("skipped: ABSTRACTION_TABLES is not set (a directory holding flop.abs, turn.abs and river.abs)");
+        return;
+    };
     let abstraction = Abstraction::load(std::path::Path::new(&dir)).expect("tables load");
     let results = checks::run(&abstraction);
     for r in &results {
-        println!("{} {}: {}", if r.passed { "ok  " } else { "FAIL" }, r.name, r.detail);
+        println!(
+            "{} {}: {}",
+            if r.passed { "ok  " } else { "FAIL" },
+            r.name,
+            r.detail
+        );
     }
-    let failed: Vec<&str> = results.iter().filter(|r| !r.passed).map(|r| r.name.as_str()).collect();
+    let failed: Vec<&str> = results
+        .iter()
+        .filter(|r| !r.passed)
+        .map(|r| r.name.as_str())
+        .collect();
     assert!(failed.is_empty(), "failed: {failed:?}");
 }

@@ -170,7 +170,15 @@ impl HandIndexer {
         let mut shapes = [[0u8; MAX_ROUNDS]; SUITS];
         let mut left = [0u8; MAX_ROUNDS];
         left[..rounds.len()].copy_from_slice(rounds);
-        enumerate_configs(0, u64::MAX, &mut shapes, &mut left, rounds.len(), ranks, &mut configs);
+        enumerate_configs(
+            0,
+            u64::MAX,
+            &mut shapes,
+            &mut left,
+            rounds.len(),
+            ranks,
+            &mut configs,
+        );
 
         // Largest key first, so the most suited hands come first.
         configs.sort_by_key(|c| std::cmp::Reverse(c.key));
@@ -180,7 +188,9 @@ impl HandIndexer {
             let mut size = 1u64;
             for s in 0..SUITS {
                 if c.group_len[s] > 0 {
-                    size = size.checked_mul(c.group_size[s]).expect("index fits in a u64");
+                    size = size
+                        .checked_mul(c.group_size[s])
+                        .expect("index fits in a u64");
                 }
             }
             offset = offset.checked_add(size).expect("index fits in a u64");
@@ -261,7 +271,9 @@ impl HandIndexer {
             for &c in &cards[at..at + n as usize] {
                 debug_assert!(self.deck.contains(c), "card {c} is not in the deck");
                 debug_assert!(
-                    sets[(c & 3) as usize].iter().all(|s| s & (1 << ((c >> 2) - low)) == 0),
+                    sets[(c & 3) as usize]
+                        .iter()
+                        .all(|s| s & (1 << ((c >> 2) - low)) == 0),
                     "card {c} twice"
                 );
                 sets[(c & 3) as usize][r] |= 1 << ((c >> 2) - low);
@@ -308,9 +320,9 @@ impl HandIndexer {
         order(&mut keys, 1, 3);
         order(&mut keys, 1, 2);
 
-        let key = keys
-            .iter()
-            .fold(0u64, |k, &x| (k << (SHAPE_BITS * MAX_ROUNDS as u32)) | (x >> NUMBER_BITS));
+        let key = keys.iter().fold(0u64, |k, &x| {
+            (k << (SHAPE_BITS * MAX_ROUNDS as u32)) | (x >> NUMBER_BITS)
+        });
         let config = self.find_config(key);
 
         const NUMBER_MASK: u64 = (1 << NUMBER_BITS) - 1;
@@ -386,8 +398,8 @@ impl HandIndexer {
             next[r] = at;
             at += n as usize;
         }
-        for s in 0..SUITS {
-            let mut number = numbers[s];
+        for (s, &suit_number) in numbers.iter().enumerate() {
+            let mut number = suit_number;
             let mut used = 0u16;
             let mut free = self.deck.ranks() as usize;
             for r in 0..self.rounds.len() {
@@ -591,7 +603,10 @@ mod tests {
         assert_eq!(choose(52, 2), 1326);
         assert_eq!(choose(13, 0), 1);
         assert_eq!(choose(3, 4), 0);
-        assert_eq!(choose(36_039, 4), 36_039 * 36_038 / 2 * 36_037 / 3 * 36_036 / 4);
+        assert_eq!(
+            choose(36_039, 4),
+            36_039 * 36_038 / 2 * 36_037 / 3 * 36_036 / 4
+        );
     }
 
     #[test]
@@ -630,8 +645,14 @@ mod tests {
         assert!(names.contains("AA") && names.contains("AKs") && names.contains("72o"));
         // Ah Kh and As Ks are the same class; Ah Ks is another.
         let card = |rank: u8, suit: u8| rank * 4 + suit;
-        assert_eq!(p.class(card(12, 2), card(11, 2)), p.class(card(11, 3), card(12, 3)));
-        assert_ne!(p.class(card(12, 2), card(11, 2)), p.class(card(12, 2), card(11, 3)));
+        assert_eq!(
+            p.class(card(12, 2), card(11, 2)),
+            p.class(card(11, 3), card(12, 3))
+        );
+        assert_ne!(
+            p.class(card(12, 2), card(11, 2)),
+            p.class(card(12, 2), card(11, 3))
+        );
         assert_eq!(p.name(p.class(card(12, 2), card(11, 3))), "AKo");
     }
 }

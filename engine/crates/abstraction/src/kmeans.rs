@@ -57,6 +57,10 @@ pub trait Space: Sync {
 
     /// Number of hands.
     fn len(&self) -> usize;
+    /// Whether there are no hands.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     /// Length of a centre.
     fn dim(&self) -> usize;
     /// How many real hands hand `i` stands for.
@@ -71,10 +75,23 @@ pub trait Space: Sync {
     fn scratch(&self) -> Self::Scratch;
     /// The nearest centre to hand `i` and the cost of putting it there. `hint` is a centre
     /// likely to be near. Ties go to the lower-numbered centre.
-    fn nearest(&self, centers: &Self::Centers, i: usize, hint: Option<u32>, scratch: &mut Self::Scratch) -> (u32, f32);
+    fn nearest(
+        &self,
+        centers: &Self::Centers,
+        i: usize,
+        hint: Option<u32>,
+        scratch: &mut Self::Scratch,
+    ) -> (u32, f32);
     /// The cost of hand `i` at centre `c`. May return any number at or above `bound` when
     /// the cost is at least `bound`.
-    fn cost(&self, centers: &Self::Centers, c: usize, i: usize, bound: f32, scratch: &mut Self::Scratch) -> f32;
+    fn cost(
+        &self,
+        centers: &Self::Centers,
+        c: usize,
+        i: usize,
+        bound: f32,
+        scratch: &mut Self::Scratch,
+    ) -> f32;
     /// The squared distance that goes with a cost, for k-means++ seeding. The cost itself
     /// when it already is a squared distance.
     fn squared_distance(&self, cost: f32) -> f64 {
@@ -107,7 +124,12 @@ pub struct Clustering {
 }
 
 /// The mean of the hands in `ids` per cluster: sums of whole numbers, so exact.
-fn cluster_sums<S: Space>(space: &S, ids: Option<&[u32]>, assignment: &[u32], k: usize) -> (Vec<u64>, Vec<u64>) {
+fn cluster_sums<S: Space>(
+    space: &S,
+    ids: Option<&[u32]>,
+    assignment: &[u32],
+    k: usize,
+) -> (Vec<u64>, Vec<u64>) {
     let dim = space.dim();
     let n = assignment.len();
     let pieces = (rayon::current_num_threads() * 4).max(1);
@@ -149,7 +171,7 @@ fn assign<S: Space>(
     centers: &S::Centers,
     ids: Option<&[u32]>,
     assignment: &mut [u32],
-    mut costs: Option<&mut [f32]>,
+    costs: Option<&mut [f32]>,
 ) -> (f64, usize) {
     let block = |b: usize, assignment: &mut [u32], mut costs: Option<&mut [f32]>| -> (f64, usize) {
         let mut scratch = space.scratch();
@@ -168,7 +190,7 @@ fn assign<S: Space>(
         }
         (total, changed)
     };
-    let per_block: Vec<(f64, usize)> = match costs.as_deref_mut() {
+    let per_block: Vec<(f64, usize)> = match costs {
         Some(costs) => assignment
             .par_chunks_mut(BLOCK)
             .zip(costs.par_chunks_mut(BLOCK))
@@ -273,11 +295,19 @@ fn seed<S: Space>(space: &S, ids: &[u32], k: usize, rng: &mut Rng) -> Vec<f32> {
 }
 
 /// Runs k-means on `space` into at most `k` clusters.
-pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_value: u64) -> Clustering {
+pub fn kmeans<S: Space>(
+    space: &S,
+    k: usize,
+    settings: &KMeansSettings,
+    seed_value: u64,
+) -> Clustering {
     let n = space.len();
     let dim = space.dim();
     assert!(n > 0, "nothing to cluster");
-    assert!(k >= 1 && k <= u16::MAX as usize, "between 1 and 65,535 buckets");
+    assert!(
+        k >= 1 && k <= u16::MAX as usize,
+        "between 1 and 65,535 buckets"
+    );
     assert!(n <= u32::MAX as usize, "at most 4 billion hands");
     let mut seconds = [0f64; 3];
     // Set ABSTRACTION_PROGRESS to see each iteration on standard error.
@@ -291,7 +321,9 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
         let ids: Vec<u32> = if settings.train_samples == 0 || settings.train_samples >= n {
             (0..n as u32).collect()
         } else {
-            let mut ids: Vec<u32> = (0..settings.train_samples).map(|_| rng.below(n as u64) as u32).collect();
+            let mut ids: Vec<u32> = (0..settings.train_samples)
+                .map(|_| rng.below(n as u64) as u32)
+                .collect();
             ids.sort_unstable();
             ids.dedup();
             ids
@@ -299,18 +331,29 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
         trained_on = ids.len();
 
         let started = std::time::Instant::now();
-        let seed_ids: Vec<u32> = if settings.init_samples == 0 || settings.init_samples >= ids.len() {
+        let seed_ids: Vec<u32> = if settings.init_samples == 0 || settings.init_samples >= ids.len()
+        {
             Vec::new()
         } else {
             let step = ids.len() as f64 / settings.init_samples as f64;
-            (0..settings.init_samples).map(|j| ids[(j as f64 * step) as usize]).collect()
+            (0..settings.init_samples)
+                .map(|j| ids[(j as f64 * step) as usize])
+                .collect()
         };
-        let mut centroids = seed(space, if seed_ids.is_empty() { &ids } else { &seed_ids }, k, &mut rng);
+        let mut centroids = seed(
+            space,
+            if seed_ids.is_empty() { &ids } else { &seed_ids },
+            k,
+            &mut rng,
+        );
         let live = centroids.len() / dim;
         seconds[0] += started.elapsed().as_secs_f64();
 
         if progress {
-            eprintln!("  k-means run {restart}: {live} centres seeded, {:.1} s", started.elapsed().as_secs_f64());
+            eprintln!(
+                "  k-means run {restart}: {live} centres seeded, {:.1} s",
+                started.elapsed().as_secs_f64()
+            );
         }
         let train_weight: u64 = ids.iter().map(|&i| space.weight(i as usize)).sum();
         let started = std::time::Instant::now();
@@ -321,7 +364,13 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
         for _ in 0..settings.max_iters.max(1) {
             iterations += 1;
             let centers = space.centers(&centroids, live);
-            let (total, changed) = assign(space, &centers, Some(&ids), &mut assignment, Some(&mut costs));
+            let (total, changed) = assign(
+                space,
+                &centers,
+                Some(&ids),
+                &mut assignment,
+                Some(&mut costs),
+            );
             cost = total;
             let (sums, weights) = cluster_sums(space, Some(&ids), &assignment, live);
             let mut empty: Vec<usize> = Vec::new();
@@ -331,16 +380,24 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
                     continue;
                 }
                 let scale = 1.0 / (weights[c] as f64 * space.unit());
-                for (x, &s) in centroids[c * dim..(c + 1) * dim].iter_mut().zip(&sums[c * dim..(c + 1) * dim]) {
+                for (x, &s) in centroids[c * dim..(c + 1) * dim]
+                    .iter_mut()
+                    .zip(&sums[c * dim..(c + 1) * dim])
+                {
                     *x = (s as f64 * scale) as f32;
                 }
             }
             // A centre that lost all its hands moves onto the hand that costs the most.
             let mut moved = false;
             if !empty.is_empty() {
-                let mut order: Vec<u32> = (0..ids.len() as u32).filter(|&at| costs[at as usize] > 0.0).collect();
+                let mut order: Vec<u32> = (0..ids.len() as u32)
+                    .filter(|&at| costs[at as usize] > 0.0)
+                    .collect();
                 order.sort_by(|&a, &b| {
-                    costs[b as usize].partial_cmp(&costs[a as usize]).unwrap().then(a.cmp(&b))
+                    costs[b as usize]
+                        .partial_cmp(&costs[a as usize])
+                        .unwrap()
+                        .then(a.cmp(&b))
                 });
                 for (&c, &at) in empty.iter().zip(&order) {
                     let centroid = centroid_of(space, ids[at as usize] as usize);
@@ -389,10 +446,17 @@ pub fn kmeans<S: Space>(space: &S, k: usize, settings: &KMeansSettings, seed_val
         }
         renumber[c] = kept_weights.len() as u16;
         let scale = 1.0 / (weights[c] as f64 * space.unit());
-        centroids.extend(sums[c * dim..(c + 1) * dim].iter().map(|&s| (s as f64 * scale) as f32));
+        centroids.extend(
+            sums[c * dim..(c + 1) * dim]
+                .iter()
+                .map(|&s| (s as f64 * scale) as f32),
+        );
         kept_weights.push(weights[c]);
     }
-    let assignment: Vec<u16> = assignment.par_iter().map(|&c| renumber[c as usize]).collect();
+    let assignment: Vec<u16> = assignment
+        .par_iter()
+        .map(|&c| renumber[c as usize])
+        .collect();
     seconds[2] = started.elapsed().as_secs_f64();
 
     Clustering {
@@ -426,7 +490,10 @@ pub fn sort_buckets(clustering: &mut Clustering, dim: usize, key: &[f64]) -> Vec
     for (new, &old) in order.iter().enumerate() {
         new_of[old] = new as u16;
     }
-    clustering.assignment.par_iter_mut().for_each(|a| *a = new_of[*a as usize]);
+    clustering
+        .assignment
+        .par_iter_mut()
+        .for_each(|a| *a = new_of[*a as usize]);
     let mut centroids = Vec::with_capacity(k * dim);
     for &old in &order {
         centroids.extend_from_slice(&clustering.centroids[old * dim..(old + 1) * dim]);
@@ -466,7 +533,10 @@ impl VectorSpace<'_> {
     #[inline]
     fn point(&self, i: usize, out: &mut [f32]) {
         let unit = self.unit as f32;
-        for (o, &x) in out.iter_mut().zip(&self.data[i * self.dim..(i + 1) * self.dim]) {
+        for (o, &x) in out
+            .iter_mut()
+            .zip(&self.data[i * self.dim..(i + 1) * self.dim])
+        {
             *o = x as f32 / unit;
         }
     }
@@ -492,7 +562,10 @@ impl Space for VectorSpace<'_> {
     #[inline]
     fn accumulate(&self, i: usize, acc: &mut [u64]) {
         let w = self.weight(i);
-        for (a, &x) in acc.iter_mut().zip(&self.data[i * self.dim..(i + 1) * self.dim]) {
+        for (a, &x) in acc
+            .iter_mut()
+            .zip(&self.data[i * self.dim..(i + 1) * self.dim])
+        {
             *a += w * x as u64;
         }
     }
@@ -512,7 +585,13 @@ impl Space for VectorSpace<'_> {
         (vec![0f32; self.dim], Vec::new())
     }
     #[inline]
-    fn nearest(&self, centers: &VectorCenters, i: usize, _hint: Option<u32>, scratch: &mut Self::Scratch) -> (u32, f32) {
+    fn nearest(
+        &self,
+        centers: &VectorCenters,
+        i: usize,
+        _hint: Option<u32>,
+        scratch: &mut Self::Scratch,
+    ) -> (u32, f32) {
         let (point, dist) = scratch;
         let k = centers.k;
         self.point(i, point);
@@ -533,7 +612,14 @@ impl Space for VectorSpace<'_> {
         best
     }
     #[inline]
-    fn cost(&self, centers: &VectorCenters, c: usize, i: usize, _bound: f32, scratch: &mut Self::Scratch) -> f32 {
+    fn cost(
+        &self,
+        centers: &VectorCenters,
+        c: usize,
+        i: usize,
+        _bound: f32,
+        scratch: &mut Self::Scratch,
+    ) -> f32 {
         let point = &mut scratch.0;
         self.point(i, point);
         let mut total = 0f32;
@@ -604,7 +690,8 @@ fn l1(a: &[f32], b: &[f32]) -> f32 {
             acc[l] += (x[l] - y[l]).abs();
         }
     }
-    let mut total = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
+    let mut total =
+        ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
     for (x, y) in ra.iter().zip(rb) {
         total += (x - y).abs();
     }
@@ -735,7 +822,13 @@ impl Space for HistogramSpace<'_> {
         HistogramScratch::default()
     }
 
-    fn nearest(&self, centers: &HistogramCenters, i: usize, hint: Option<u32>, s: &mut HistogramScratch) -> (u32, f32) {
+    fn nearest(
+        &self,
+        centers: &HistogramCenters,
+        i: usize,
+        hint: Option<u32>,
+        s: &mut HistogramScratch,
+    ) -> (u32, f32) {
         let mut full = 0u64;
         let (k, best) = match (centers, self.metric) {
             (
@@ -763,7 +856,8 @@ impl Space for HistogramSpace<'_> {
                         *b += (x - c).abs();
                     }
                 }
-                let exact = |c: usize, curve: &[f32]| l1(curve, &curves[c * width..(c + 1) * width]);
+                let exact =
+                    |c: usize, curve: &[f32]| l1(curve, &curves[c * width..(c + 1) * width]);
                 let first = hint.map_or_else(|| argmin(&s.bound), |h| h as usize);
                 let mut best = (first as u32, exact(first, &s.curve));
                 full += 1;
@@ -786,7 +880,13 @@ impl Space for HistogramSpace<'_> {
                 self.entries(i, &mut s.buckets, &mut s.shares);
                 s.sketch.clear();
                 s.sketch.resize(len, 0.0);
-                matrix.sketch(s.buckets.iter().map(|&b| b as usize).zip(s.shares.iter().cloned()), &mut s.sketch);
+                matrix.sketch(
+                    s.buckets
+                        .iter()
+                        .map(|&b| b as usize)
+                        .zip(s.shares.iter().cloned()),
+                    &mut s.sketch,
+                );
                 // First lower bound, for every centre at once: the straight-line distance
                 // between the average points (kept squared).
                 s.straight.clear();
@@ -800,13 +900,20 @@ impl Space for HistogramSpace<'_> {
                 // Second lower bound, only for the centres the first lets through: the
                 // largest gap in average distance to an anchor.
                 let anchors_rule_out = |c: usize, best: f32, point: &[f32]| {
-                    (matrix.embed_dim..len).any(|t| (point[t] - sketch[t * k + c]).abs() * BOUND_MARGIN > best)
+                    (matrix.embed_dim..len)
+                        .any(|t| (point[t] - sketch[t * k + c]).abs() * BOUND_MARGIN > best)
                 };
                 let first = hint.map_or_else(|| argmin(&s.straight), |h| h as usize);
                 let mean = |c: usize| &means[c * next_k..(c + 1) * next_k];
                 let mut best = (
                     first as u32,
-                    matrix.greedy(&s.buckets, &s.shares, mean(first), f32::INFINITY, &mut s.greedy),
+                    matrix.greedy(
+                        &s.buckets,
+                        &s.shares,
+                        mean(first),
+                        f32::INFINITY,
+                        &mut s.greedy,
+                    ),
                 );
                 full += 1;
                 let margin_squared = BOUND_MARGIN * BOUND_MARGIN;
@@ -835,7 +942,14 @@ impl Space for HistogramSpace<'_> {
         best
     }
 
-    fn cost(&self, centers: &HistogramCenters, c: usize, i: usize, bound: f32, s: &mut HistogramScratch) -> f32 {
+    fn cost(
+        &self,
+        centers: &HistogramCenters,
+        c: usize,
+        i: usize,
+        bound: f32,
+        s: &mut HistogramScratch,
+    ) -> f32 {
         match (centers, self.metric) {
             (HistogramCenters::Line { curves, .. }, Metric::Line(line)) => {
                 let width = line.pos.len() - 1;
@@ -847,7 +961,13 @@ impl Space for HistogramSpace<'_> {
                 self.entries(i, &mut s.buckets, &mut s.shares);
                 s.sketch.clear();
                 s.sketch.resize(len, 0.0);
-                matrix.sketch(s.buckets.iter().map(|&b| b as usize).zip(s.shares.iter().cloned()), &mut s.sketch);
+                matrix.sketch(
+                    s.buckets
+                        .iter()
+                        .map(|&b| b as usize)
+                        .zip(s.shares.iter().cloned()),
+                    &mut s.sketch,
+                );
                 s.straight.clear();
                 s.straight.extend((0..len).map(|t| sketch[t * k + c]));
                 if matrix.lower_bound(&s.sketch, &s.straight) * BOUND_MARGIN >= bound {
@@ -947,14 +1067,18 @@ mod tests {
         // Each blob is one bucket.
         for blob in 0..5 {
             let first = out.assignment[blob * 200];
-            assert!(out.assignment[blob * 200..(blob + 1) * 200].iter().all(|&a| a == first));
+            assert!(out.assignment[blob * 200..(blob + 1) * 200]
+                .iter()
+                .all(|&a| a == first));
         }
         assert_eq!(out.weights, vec![200; 5]);
         assert!(out.cost < 0.01);
         // Each centre is near a blob's middle.
         for c in 0..5 {
             let (x, y) = (out.centroids[c * 2] as f64, out.centroids[c * 2 + 1] as f64);
-            assert!(centres.iter().any(|&(cx, cy)| (x - cx).abs() < 0.02 && (y - cy).abs() < 0.02));
+            assert!(centres
+                .iter()
+                .any(|&(cx, cy)| (x - cx).abs() < 0.02 && (y - cy).abs() < 0.02));
         }
     }
 
@@ -997,7 +1121,9 @@ mod tests {
         for i in 0..n {
             let kind = i % 6;
             let base = kind * next_k / 6;
-            let mut row: Vec<u16> = (0..outcomes).map(|_| (base + rng.below((next_k / 8) as u64) as usize) as u16).collect();
+            let mut row: Vec<u16> = (0..outcomes)
+                .map(|_| (base + rng.below((next_k / 8) as u64) as usize) as u16)
+                .collect();
             if kind == 5 {
                 // A drawing hand: mostly low, sometimes the top bucket.
                 for x in row.iter_mut().take(outcomes / 5) {
@@ -1020,8 +1146,12 @@ mod tests {
         let (next_k, outcomes, n, k) = (40, 46, 3000, 25);
         let labels = histogram_hands(&mut rng, n, next_k, outcomes);
         let weights = vec![1u8; n];
-        let pos: Vec<f32> = (0..next_k).map(|i| (i as f32 / next_k as f32).powf(1.5)).collect();
-        let pts: Vec<(f32, f32)> = (0..next_k).map(|_| (rng.next_f64() as f32, rng.next_f64() as f32)).collect();
+        let pos: Vec<f32> = (0..next_k)
+            .map(|i| (i as f32 / next_k as f32).powf(1.5))
+            .collect();
+        let pts: Vec<(f32, f32)> = (0..next_k)
+            .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32))
+            .collect();
         let mut d = vec![0f32; next_k * next_k];
         for i in 0..next_k {
             for j in 0..i {
@@ -1070,7 +1200,11 @@ mod tests {
         let (next_k, outcomes, n) = (48, 46, 1200);
         let labels = histogram_hands(&mut rng, n, next_k, outcomes);
         let weights = vec![1u8; n];
-        let metric = Metric::Line(Line::new((0..next_k).map(|i| i as f32 / (next_k - 1) as f32).collect()));
+        let metric = Metric::Line(Line::new(
+            (0..next_k)
+                .map(|i| i as f32 / (next_k - 1) as f32)
+                .collect(),
+        ));
         let space = HistogramSpace {
             labels: &labels,
             outcomes,
@@ -1081,7 +1215,12 @@ mod tests {
         assert_eq!(out.k, 6);
         for kind in 0..6 {
             let first = out.assignment[kind];
-            assert!((0..n).filter(|i| i % 6 == kind).all(|i| out.assignment[i] == first), "kind {kind}");
+            assert!(
+                (0..n)
+                    .filter(|i| i % 6 == kind)
+                    .all(|i| out.assignment[i] == first),
+                "kind {kind}"
+            );
         }
         // The draw (kind 5) has about the same average as kind 1 but is its own bucket.
         assert_ne!(out.assignment[5], out.assignment[1]);
@@ -1118,7 +1257,10 @@ mod tests {
             ..KMeansSettings::default()
         };
         let run = |threads: usize, seed: u64| {
-            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
             pool.install(|| kmeans(&space, 12, &settings, seed))
         };
         let a = run(1, 5);

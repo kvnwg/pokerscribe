@@ -36,7 +36,10 @@ const SUIT_ORDERS: [[u8; 4]; 24] = {
 };
 
 fn relabel(cards: &[u8], order: &[u8; 4]) -> Vec<u8> {
-    cards.iter().map(|&c| (c & !3) | order[(c & 3) as usize]).collect()
+    cards
+        .iter()
+        .map(|&c| (c & !3) | order[(c & 3) as usize])
+        .collect()
 }
 
 /// A hand's cards as sorted rounds, so two hands can be compared as sets.
@@ -78,7 +81,15 @@ fn counts_for_other_deals() {
 fn small_deck_counts_match_brute_force() {
     for ranks in [3u8, 4, 5] {
         let deck = Deck::new(ranks);
-        for rounds in [&[2u8][..], &[2, 3], &[2, 4], &[2, 5], &[3], &[5], &[2, 3, 1]] {
+        for rounds in [
+            &[2u8][..],
+            &[2, 3],
+            &[2, 4],
+            &[2, 5],
+            &[3],
+            &[5],
+            &[2, 3, 1],
+        ] {
             let cards: usize = rounds.iter().map(|&n| n as usize).sum();
             if cards > deck.len() {
                 continue;
@@ -97,20 +108,36 @@ fn small_deck_counts_match_brute_force() {
                 classes.insert(smallest);
                 hits[indexer.index(hand) as usize] += 1;
             });
-            assert_eq!(indexer.size(), classes.len() as u64, "ranks {ranks} rounds {rounds:?}");
+            assert_eq!(
+                indexer.size(),
+                classes.len() as u64,
+                "ranks {ranks} rounds {rounds:?}"
+            );
             for (i, &n) in hits.iter().enumerate() {
-                assert_eq!(n, indexer.multiplicity(i as u64), "ranks {ranks} rounds {rounds:?} index {i}");
+                assert_eq!(
+                    n,
+                    indexer.multiplicity(i as u64),
+                    "ranks {ranks} rounds {rounds:?} index {i}"
+                );
             }
         }
     }
 }
 
 /// Calls `f` with every deal: all choices of each round's cards, as sets.
-fn for_each_deal(deck: Deck, rounds: &[u8], round: usize, at: usize, hand: &mut Vec<u8>, f: &mut impl FnMut(&[u8])) {
+fn for_each_deal(
+    deck: Deck,
+    rounds: &[u8],
+    round: usize,
+    at: usize,
+    hand: &mut Vec<u8>,
+    f: &mut impl FnMut(&[u8]),
+) {
     if round == rounds.len() {
         f(hand);
         return;
     }
+    #[allow(clippy::too_many_arguments)]
     fn choose_round(
         deck: Deck,
         rounds: &[u8],
@@ -144,7 +171,11 @@ fn check_round_trip(indexer: &HandIndexer) {
         indexer.unindex(i, &mut hand[..n]);
         let mut seen = 0u64;
         for &c in &hand[..n] {
-            assert!(c < 52 && seen & (1 << c) == 0, "index {i}: bad hand {:?}", &hand[..n]);
+            assert!(
+                c < 52 && seen & (1 << c) == 0,
+                "index {i}: bad hand {:?}",
+                &hand[..n]
+            );
             seen |= 1 << c;
         }
         assert_eq!(indexer.index(&hand[..n]), i, "hand {:?}", &hand[..n]);
@@ -155,9 +186,12 @@ fn check_round_trip(indexer: &HandIndexer) {
 /// by exactly `multiplicity` deals. So every index is used and the multiplicities are right.
 fn check_every_deal(board_cards: usize) {
     let indexer = HandIndexer::new(&[2, board_cards as u8]);
-    let hits: Vec<std::sync::atomic::AtomicU8> =
-        (0..indexer.size()).map(|_| std::sync::atomic::AtomicU8::new(0)).collect();
-    let holes: Vec<(u8, u8)> = (0..52u8).flat_map(|a| (a + 1..52).map(move |b| (a, b))).collect();
+    let hits: Vec<std::sync::atomic::AtomicU8> = (0..indexer.size())
+        .map(|_| std::sync::atomic::AtomicU8::new(0))
+        .collect();
+    let holes: Vec<(u8, u8)> = (0..52u8)
+        .flat_map(|a| (a + 1..52).map(move |b| (a, b)))
+        .collect();
     let deals: u64 = holes
         .par_iter()
         .map(|&(a, b)| {
@@ -205,10 +239,14 @@ fn check_every_deal(board_cards: usize) {
     let wrong = (0..indexer.size())
         .into_par_iter()
         .filter(|&i| {
-            hits[i as usize].load(std::sync::atomic::Ordering::Relaxed) as u32 != indexer.multiplicity(i)
+            hits[i as usize].load(std::sync::atomic::Ordering::Relaxed) as u32
+                != indexer.multiplicity(i)
         })
         .count();
-    assert_eq!(wrong, 0, "indexes hit a number of times other than their multiplicity");
+    assert_eq!(
+        wrong, 0,
+        "indexes hit a number of times other than their multiplicity"
+    );
 }
 
 #[test]

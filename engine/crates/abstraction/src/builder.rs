@@ -15,7 +15,8 @@ use crate::emd::{Line, Matrix, Metric};
 use crate::equity::Showdown;
 use crate::isomorphism::{HandIndexer, Preflop};
 use crate::kmeans::{
-    centroid_distances, kmeans, sort_buckets, Clustering, HistogramSpace, KMeansSettings, VectorSpace, Weights,
+    centroid_distances, kmeans, sort_buckets, Clustering, HistogramSpace, KMeansSettings,
+    VectorSpace, Weights,
 };
 use crate::rng::Rng;
 use crate::table::{Feature, Header, MetricData, MetricKind, Street, StreetSettings, Table};
@@ -131,9 +132,11 @@ pub fn peak_memory_bytes() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("VmHWM:"))
-                .and_then(|l| l.split_whitespace().nth(1).and_then(|kb| kb.parse::<u64>().ok()))
+            s.lines().find(|l| l.starts_with("VmHWM:")).and_then(|l| {
+                l.split_whitespace()
+                    .nth(1)
+                    .and_then(|kb| kb.parse::<u64>().ok())
+            })
         })
         .map_or(0, |kb| kb * 1024)
 }
@@ -238,7 +241,17 @@ pub fn hand_equity(deck: Deck, street: Street, next_equity: &NextEquity) -> Hand
     let outcomes = deck.len() - 2 - board;
     let sums = (0..indexer.size())
         .into_par_iter()
-        .map(|i| histogram_row(deck, &indexer, &next_indexer, None, Some(next_equity), i, &mut []))
+        .map(|i| {
+            histogram_row(
+                deck,
+                &indexer,
+                &next_indexer,
+                None,
+                Some(next_equity),
+                i,
+                &mut [],
+            )
+        })
         .collect();
     HandEquity {
         sums,
@@ -274,7 +287,10 @@ fn for_each_board<T: Send>(
 }
 
 fn atomic_array(len: usize, value: u16) -> Vec<AtomicU16> {
-    (0..len).into_par_iter().map(|_| AtomicU16::new(value)).collect()
+    (0..len)
+        .into_par_iter()
+        .map(|_| AtomicU16::new(value))
+        .collect()
 }
 
 fn plain_array(atomics: Vec<AtomicU16>) -> Vec<u16> {
@@ -346,7 +362,8 @@ pub fn opponent_clusters(equity: &RiverEquity, clusters: usize, seed: u64) -> Ve
     // Each class as SAMPLES evenly spaced points of its equity distribution.
     let mut labels = Vec::with_capacity(classes * SAMPLES);
     for class in 0..classes {
-        let row = &equity.class_histogram[class * CLASS_EQUITY_BINS..(class + 1) * CLASS_EQUITY_BINS];
+        let row =
+            &equity.class_histogram[class * CLASS_EQUITY_BINS..(class + 1) * CLASS_EQUITY_BINS];
         let total: u64 = row.iter().sum();
         let (mut bin, mut below) = (0usize, 0u64);
         for j in 0..SAMPLES {
@@ -358,7 +375,9 @@ pub fn opponent_clusters(equity: &RiverEquity, clusters: usize, seed: u64) -> Ve
             labels.push(bin as u16);
         }
     }
-    let weights: Vec<u8> = (0..classes).map(|c| preflop.combos(c as u16) as u8).collect();
+    let weights: Vec<u8> = (0..classes)
+        .map(|c| preflop.combos(c as u16) as u8)
+        .collect();
     let pos: Vec<f32> = (0..CLASS_EQUITY_BINS)
         .map(|b| (b as f32 + 0.5) / CLASS_EQUITY_BINS as f32)
         .collect();
@@ -413,7 +432,11 @@ pub fn river_ochs(equity: &RiverEquity, class_cluster: &[u8], clusters: usize) -
                 let plain = showdown.equity_numerator(i) as u32;
                 for g in 0..clusters {
                     let (num, den) = showdown.against_group(i, g);
-                    let (num, den) = if den == 0 { (plain, denominator) } else { (num as u32, den as u32) };
+                    let (num, den) = if den == 0 {
+                        (plain, denominator)
+                    } else {
+                        (num as u32, den as u32)
+                    };
                     let value = (num * OCHS_UNIT + den / 2) / den;
                     out[at + g].store(value as u16, Relaxed);
                 }
@@ -424,7 +447,13 @@ pub fn river_ochs(equity: &RiverEquity, class_cluster: &[u8], clusters: usize) -
     plain_array(out)
 }
 
-fn empty_header(deck: Deck, street: Street, settings: &StreetSettings, seed: u64, clustering: &Clustering) -> Header {
+fn empty_header(
+    deck: Deck,
+    street: Street,
+    settings: &StreetSettings,
+    seed: u64,
+    clustering: &Clustering,
+) -> Header {
     Header {
         format: 0,
         built_by: String::new(),
@@ -529,7 +558,10 @@ pub fn build_river(equity: &RiverEquity, settings: &StreetSettings, seed: u64) -
                         a
                     },
                 );
-            let values: Vec<u16> = (0..per_value.len()).filter(|&q| per_value[q] > 0).map(|q| q as u16).collect();
+            let values: Vec<u16> = (0..per_value.len())
+                .filter(|&q| per_value[q] > 0)
+                .map(|q| q as u16)
+                .collect();
             let value_weights: Vec<u64> = values.iter().map(|&q| per_value[q as usize]).collect();
             let features_seconds = started.elapsed().as_secs_f64();
             let space = VectorSpace {
@@ -545,15 +577,32 @@ pub fn build_river(equity: &RiverEquity, settings: &StreetSettings, seed: u64) -
             for (at, &q) in values.iter().enumerate() {
                 bucket_of_value[q as usize] = small.assignment[at];
             }
-            let assignment: Vec<u16> = equity.numerators.par_iter().map(|&q| bucket_of_value[q as usize]).collect();
+            let assignment: Vec<u16> = equity
+                .numerators
+                .par_iter()
+                .map(|&q| bucket_of_value[q as usize])
+                .collect();
             let bucket_equity = equity_of_buckets(&assignment, small.k, &small.weights);
             let pos: Vec<f32> = bucket_equity.iter().map(|&e| e as f32).collect();
-            let clustering = Clustering { assignment, ..small };
-            (clustering, bucket_equity, MetricData::Line { pos }, Vec::new(), features_seconds)
+            let clustering = Clustering {
+                assignment,
+                ..small
+            };
+            (
+                clustering,
+                bucket_equity,
+                MetricData::Line { pos },
+                Vec::new(),
+                features_seconds,
+            )
         }
         Feature::Ochs { clusters } => {
             let class_cluster = opponent_clusters(equity, clusters as usize, sub_seed(seed, 4));
-            let dim = class_cluster.iter().map(|&c| c as usize + 1).max().unwrap_or(1);
+            let dim = class_cluster
+                .iter()
+                .map(|&c| c as usize + 1)
+                .max()
+                .unwrap_or(1);
             let features = river_ochs(equity, &class_cluster, dim);
             let features_seconds = started.elapsed().as_secs_f64();
             let space = VectorSpace {
@@ -575,7 +624,8 @@ pub fn build_river(equity: &RiverEquity, settings: &StreetSettings, seed: u64) -
                 for j in 0..i {
                     let sum: f64 = (0..dim)
                         .map(|t| {
-                            let x = clustering.centroids[i * dim + t] as f64 - clustering.centroids[j * dim + t] as f64;
+                            let x = clustering.centroids[i * dim + t] as f64
+                                - clustering.centroids[j * dim + t] as f64;
                             x * x
                         })
                         .sum();
@@ -587,7 +637,13 @@ pub fn build_river(equity: &RiverEquity, settings: &StreetSettings, seed: u64) -
                 d,
                 embed: clustering.centroids.clone(),
             };
-            (clustering, bucket_equity, metric, class_cluster, features_seconds)
+            (
+                clustering,
+                bucket_equity,
+                metric,
+                class_cluster,
+                features_seconds,
+            )
         }
         _ => panic!("the river is clustered by equity or OCHS"),
     };
@@ -603,7 +659,14 @@ pub fn build_river(equity: &RiverEquity, settings: &StreetSettings, seed: u64) -
         clustering.centroids.clone(),
         metric,
     );
-    let report = report(Street::River, settings, &table, &clustering, features_seconds, started);
+    let report = report(
+        Street::River,
+        settings,
+        &table,
+        &clustering,
+        features_seconds,
+        started,
+    );
     (table, report)
 }
 
@@ -629,7 +692,9 @@ impl NextLabels<'_> {
     pub fn label(&self, index: u64) -> u16 {
         match self {
             NextLabels::Table(t) => t.bucket(index),
-            NextLabels::EquityBins { equity, bins } => equity.bin(equity.numerators[index as usize], *bins),
+            NextLabels::EquityBins { equity, bins } => {
+                equity.bin(equity.numerators[index as usize], *bins)
+            }
         }
     }
 
@@ -639,9 +704,11 @@ impl NextLabels<'_> {
             NextLabels::Table(t) => t
                 .ground_metric()
                 .expect("the next street's table has no distances between its buckets"),
-            NextLabels::EquityBins { bins, .. } => {
-                Metric::Line(Line::new((0..*bins).map(|b| (b as f32 + 0.5) / *bins as f32).collect()))
-            }
+            NextLabels::EquityBins { bins, .. } => Metric::Line(Line::new(
+                (0..*bins)
+                    .map(|b| (b as f32 + 0.5) / *bins as f32)
+                    .collect(),
+            )),
         }
     }
 
@@ -706,7 +773,11 @@ pub fn build_histogram_street(
     let indexer = HandIndexer::with_deck(deck, &[2, board as u8]);
     let next_indexer = HandIndexer::with_deck(deck, &[2, board as u8 + 1]);
     if let NextLabels::Table(t) = next {
-        assert_eq!(t.len(), next_indexer.size(), "the next street's table is for another deck or street");
+        assert_eq!(
+            t.len(),
+            next_indexer.size(),
+            "the next street's table is for another deck or street"
+        );
     }
     let hands = indexer.size() as usize;
     let outcomes = deck.len() - 2 - board;
@@ -723,7 +794,15 @@ pub fn build_histogram_street(
         .zip(sums.par_iter_mut())
         .enumerate()
         .for_each(|(i, ((row, weight), sum))| {
-            *sum = histogram_row(deck, &indexer, &next_indexer, Some(next), Some(next_equity), i as u64, row);
+            *sum = histogram_row(
+                deck,
+                &indexer,
+                &next_indexer,
+                Some(next),
+                Some(next_equity),
+                i as u64,
+                row,
+            );
             *weight = indexer.multiplicity(i as u64) as u8;
         });
     let hand_equity = HandEquity {
@@ -739,7 +818,12 @@ pub fn build_histogram_street(
         metric: &metric,
     };
     let tag = if street == Street::Turn { 6 } else { 7 };
-    let mut clustering = kmeans(&space, settings.buckets as usize, &settings.kmeans, sub_seed(seed, tag));
+    let mut clustering = kmeans(
+        &space,
+        settings.buckets as usize,
+        &settings.kmeans,
+        sub_seed(seed, tag),
+    );
     drop(labels);
     let k = clustering.k;
 
@@ -750,7 +834,8 @@ pub fn build_histogram_street(
         .fold(
             || vec![0u64; k],
             |mut acc, i| {
-                acc[clustering.assignment[i] as usize] += weights[i] as u64 * hand_equity.sums[i] as u64;
+                acc[clustering.assignment[i] as usize] +=
+                    weights[i] as u64 * hand_equity.sums[i] as u64;
                 acc
             },
         )
@@ -762,7 +847,9 @@ pub fn build_histogram_street(
             },
         );
     let bucket_equity: Vec<f64> = (0..k)
-        .map(|c| equity_sums[c] as f64 / (clustering.weights[c] as f64 * hand_equity.denominator as f64))
+        .map(|c| {
+            equity_sums[c] as f64 / (clustering.weights[c] as f64 * hand_equity.denominator as f64)
+        })
         .collect();
     let order = sort_buckets(&mut clustering, next_k, &bucket_equity);
     let bucket_equity: Vec<f32> = order.iter().map(|&old| bucket_equity[old] as f32).collect();
@@ -775,13 +862,17 @@ pub fn build_histogram_street(
         // next street's points.
         let (next_embed, dim): (Vec<f32>, usize) = match &metric {
             Metric::Line(line) => (line.pos.clone(), 1),
-            Metric::Matrix(Matrix { embed, embed_dim, .. }) => (embed.clone(), *embed_dim),
+            Metric::Matrix(Matrix {
+                embed, embed_dim, ..
+            }) => (embed.clone(), *embed_dim),
         };
         let mut embed = vec![0f32; k * dim];
         for c in 0..k {
             for t in 0..dim {
                 embed[c * dim + t] = (0..next_k)
-                    .map(|j| clustering.centroids[c * next_k + j] as f64 * next_embed[j * dim + t] as f64)
+                    .map(|j| {
+                        clustering.centroids[c * next_k + j] as f64 * next_embed[j * dim + t] as f64
+                    })
                     .sum::<f64>() as f32;
             }
         }
@@ -800,7 +891,14 @@ pub fn build_histogram_street(
         clustering.centroids.clone(),
         metric_data,
     );
-    let report = report(street, settings, &table, &clustering, features_seconds, started);
+    let report = report(
+        street,
+        settings,
+        &table,
+        &clustering,
+        features_seconds,
+        started,
+    );
     (table, report, hand_equity)
 }
 
@@ -840,5 +938,8 @@ pub fn build_all(settings: &Settings) -> ([Table; 3], [Report; 3]) {
         &settings.flop,
         settings.seed,
     );
-    ([flop, turn, river], [flop_report, turn_report, river_report])
+    (
+        [flop, turn, river],
+        [flop_report, turn_report, river_report],
+    )
 }

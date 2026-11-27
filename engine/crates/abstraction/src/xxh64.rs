@@ -156,7 +156,9 @@ mod tests {
 
     #[test]
     fn pieces_give_the_same_hash_as_one_call() {
-        let data: Vec<u8> = (0..5000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+        let data: Vec<u8> = (0..5000u32)
+            .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+            .collect();
         let whole = xxh64(&data);
         for step in [1usize, 3, 31, 32, 33, 100, 4999] {
             let mut h = Xxh64::new(0);

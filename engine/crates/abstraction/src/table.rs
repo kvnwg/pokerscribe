@@ -196,8 +196,11 @@ impl Table {
         metric: MetricData,
     ) -> Table {
         let k = sizes.len();
-        assert!(k >= 1 && equity.len() == k && centroids.len() % k == 0);
-        assert!(buckets.iter().all(|&b| (b as usize) < k), "bucket number out of range");
+        assert!(k >= 1 && equity.len() == k && centroids.len().is_multiple_of(k));
+        assert!(
+            buckets.iter().all(|&b| (b as usize) < k),
+            "bucket number out of range"
+        );
         let wide = k > 256;
         let payload: Vec<u8> = if wide {
             buckets.iter().flat_map(|b| b.to_le_bytes()).collect()
@@ -383,11 +386,14 @@ impl Table {
         if bytes.len() < 24 + header_len {
             return Err(bad("file cut short"));
         }
-        let header: Header =
-            serde_json::from_slice(&bytes[16..16 + header_len]).map_err(|e| bad(format!("bad header: {e}")))?;
+        let header: Header = serde_json::from_slice(&bytes[16..16 + header_len])
+            .map_err(|e| bad(format!("bad header: {e}")))?;
         let k = header.buckets as usize;
         let hands = header.hands as usize;
-        if k == 0 || !(1..=2).contains(&header.bytes_per_bucket) || (header.bytes_per_bucket == 1) != (k <= 256) {
+        if k == 0
+            || !(1..=2).contains(&header.bytes_per_bucket)
+            || (header.bytes_per_bucket == 1) != (k <= 256)
+        {
             return Err(bad("bad bucket count in the header"));
         }
         let payload_len = hands * header.bytes_per_bucket as usize;
@@ -400,7 +406,10 @@ impl Table {
         let body = 16 + header_len;
         let expected = body + payload_len + k * 8 + k * 4 + centroid_len + metric_len + 8;
         if bytes.len() != expected {
-            return Err(bad(format!("file is {} bytes, the header says {expected}", bytes.len())));
+            return Err(bad(format!(
+                "file is {} bytes, the header says {expected}",
+                bytes.len()
+            )));
         }
         if verify {
             let stored = u64::from_le_bytes(bytes[expected - 8..].try_into().unwrap());
@@ -433,7 +442,11 @@ impl Table {
         };
         if verify {
             let largest = if header.bytes_per_bucket == 1 {
-                bytes[body..body + payload_len].iter().copied().max().unwrap_or(0) as usize
+                bytes[body..body + payload_len]
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0) as usize
             } else {
                 bytes[body..body + payload_len]
                     .chunks_exact(2)
@@ -565,7 +578,10 @@ mod tests {
         let at = good.len() / 3;
         bytes[at] ^= 1;
         assert!(Table::from_bytes(bytes.clone(), false).is_ok());
-        assert!(Table::from_bytes(bytes, true).unwrap_err().to_string().contains("checksum"));
+        assert!(Table::from_bytes(bytes, true)
+            .unwrap_err()
+            .to_string()
+            .contains("checksum"));
     }
 
     #[test]
@@ -578,7 +594,8 @@ mod tests {
 
     #[test]
     fn saves_and_loads_a_file() {
-        let dir = std::env::temp_dir().join(format!("abstraction-table-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("abstraction-table-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(Street::Turn.file_name());
         let table = sample(300, 2000);
@@ -587,7 +604,10 @@ mod tests {
         let back = Table::load(&path).unwrap();
         assert_eq!(back.checksum(), table.checksum());
         assert_eq!(&Table::read_header(&path).unwrap(), table.header());
-        assert_eq!(Table::load_unchecked(&path).unwrap().bucket(1999), table.bucket(1999));
+        assert_eq!(
+            Table::load_unchecked(&path).unwrap().bucket(1999),
+            table.bucket(1999)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

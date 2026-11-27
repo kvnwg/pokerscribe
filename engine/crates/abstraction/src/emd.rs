@@ -53,7 +53,10 @@ pub struct Line {
 
 impl Line {
     pub fn new(pos: Vec<f32>) -> Line {
-        assert!(pos.windows(2).all(|w| w[0] <= w[1]), "positions must not decrease");
+        assert!(
+            pos.windows(2).all(|w| w[0] <= w[1]),
+            "positions must not decrease"
+        );
         Line { pos }
     }
 
@@ -336,7 +339,11 @@ pub fn shortest_paths(d: &mut [f32], k: usize) {
 /// distance is from the truth.
 pub fn exact(a: &[u64], b: &[u64], d: impl Fn(usize, usize) -> f64) -> f64 {
     let total: u64 = a.iter().sum();
-    assert_eq!(total, b.iter().sum::<u64>(), "the histograms must have the same total");
+    assert_eq!(
+        total,
+        b.iter().sum::<u64>(),
+        "the histograms must have the same total"
+    );
     if total == 0 {
         return 0.0;
     }
@@ -462,7 +469,9 @@ mod tests {
 
     /// Points in the plane with straight-line distances: a true metric that is not a line.
     fn plane_metric(rng: &mut Rng, k: usize) -> Matrix {
-        let pts: Vec<(f32, f32)> = (0..k).map(|_| (rng.next_f64() as f32, rng.next_f64() as f32)).collect();
+        let pts: Vec<(f32, f32)> = (0..k)
+            .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32))
+            .collect();
         let mut d = vec![0f32; k * k];
         for i in 0..k {
             for j in 0..i {
@@ -522,7 +531,10 @@ mod tests {
                 .map(|(i, &x)| (i as u16, x))
                 .unzip();
             let greedy = metric.greedy(&buckets, &hand, &sb, f32::INFINITY, &mut scratch) as f64;
-            assert!(greedy >= truth - 1e-4, "greedy {greedy} below exact {truth}");
+            assert!(
+                greedy >= truth - 1e-4,
+                "greedy {greedy} below exact {truth}"
+            );
             let mut ska = vec![0f32; metric.sketch_len()];
             let mut skb = vec![0f32; metric.sketch_len()];
             metric.sketch(sa.iter().cloned().enumerate(), &mut ska);
@@ -530,13 +542,17 @@ mod tests {
             let low = metric.lower_bound(&ska, &skb) as f64;
             assert!(low <= truth + 1e-4, "lower bound {low} above exact {truth}");
             // The early exit never reports less than the bound it was given.
-            let cut = metric.greedy(&buckets, &hand, &sb, (greedy * 0.5) as f32, &mut scratch) as f64;
+            let cut =
+                metric.greedy(&buckets, &hand, &sb, (greedy * 0.5) as f32, &mut scratch) as f64;
             assert!(cut >= greedy * 0.5 - 1e-6 || cut == greedy);
             sum_exact += truth;
             sum_greedy += greedy;
         }
         // On these random cases the greedy plan costs a little more than the best plan.
-        assert!(sum_greedy < 1.5 * sum_exact, "greedy {sum_greedy} exact {sum_exact}");
+        assert!(
+            sum_greedy < 1.5 * sum_exact,
+            "greedy {sum_greedy} exact {sum_exact}"
+        );
     }
 
     #[test]
@@ -568,7 +584,9 @@ mod tests {
         let m = plane_metric(&mut rng, 15);
         for i in 0..15 {
             assert_eq!(m.order[i * 15] as usize, i);
-            assert!(m.sorted[i * 15..(i + 1) * 15].windows(2).all(|w| w[0] <= w[1]));
+            assert!(m.sorted[i * 15..(i + 1) * 15]
+                .windows(2)
+                .all(|w| w[0] <= w[1]));
         }
         assert!(m.sketch_len() >= 3);
     }

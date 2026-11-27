@@ -59,12 +59,24 @@ impl Abstraction {
     pub fn from_tables(flop: Table, turn: Table, river: Table) -> Result<Abstraction, String> {
         let deck = Deck::new(river.header().ranks);
         let mut streets = Vec::with_capacity(3);
-        for (street, table) in [(Street::Flop, flop), (Street::Turn, turn), (Street::River, river)] {
+        for (street, table) in [
+            (Street::Flop, flop),
+            (Street::Turn, turn),
+            (Street::River, river),
+        ] {
             if table.header().street != street {
-                return Err(format!("expected a {} table, got a {} table", street.name(), table.header().street.name()));
+                return Err(format!(
+                    "expected a {} table, got a {} table",
+                    street.name(),
+                    table.header().street.name()
+                ));
             }
             if table.header().ranks != deck.ranks() {
-                return Err(format!("the {} table is for a deck of {} ranks", street.name(), table.header().ranks));
+                return Err(format!(
+                    "the {} table is for a deck of {} ranks",
+                    street.name(),
+                    table.header().ranks
+                ));
             }
             let indexer = HandIndexer::with_deck(deck, &[2, street.board_cards() as u8]);
             if indexer.size() != table.len() {
@@ -106,8 +118,12 @@ impl Abstraction {
             }
         };
         // The three files are read at the same time.
-        let (flop, (turn, river)) = rayon::join(|| read(Street::Flop), || rayon::join(|| read(Street::Turn), || read(Street::River)));
-        Abstraction::from_tables(flop?, turn?, river?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        let (flop, (turn, river)) = rayon::join(
+            || read(Street::Flop),
+            || rayon::join(|| read(Street::Turn), || read(Street::River)),
+        );
+        Abstraction::from_tables(flop?, turn?, river?)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// The deck the tables are for.
