@@ -1,0 +1,86 @@
+{
+  "about": "Phase 5 check, after the 100bb bucket check: standard-k50 against standard-k200 head to head at 100 big blinds. Informational, not a gate run. plan.md has the rules.",
+  "game": {
+    "stack": 10000,
+    "small_blind": 50,
+    "big_blind": 100,
+    "players": 2
+  },
+  "arena": {
+    "duplicate": true,
+    "all_in_equity": true,
+    "max_runouts": 10000,
+    "shared_randomness": false,
+    "threads": 4,
+    "engine": "pokerscribe_engine.run_match, built from main 4f40e1f"
+  },
+  "files": {
+    "standard-k10": {
+      "path": "/root/bp/100bb/standard-k10/strategy-16000000.bps",
+      "sha256": "8cedae56e575b662022980544e4cce9205f457241154ec14409ad31a333f8218"
+    },
+    "standard-k50": {
+      "path": "/root/bp/100bb/standard-k50/strategy-64000000.bps",
+      "sha256": "5827f4ca6c1f0f2121e0ead94f0daa419e875c539e9de09c28840d4020987a95"
+    },
+    "standard-k200": {
+      "path": "/root/bp/100bb/standard-k200/strategy-128000000.bps",
+      "sha256": "03683fc242f10332e659006caeb03e9383f5a35be898d599428e14ae237a1c39"
+    }
+  },
+  "pilot": {
+    "seeds": [
+      9101,
+      9102
+    ],
+    "deals": 20000,
+    "sd_per_deal": [
+      688.3,
+      701.9
+    ],
+    "hands_per_second": [
+      397921,
+      320058
+    ],
+    "file": "pilot.jsonl"
+  },
+  "matches": [
+    {
+      "name": "main",
+      "a": "standard-k50",
+      "b": "standard-k200",
+      "seed": 9201,
+      "deals": 2000000,
+      "role": "decision"
+    },
+    {
+      "name": "replication",
+      "a": "standard-k50",
+      "b": "standard-k200",
+      "seed": 9202,
+      "deals": 2000000,
+      "role": "repeat, fresh deals"
+    },
+    {
+      "name": "sanity",
+      "a": "standard-k10",
+      "b": "standard-k50",
+      "seed": 9301,
+      "deals": 2000000,
+      "role": "sanity check (optional)"
+    },
+    {
+      "name": "k10-k200",
+      "a": "standard-k10",
+      "b": "standard-k200",
+      "seed": 9401,
+      "deals": 2000000,
+      "role": "information"
+    }
+  ],
+  "decision": {
+    "z": 2.5,
+    "small_edge_bb_per_100": 2.0,
+    "rule": "on the main match, b's result against a: b ahead by 2.5 SE or more: the extra buckets pay off in play; a ahead by 2.5 SE or more: flag it to the manager before Phase 6's full run; otherwise inconclusive"
+  }
+}
