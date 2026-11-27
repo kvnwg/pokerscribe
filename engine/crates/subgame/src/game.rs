@@ -22,7 +22,7 @@ use eval::{Card, Hand};
 
 use crate::cards::Combo;
 use crate::spot::{Spot, SpotError, Street};
-use crate::tree::{Node, NodeKind, Tree};
+use crate::tree::{Node, NodeId, NodeKind, Tree};
 
 /// River cards a turn deal can still get: 52 less the board's 4 and the two hands' 4.
 pub const RIVERS_PER_DEAL: f64 = 44.0;
@@ -67,11 +67,22 @@ pub struct Game {
     /// pot. Only that and `chance_weight` change when the tests redo TexasSolver's own
     /// turn arithmetic (river weight 1/46 on zero-sum payoffs; see the README).
     pub payoff_shift: f64,
+    /// Decision nodes whose strategy is fixed (`[combo][action]`, by node id; empty when
+    /// none is). The solver plays them as given and never updates them, and a best response
+    /// follows them too: they are part of the game, not choices. The search crate freezes a
+    /// player's earlier decisions on the street when it solves the street again.
+    pub frozen: Vec<Option<Vec<f64>>>,
 }
 
 impl Game {
     pub fn new(spot: Spot) -> Result<Game, SpotError> {
         let tree = Tree::new(&spot);
+        Game::with_tree(spot, tree)
+    }
+
+    /// A game on a tree built elsewhere ([`Tree::from_parts`]). The spot gives the board,
+    /// pot, stacks and ranges; its sizes are not used.
+    pub fn with_tree(spot: Spot, tree: Tree) -> Result<Game, SpotError> {
         let combos = [0, 1].map(|p| spot.ranges[p].iter().map(|(c, _)| *c).collect::<Vec<_>>());
         let weights = [0, 1].map(|p| spot.ranges[p].iter().map(|(_, w)| *w).collect::<Vec<_>>());
         let cards = [0, 1].map(|p| combos[p].iter().map(Combo::indices).collect::<Vec<_>>());
@@ -127,6 +138,7 @@ impl Game {
             total: 0.0,
             chance_weight: 1.0 / RIVERS_PER_DEAL,
             payoff_shift: 0.0,
+            frozen: Vec::new(),
         };
         let mut meets = vec![0.0; game.n(0)];
         game.meets(0, &game.weights[1], &mut meets);
@@ -137,6 +149,27 @@ impl Game {
             ));
         }
         Ok(game)
+    }
+
+    /// Fixes the strategy at decision node `node`: `probs` is `[combo][action]` for the
+    /// player to act there.
+    pub fn freeze(&mut self, node: NodeId, probs: Vec<f64>) {
+        let n = &self.tree.nodes[node];
+        let player = n.player().expect("only a decision node can be frozen");
+        assert_eq!(
+            probs.len(),
+            self.n(player) * n.actions().len(),
+            "a frozen strategy has one row per combo and one entry per action"
+        );
+        if self.frozen.len() < self.tree.nodes.len() {
+            self.frozen.resize(self.tree.nodes.len(), None);
+        }
+        self.frozen[node] = Some(probs);
+    }
+
+    /// The fixed strategy at `node`, if it has one.
+    pub fn frozen_at(&self, node: NodeId) -> Option<&[f64]> {
+        self.frozen.get(node).and_then(|f| f.as_deref())
     }
 
     /// Number of combos in a player's range.

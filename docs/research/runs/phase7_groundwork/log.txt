@@ -1,0 +1,53 @@
+2026-11-27T11:09:47Z 4 bench
+2026-11-27T11:13:28Z 4 scale
+2026-11-27T11:19:33Z 4 trees
+2026-11-27T11:19:33Z 5 ranges
+2026-11-27T11:38:04Z 6 b0 search
+2 players [b0 search:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7107
+100 deals x 2 = 200 hands, duplicate, scored as all-in equity (at most 10000 boards) (7 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+b0                 1      -4.70    22.08    -0.2      32.51         0
+  BTN/SB                 -12.24    27.13
+  BB                      +2.83    37.89
+search:/root/bp/standard-k200/strategy-64000000.bps     1      +4.70    22.08    +0.2      32.51         0
+  BTN/SB                  -2.83    37.89
+  BB                     +12.24    27.13
+532.01 s, 0 hands/s on 1 threads
+b0: 403 instructions in 200 hands; not legal as said: none; the simulator's always-wrong checks: none
+time: 532.0 s, 0.4 hands/s, 1320.1 ms per B0 instruction. In B0: advice 14.1 s, building the spot 0.0 s, checks and mapping 0.1 s; the rest (arena, Rust agent, crossing to Python) 517.9 s
+2026-11-27T11:46:56Z 6 b0 blueprint
+2 players [b0 blueprint:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7107
+100 deals x 2 = 200 hands, duplicate, scored as all-in equity (at most 10000 boards) (7 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+b0                 1     +11.78    18.25    +0.6      29.76         0
+  BTN/SB                  -2.58    24.08
+  BB                     +26.14    34.11
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1     -11.78    18.25    -0.6      29.76         0
+  BTN/SB                 -26.14    34.11
+  BB                      +2.58    24.08
+14.00 s, 14 hands/s on 1 threads
+b0: 397 instructions in 200 hands; not legal as said: none; the simulator's always-wrong checks: none
+time: 14.0 s, 14.3 hands/s, 35.3 ms per B0 instruction. In B0: advice 13.9 s, building the spot 0.0 s, checks and mapping 0.0 s; the rest (arena, Rust agent, crossing to Python) 0.0 s
+2026-11-27T11:47:10Z 1 h2h
+7064.080811008 s
+2 players [search blueprint], blinds 50/100, stacks 2000, seed 7101
+3000 deals x 2 = 6000 hands, duplicate, scored as all-in equity (at most 10000 boards) (410 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+search             1      -2.51     4.56    -0.5       8.56         0
+  BTN/SB                  +9.71     8.93
+  BB                     -14.73     8.84
+blueprint          1      +2.51     4.56    +0.5       8.56         0
+  BTN/SB                 +14.73     8.84
+  BB                      -9.71     8.93
+7064.03 s, 1 hands/s on 4 threads
+2026-11-27T13:44:55Z lbr fcpa14 blueprint
+{"agent":"blueprint","hands":1500,"lbr_bb_per_100":-25.132666666666665,"paper":"fcpa, rounds 1-4","se":16.610472701933947,"seconds":183.583582736,"seed":7102,"setting":"fcpa14","solves":{}}
+2026-11-27T13:47:59Z lbr fcpa14 search
+{"agent":"search","hands":1500,"lbr_bb_per_100":-53.026666666666664,"paper":"fcpa, rounds 1-4","se":16.18337996873888,"seconds":601.191268819,"seed":7102,"setting":"fcpa14","solves":{"flop":{"resolves":231,"solve_ms_p50":450.083558,"solve_ms_p95":696.311105,"solves":1205},"river":{"resolves":8,"solve_ms_p50":18.025958000000003,"solve_ms_p95":69.03561900000001,"solves":289},"turn":{"resolves":25,"solve_ms_p50":1331.5985150000001,"solve_ms_p95":5826.995195,"solves":453}}}
+{"a":"/root/bp/runs/search-fcpa14.deals","a_bb_per_100":-53.026666666666664,"a_minus_b":-27.894,"a_se":16.18337996873888,"b":"/root/bp/runs/blueprint-fcpa14.deals","b_bb_per_100":-25.132666666666665,"b_se":16.610472701933947,"se":11.845622155881077,"z":-2.3547940017782243}
+2026-11-27T13:58:01Z lbr b56_14 blueprint
+{"agent":"blueprint","hands":1500,"lbr_bb_per_100":117.964,"paper":"56 bets, rounds 1-4","se":13.965533709136963,"seconds":174.651164008,"seed":7103,"setting":"b56_14","solves":{}}
+2026-11-27T14:00:56Z lbr b56_14 search
+{"agent":"search","hands":1500,"lbr_bb_per_100":75.50866666666667,"paper":"56 bets, rounds 1-4","se":14.309616722359824,"seconds":786.247267318,"seed":7103,"setting":"b56_14","solves":{"flop":{"resolves":1026,"solve_ms_p50":121.962423,"solve_ms_p95":290.522312,"solves":5182},"river":{"resolves":29,"solve_ms_p50":11.248132,"solve_ms_p95":44.884558999999996,"solves":436},"turn":{"resolves":174,"solve_ms_p50":770.2322,"solve_ms_p95":4293.463296,"solves":1335}}}
+{"a":"/root/bp/runs/search-b56_14.deals","a_bb_per_100":75.50866666666667,"a_minus_b":-42.455333333333336,"a_se":14.309616722359824,"b":"/root/bp/runs/blueprint-b56_14.deals","b_bb_per_100":117.964,"b_se":13.965533709136963,"se":12.23539306083838,"z":-3.4698789914007273}
+2026-11-27T14:14:02Z done

@@ -13,7 +13,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString, PyTuple};
 
-use crate::agents::{blueprint_agent, rust_agent, visible_state, RUST_AGENTS};
+use crate::agents::{blueprint_agent, rust_agent, search_agent, visible_state, RUST_AGENTS};
 use crate::game::{history_dicts, parse_action, street_name, value_error, LegalActions};
 
 /// What one seat may see: its own cards and everything public. A Python agent gets one at
@@ -318,7 +318,7 @@ fn to_action(answer: &Bound<'_, PyAny>) -> PyResult<Action> {
 fn agent(spec: &Bound<'_, PyAny>, failure: &Failure) -> PyResult<(Agent, bool)> {
     if let Ok(name) = spec.cast::<PyString>() {
         let name = name.to_cow()?;
-        if let Some(made) = blueprint_agent(&name) {
+        if let Some(made) = blueprint_agent(&name).or_else(|| search_agent(&name)) {
             return made
                 .map(|agent| (agent, false))
                 .map_err(PyValueError::new_err);
@@ -326,7 +326,7 @@ fn agent(spec: &Bound<'_, PyAny>, failure: &Failure) -> PyResult<(Agent, bool)> 
         return match rust_agent(&name) {
             Some(agent) => Ok((agent, false)),
             None => Err(PyValueError::new_err(format!(
-                "no Rust agent is called {name:?}: the names are {}, and blueprint:<strategy file>",
+                "no Rust agent is called {name:?}: the names are {}, blueprint:<strategy file> and search:<strategy file>",
                 RUST_AGENTS.join(", ")
             ))),
         };

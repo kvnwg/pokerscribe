@@ -5,6 +5,7 @@
     python tools/b0_arena.py b0 --variant '{"bet_size": 0.5}'   # B0 against a TUNING variant of itself
     python tools/b0_arena.py call --log illegal.jsonl --out report.json
     python tools/b0_arena.py blueprint:strategy.bps --stack-bb 20  # B0 against a blueprint, at its stack depth
+    python tools/b0_arena.py search:strategy.bps --stack-bb 20     # B0 against search on that blueprint
 
 The arena plays the match: each deal twice with the seats swapped (duplicate), hands that
 end all in before the river scored by their equity, bb/100 with a standard error, all

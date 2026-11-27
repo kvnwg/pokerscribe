@@ -2572,6 +2572,124 @@ run is not worse by 2.5 SE on either measure and pruning skipped something.
 - **The Cloud Quotas API on a real project**: `check`'s reading of the C4A quota is tested on
   Google's documented format only.
 
+## Phase 7 groundwork: depth-limited search (27 Nov 2026)
+
+Phase 7 of the roadmap (`README.md`): "Depth-limited search on every postflop decision
+(Modicum): opponent picks among blueprint and fold/call/raise-biased versions at the leaf;
+ranges updated every action; off-tree bets added and re-solved". This builds the search
+(`engine/crates/search`) and measures it on a 20 big blind Phase 5 blueprint on this machine (4
+cores, Intel Xeon at 2.1 GHz). It is groundwork, not the Phase 7 gate: the gate is for the
+Phase 6 blueprint at 200 big blinds. The plan was written and committed before the runs
+(`runs/phase7_groundwork/README.md`, commit 2d9a22a); the results are in `results.md` there.
+Everything was offline, against our own agents (rule 4).
+
+In short:
+
+- **The search works end to end**: every postflop decision of 6,000 hands against the blueprint,
+  15,000 hands against LBR and 200 against B0 (from Python, `tools/b0_arena.py
+  search:<file>`) was searched, with no illegal action.
+- **Head-to-head it does not beat the blueprint**: -2.51 ± 4.56 bb/100 over 3,000 deals
+  (z -0.55). An edge of more than about +6.6 bb/100 is unlikely. Against its own blueprint the
+  search's ranges are exact and it never re-solves, so its only possible edge is exact hands over
+  200 buckets; at 20bb that is likely small next to its own solving error.
+- **LBR wins less against search than against the blueprint**: by 35.8 ± 5.7 bb/100 with 56 bet
+  sizes (`b56_14`: +112.8 against the blueprint, +77.1 against search; z -6.3, pooled over two
+  seeds, 7,500 hands each) and by 10.7 ± 5.3 with fold, call, pot and all in (`fcpa14`, z -2.0;
+  LBR finds nothing against either). Both kept their sign on fresh seeds (`fcpa14` only at
+  z -1.1). The `b56_14` gain most likely comes from the off-menu bets being added to the tree and
+  re-solved (18% of the flop solves were re-solves): the weakness the Phase 5 gate found.
+- **Decision time on 4 threads**: flop p50 0.48 s and p95 0.75 s, turn 2.2 s and 6.0 s, river
+  39 ms and 158 ms. Estimated for the Phase 6 game (200bb) on 64 cores: about 0.3 to 0.6 s on the
+  flop, 1.5 to 5 s on the turn, under 0.3 s on the river, plus 9.7 GB of leaf tables that take
+  about 2 hours to build there.
+- **Ranges**: in 300 hands against the blueprint both players' real hands were in the range and
+  in the solve at every one of 415 decisions after the flop, and were typical members of it.
+
+### What was built
+
+- **Ranges.** Both players start with all 1,326 combos; each action multiplies the actor's
+  weights by that combo's probability of it, and board cards remove combos. The opponent's
+  probabilities are the blueprint's, of the real action or, for a size the blueprint doesn't
+  have, of the menu action it reads it as (its own pseudo-harmonic mapping). The searcher's own
+  are those it played with (its solved strategy after the flop), so its hand never drops out of
+  its own range.
+- **River and turn.** A subgame from the real state (pot, stacks, bets), the blueprint's menu at
+  every decision plus the real off-menu actions, solved with the `subgame` crate: the river to
+  0.5% of the pot, the turn to 2% with every river card and a smaller river menu (three quarters
+  of the pot or all in, then all in).
+- **Flop, depth-limited.** Discounted CFR over every combo to the end of the flop, to 1% of the
+  pot. At a leaf the opponent picks, per hand, one of four continuation strategies (the
+  blueprint, and the blueprint with the probability of folding, of checking or calling, or of
+  betting or raising multiplied by 5 and renormalized, as in the Modicum paper); the searcher
+  plays the blueprint. The leaf values are precomputed tables: for each abstract turn start and
+  each of 7 strategy pairs, the big blind's expected share of the pot by the two hands' flop
+  buckets, averaged over 16M random deals walked exactly through the blueprint's turn and river
+  (22 minutes on 4 cores at 20bb, 149 MB). Card removal is exact at every leaf. Modicum valued
+  its leaves by rollouts at run time; tables are faster per decision but grow with the game
+  (below).
+- **Re-solving.** A bet not in the street's tree is added and the street solved again from its
+  start, with the searcher's earlier decisions on the street fixed to what it played. Unsafe, as
+  Pluribus re-solves: the opponent's range at the street's start is taken as it is, with no
+  gadget holding its values to the earlier solve's. A safe gadget needs those values for every
+  hand, and at a flop cut off by estimated leaf values they are estimates too; LBR is the check
+  on what unsafe costs.
+- **Agents.** `search:<strategy file>` in the arena and from Python
+  (`engine/crates/py/src/agents.rs`), and `lbr::Strategy` for LBR.
+- **Small changes elsewhere**, each with a test: `subgame` builds a tree from its parts and can
+  freeze a node's strategy (the solver and its best response follow it); `blueprint` gives the
+  strategy at a node for one bucket and the probability of an off-menu action as it reads it.
+
+### Results
+
+All in `runs/phase7_groundwork/results.md`, with the raw outputs. At 20 big blinds, 2,000 chips,
+blinds 50 and 100, the Phase 5 standard-k200 blueprint retrained with the gate's spec, its leaf
+tables from 16M deals.
+
+| Measure (LBR: what LBR wins; lower is better) | Blueprint | Search | Search minus blueprint |
+| --- | ---: | ---: | ---: |
+| Search's bb/100 against the blueprint, 3,000 deals (seed 7101) | | -2.51 ± 4.56 | |
+| LBR `b56_14`, 1,500 hands (seed 7103) | +118.0 ± 14.0 | +75.5 ± 14.3 | -42.5 ± 12.2 |
+| LBR `b56_14`, 6,000 hands (seed 7202) | +111.6 ± 7.5 | +77.4 ± 7.6 | -34.1 ± 6.4 |
+| LBR `fcpa14`, 1,500 hands (seed 7102) | -25.1 ± 16.6 | -53.0 ± 16.2 | -27.9 ± 11.8 |
+| LBR `fcpa14`, 6,000 hands (seed 7201) | +0.4 ± 7.9 | -6.0 ± 8.0 | -6.4 ± 6.0 |
+| B0's bb/100 against it, 100 deals (seed 7107) | +11.78 ± 18.25 | -4.70 ± 22.08 | |
+
+The fresh-seed LBR runs (7201, 7202) were added after the first results and written into the
+plan before they ran. The LBR differences are paired deal by deal (`search compare`).
+
+Decision time, 150 hands against the blueprint on 4 threads (seed 7104):
+
+| Street | p50 | p95 | Max | Iterations (mean) | Exploitability (mean) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Flop | 480 ms | 752 ms | 1,044 ms | 46 | 0.88% of the pot |
+| Turn | 2,228 ms | 6,021 ms | 6,677 ms | 55 | 1.76% |
+| River | 39 ms | 158 ms | 206 ms | 71 | 0.45% |
+
+On 1, 2 and 4 threads (6 flops, 6 turns): a turn solve 3.0 to 3.3 times faster on 4 (8% of it
+serial), a flop solve 2.3 to 3.0 times (17% serial). For 200 big blinds on 64 cores the estimate
+takes time as solver nodes times combos times iterations (constant on the turn here, 0.010
+microseconds on one thread), Amdahl's law with those serial shares, and an Axion core as fast
+as one here (not measured): the turn's subgame has 13,857 nodes at 200bb (8,980 here on
+average). The Phase 6 game (`rich` menu) has 8,669 abstract turn starts against 133 here, so its
+leaf tables would be 9.7 GB at 200 buckets and take about 134 core-hours at 16M deals.
+
+Not judged here, since it is groundwork: the head-to-head would fail the Phase 7 gate's 2.5 SE
+bar. On the Phase 6 blueprint the search's gain may be larger, since a 200bb game's
+abstraction leaves more to fix; that is for the gate to show.
+
+### Not done
+
+- **The Phase 7 gate**: it needs the Phase 6 blueprint.
+- **Ranges against opponents that are not the blueprint** (LBR, B0, people): a hand the
+  blueprint would never play that way gets weight 0 and the search plays it as the blueprint.
+  How often that happens wasn't measured.
+- **A safe re-solving gadget** (Brown and Sandholm 2017), to compare with the unsafe form under
+  LBR.
+- **Leaf values by rollout at run time**, as Modicum did, which a 200bb game may need: its tables
+  would be 9.7 GB at 200 buckets.
+- **Parallelizing the flop's leaves**: 17% of a flop solve runs on one thread, so the flop gains
+  little past 4 threads.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

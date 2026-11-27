@@ -174,6 +174,90 @@ impl<B: Bucketer> Blueprint<B> {
         out
     }
 
+    /// The stored strategy at decision point `node` for a hand in `bucket`, written into
+    /// `out` (one probability per action, in the tree's order; `out.len()` must be the
+    /// node's action count). Uniform where training never reached the information set.
+    pub fn strategy_into(&self, node: u32, bucket: u64, out: &mut [f64]) {
+        let n = self.layout.actions(node);
+        let start = self.layout.start(node, bucket);
+        decode(&self.probs[start..start + n], out);
+        if out.iter().all(|&p| p == 0.0) {
+            out.fill(1.0 / n as f64);
+        }
+    }
+
+    /// For each of `hands`, the probability the blueprint gives `action` at `public` as
+    /// the blueprint itself reads it: an off-menu raise is mapped onto the menu exactly as
+    /// when it is later in the history (the same pseudo-harmonic draw), and the answer is
+    /// the probability of the menu action it is read as. [`Strategy::action_prob_for_range`]
+    /// instead asks for that exact real action and gives 0 to a raise the blueprint would
+    /// never make in those chips. This is the reading a range update needs (the search
+    /// crate's Bayesian ranges). Where the abstract game can't follow the hand the
+    /// blueprint checks or calls: 1 for that action, 0 for the others.
+    pub fn read_action_prob_for_range(
+        &self,
+        public: &PublicState<'_>,
+        action: Action,
+        hands: &[[Card; 2]],
+        out: &mut [f64],
+    ) {
+        let place = self.place(public);
+        let passive_only = |out: &mut [f64]| {
+            let p = if action == passive(&place.real.legal_actions()) {
+                1.0
+            } else {
+                0.0
+            };
+            out.fill(p);
+        };
+        let Some(at) = place.node else {
+            return passive_only(out);
+        };
+        let edges = self.game.tree().edges(at);
+        let mut abs = place.abs.clone();
+        let history = public.history();
+        let seat = public.current_player().expect("someone is to act") as u64;
+        let draw = || {
+            // `draw` for the action as if it were already the last of the history.
+            let mut h = mix(self.seed);
+            for m in history {
+                h = mix(h ^ action_code(m.action) ^ (m.seat as u64) << 40);
+            }
+            h = mix(h ^ action_code(action) ^ seat << 40);
+            for &card in &public.board()[..public.street().board_len()] {
+                h = mix(h ^ (card as u64 + 1) << 48);
+            }
+            (h >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let before = abs.history().len();
+        let (_, read_passive) = self.step(at, &mut abs, &place.real, action, draw);
+        let Some(taken) = abs.history().get(before).map(|m| m.action) else {
+            // The abstract game can't take the action (no such edge): it is never chosen.
+            out.fill(0.0);
+            return;
+        };
+        let _ = read_passive;
+        let Some(index) = edges.iter().position(|e| e.action == taken) else {
+            out.fill(0.0);
+            return;
+        };
+        let n = edges.len();
+        let uniform = 1.0 / n as f64;
+        let board = public.board();
+        for (hand, slot) in hands.iter().zip(out.iter_mut()) {
+            let start = self
+                .layout
+                .start(at, self.game.bucketer().bucket(*hand, board));
+            let stored = &self.probs[start..start + n];
+            let sum: u32 = stored.iter().map(|&q| q as u32).sum();
+            *slot = if sum == 0 {
+                uniform
+            } else {
+                stored[index] as f64 / sum as f64
+            };
+        }
+    }
+
     /// Decisions answered through [`Strategy::action_probs`] so far.
     pub fn decisions(&self) -> u64 {
         self.decisions.load(Ordering::Relaxed)
