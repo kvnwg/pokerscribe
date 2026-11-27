@@ -7,8 +7,9 @@
 //! ```
 //!
 //! The second checks tables that were built with `abstraction-build`. Without
-//! `ABSTRACTION_TABLES` it does nothing and passes, so that a run of every ignored test
-//! (the nightly one) is not stopped by it:
+//! `ABSTRACTION_TABLES` it does nothing and passes, so that a run of every ignored test is
+//! not stopped by it. The nightly workflow (`rust-slow.yml`) builds 50-bucket tables and
+//! sets it:
 //!
 //! ```bash
 //! ABSTRACTION_TABLES=/path/to/tables cargo test --release -p abstraction --test real_deck -- --ignored built_tables
@@ -103,7 +104,7 @@ fn real_river_table_groups_hands_sensibly() {
 #[test]
 #[ignore = "needs built tables: set ABSTRACTION_TABLES to their directory"]
 fn built_tables_pass_the_checks() {
-    // The nightly run of every ignored test has no tables: nothing to check there.
+    // Without tables there is nothing to check (the nightly workflow builds and sets them).
     let Ok(dir) = std::env::var("ABSTRACTION_TABLES") else {
         println!("skipped: ABSTRACTION_TABLES is not set (a directory holding flop.abs, turn.abs and river.abs)");
         return;

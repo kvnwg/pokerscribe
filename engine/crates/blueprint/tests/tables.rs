@@ -1,9 +1,10 @@
 //! The bucket tables in a blueprint run.
 //!
 //! The first test uses the abstraction crate's small fixture tables (a 20-card deck) and
-//! runs everywhere. The ignored one needs built tables for the full deck: set
-//! `BLUEPRINT_TABLES` to their directory, or it does nothing and passes (so that a run of
-//! every ignored test, as the nightly workflow does, stays green without them):
+//! runs everywhere. The ignored ones need built tables for the full deck: set
+//! `BLUEPRINT_TABLES` to their directory, or they do nothing and pass (so that a run of
+//! every ignored test stays green without them). The nightly workflow (`rust-slow.yml`)
+//! builds k10 and k50 and sets `BLUEPRINT_TABLES` and `BLUEPRINT_OTHER_TABLES`:
 //!
 //! ```text
 //! BLUEPRINT_TABLES=~/abstraction/k10 cargo test --release -p blueprint --test tables -- --ignored

@@ -511,7 +511,8 @@ exhaustive and real-deck ones (about 2.5 minutes on 4 cores and 3 GB of memory;
 `built_tables_pass_the_checks` needs `ABSTRACTION_TABLES` set to a directory of built tables
 and does nothing without it). All three were run on the final code, and the last one against
 the 200-bucket and 1,000-bucket tables. On `main` the third is what the nightly "Rust slow
-tests" workflow runs.
+tests" workflow runs, with `ABSTRACTION_TABLES` set to 50-bucket tables it builds first
+(cached until this crate's code changes).
 
 | Test | Checks |
 | --- | --- |
