@@ -25,10 +25,15 @@ import os
 PHASE6 = {"info_sets": 97_158_404, "slots": 251_686_705}
 BAR = 0.08  # the gate's "play settled" bar: change per doubling
 THREADS = 64
-# Ranges for what was not measured: (low, central, high) multipliers on speed.
-ARM_PER_CORE = (0.8, 1.0, 1.5)       # a c4a (Axion) core against this machine's 2.1 GHz Xeon core
-SCALING_64 = (0.5, 0.7, 0.9)         # 64-thread speed over 64 x the 1-thread speed
-FULL_TABLE = (0.5, 0.75, 1.0)        # speed with the whole 97M table against the bench's partial one
+# Ranges for what was not measured, as (slow, central, fast) multipliers on the speed measured
+# here. They are judgement, not measurement.
+ARM_PER_CORE = (0.8, 1.0, 1.5)    # a c4a (Axion) core against one of this machine's 2.1 GHz Xeon cores
+SCALING_64 = (0.5, 0.7, 0.9)      # 64 threads' speed over 64 times one thread's (4 gave 0.93 here)
+FULL_TABLE = (0.85, 0.95, 1.0)    # speed with the whole table met, against the bench's last session
+# States per iteration rose through the bench as the strategy left uniform play (at 20bb they
+# rose about 12% more from 4M iterations to the stop): (low, central, high) growth to the end.
+STATES_GROWTH = (1.0, 1.2, 1.5)
+SPOT_PER_HOUR = 2.0461            # c4a-highmem-64, spot, us-central1, read 26 Nov 2026 (BENCHMARKS.md)
 
 
 def lines(path):
@@ -155,32 +160,40 @@ def main():
     index_now = last4["bytes_per_info_set"] - 12 * last4["slots"] / last4["info_sets"]
     say("\n## Projection\n")
     say(f"- Information sets {PHASE6['info_sets']:,}, slots {PHASE6['slots']:,} ({slots_per_is:.2f} a set).")
-    lo_b = 12 * slots_per_is + 21
-    hi_b = 12 * slots_per_is + 64
-    say(f"- Memory: {12 * PHASE6['slots'] / 1e9:.2f} GB of slots (12 bytes each) and an index of 21 to 64 bytes a set "
-        f"(cfr README; {index_now:.0f} measured at the last session's fill): {lo_b:.0f} to {hi_b:.0f} bytes a set, "
-        f"{lo_b * PHASE6['info_sets'] / 1e9:.1f} to {hi_b * PHASE6['info_sets'] / 1e9:.1f} GB in all, "
-        f"plus the bucket tables. Checkpoint: {(19 * PHASE6['info_sets'] + 12 * PHASE6['slots']) / 1e9:.2f} GB. "
+    # The index grows by doubling (cfr: a shard doubles past three quarters full), so with the
+    # whole table met it is the index measured now, or at most twice that.
+    index_total = last4["table_bytes"] - 12 * last4["slots"]
+    slots_bytes = 12 * PHASE6["slots"]
+    lo_b, hi_b = slots_bytes + index_total, slots_bytes + 2 * index_total
+    say(f"- Memory: {slots_bytes / 1e9:.2f} GB of slots (12 bytes each) and the index, {index_total / 1e9:.2f} GB "
+        f"measured with {last4['info_sets'] / PHASE6['info_sets']:.0%} of the sets met "
+        f"({index_now:.0f} bytes a set), or twice that if it doubles once more: {lo_b / 1e9:.1f} to "
+        f"{hi_b / 1e9:.1f} GB for the tables, {lo_b / PHASE6['info_sets']:.0f} to {hi_b / PHASE6['info_sets']:.0f} "
+        f"bytes a set. The process held {((last4['resident_bytes'] or 0) - last4['table_bytes']) / 1e9:.1f} GB more "
+        f"(bucket tables, the game). Checkpoint: {(19 * PHASE6['info_sets'] + 12 * PHASE6['slots']) / 1e9:.2f} GB. "
         f"Strategy file: {2 * PHASE6['slots'] / 1e9:.2f} GB.")
     say(f"- Speed measured here, last sessions: {per_thread / 1e6:.2f}M states/s per thread "
         f"({'1 thread' if last1 else '4 threads'}), {states_per_it:,.0f} states per iteration, "
         f"with {last4['info_sets'] / PHASE6['info_sets']:.0%} of the table met.")
-    say("\n| Case | States to visit | 64-thread speed | Hours |")
-    say("| --- | ---: | ---: | ---: |")
-    cases = []
-    for label, k in [("fast", 2), ("central", 1), ("slow", 0)]:
-        cases.append((label, THREADS * per_thread * ARM_PER_CORE[k] * SCALING_64[k] * FULL_TABLE[k]))
+    speeds = [THREADS * per_thread * ARM_PER_CORE[k] * SCALING_64[k] * FULL_TABLE[k] for k in range(3)]
+    say(f"- 64-thread speed in states a second: {speeds[0] / 1e6:,.0f}M slow, {speeds[1] / 1e6:,.0f}M central, "
+        f"{speeds[2] / 1e6:,.0f}M fast (per core {ARM_PER_CORE}, 64-thread scaling {SCALING_64}, "
+        f"full table {FULL_TABLE}).")
     vmed = sorted(visits)[len(visits) // 2]
-    works = {
-        "work per information set, fewest": min(visits) * PHASE6["info_sets"],
-        "work per information set, median": vmed * PHASE6["info_sets"],
-        "work per information set, most": max(visits) * PHASE6["info_sets"],
-        "power law, central": it6 * states_per_it,
-        "power law, 1 sd high": it6 * math.exp(se_pred) * states_per_it,
-    }
-    for wname, w in works.items():
-        for label, speed in cases:
-            say(f"| {wname}, speed {label} | {w:.3g} | {speed / 1e6:,.0f}M/s | {w / speed / 3600:,.1f} |")
+    lo_it, hi_it = it6 * math.exp(-se_pred), it6 * math.exp(se_pred)
+    works = [
+        ("Iterations from the power law, times states per iteration",
+         [lo_it * states_per_it * STATES_GROWTH[0], it6 * states_per_it * STATES_GROWTH[1],
+          hi_it * states_per_it * STATES_GROWTH[2]]),
+        ("States per information set as at 20bb",
+         [min(visits) * PHASE6["info_sets"], vmed * PHASE6["info_sets"], max(visits) * PHASE6["info_sets"]]),
+    ]
+    say("\n| Work model | States to visit, low / central / high | Hours, low (fast speed) | Hours, central | Hours, high (slow speed) | Spot cost, central |")
+    say("| --- | --- | ---: | ---: | ---: | ---: |")
+    for name, (lo, mid, hi) in works:
+        h_lo, h_mid, h_hi = lo / speeds[2] / 3600, mid / speeds[1] / 3600, hi / speeds[0] / 3600
+        say(f"| {name} | {lo:.2g} / {mid:.2g} / {hi:.2g} | {h_lo:.1f} | {h_mid:.1f} | {h_hi:.1f} | "
+            f"${h_mid * SPOT_PER_HOUR:,.0f} |")
     text = "\n".join(out)
     print(text)
     if a.md:
