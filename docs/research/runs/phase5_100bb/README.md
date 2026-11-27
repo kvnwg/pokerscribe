@@ -226,11 +226,15 @@ Why finer buckets are more exploitable here is not tested. The gate's three cand
 abstraction pathologies (Waugh et al. 2009), imperfect recall (each street clustered on its
 own), and finer strategies fitting the abstract betting more closely (Johanson et al. 2011).
 
-**For Phase 6** (200 big blinds, 200 buckets a street): don't count on LBR, as measured here, to
-show that 200 buckets are worth their cost (at 100 big blinds, 4 times the information sets
-of 50, 2.8 times the memory and 2.4 times the training time). Check the card abstraction
-another way first, for example standard-k50 against standard-k200 head to head at 100 big
-blinds in the arena (both are `Strategy` agents; not done here).
+**For Phase 6** (200 big blinds, 200 buckets a street, kept by Kevin's decision of 27 Nov 2026
+with this check as information): its gate is head to head and against B0, with LBR only
+reported (`experiments.md`, Phase 5: the gate, Decision), so the gate is unchanged. But LBR at
+100 big blinds goes against 200 buckets over 50 (M +12.2 ± 5.0 pooled, `fcpa34` +18.5 ± 6.5),
+for 4 times the information sets, 2.8 times the memory and 2.4 times the training time, and
+Phase 6's LBR readings shouldn't be expected to show what 200 buckets buy. LBR measures the
+worst case, not play against a real opponent: if 200 buckets are to be checked before the full
+run, the cheap way is standard-k50 against standard-k200 head to head at 100 big blinds in the
+arena (both are `Strategy` agents; not done here).
 
 ## Files
 

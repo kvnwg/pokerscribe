@@ -1,8 +1,10 @@
 # tools/cloud: training runs on a rented Google Cloud machine
 
 These tools run one long training job (the Phase 6 heads-up blueprint) on a big Arm machine in
-Google Cloud: a c4a-highmem-64 (64 vCPUs, 512 GB) or similar, for hours or days, usually as a
-Spot machine, which Google can take back at any time with 30 seconds' warning. You run them on
+Google Cloud: a c4a-highcpu-64 (64 vCPUs, 128 GB; the Phase 6 blueprint needs 9 GB at most), a
+c4a-highmem-64 (the same 64 vCPUs with 512 GB, for a trainer that needs more memory), or similar,
+for hours or days, usually as a Spot machine, which Google can take back at any time with 30
+seconds' warning. You run them on
 your own computer; they drive the gcloud CLI. They:
 
 1. **launch**: create the machine (machine type, region, Spot or on-demand, and disk size are
@@ -15,9 +17,11 @@ your own computer; they drive the gcloud CLI. They:
    up to `MAX_RESTARTS` times;
 4. **watch**: progress, iterations per second, memory, cost so far, and time since the last
    checkpoint;
-5. **stop and clean up**: stop the machine, keep the bucket, and list everything in the project
+5. **keep the results**: the strategy files and other results the trainer writes beside its
+   checkpoints go to the bucket too, and all of them are kept (`artifacts`);
+6. **stop and clean up**: stop the machine, keep the bucket, and list everything in the project
    still costing money;
-6. **cap the cost**: stop everything at `BUDGET_USD`.
+7. **cap the cost**: stop everything at `BUDGET_USD`.
 
 Nothing in the repo names a project, bucket, account or key: they come from a settings file kept
 outside the repo (Setup, step 5) or from environment variables.
@@ -38,7 +42,7 @@ cycle on your computer, with a fake trainer and a local folder standing in for t
 | `supervisor.py` | runs on the machine: runs the trainer, syncs checkpoints, reports, keeps the cap |
 | `vm/startup.sh` | the machine's startup script: installs the bundle and the systemd service |
 | `fake_trainer.py` | a small program that pretends to train and keeps the trainer contract |
-| `local_test.py` | the local end-to-end test (`local-test`) |
+| `local_test.py` | the local end-to-end test (`local-test`), and the dress rehearsal with a real trainer |
 | `tests/` | the tests; they run with the rest (`python -m pytest`) |
 
 ## Setup (once)
@@ -62,11 +66,15 @@ cycle on your computer, with a fake trainer and a local folder standing in for t
 
    ```
    gcloud services enable compute.googleapis.com storage.googleapis.com --project <PROJECT>
+   gcloud services enable cloudquotas.googleapis.com --project <PROJECT>   # optional, for check
    ```
 
+   The third, the Cloud Quotas API, only lets `check` read the C4A quota (step 4).
+
 4. **Quota: 64 C4A vCPUs in us-central1.** New projects have little or no C4A quota. In the
-   console, open IAM & Admin, Quotas & System Limits, filter for the C4A CPUs quota of the
-   Compute Engine API in region us-central1, select it, choose Edit, and ask for 64 (the
+   console, open IAM & Admin, Quotas & System Limits, and filter for the Compute Engine API's
+   "CPUs per VM family" quota (metric `compute.googleapis.com/cpus_per_vm_family`) with
+   dimensions region us-central1 and vm_family C4A. Select it, choose Edit, and ask for 64 (the
    machine's vCPU count). Check the "CPUs (all regions)" quota the same way (`CPUS_ALL_REGIONS`):
    it must have room for 64 too, so ask for 64 or more if it doesn't.
    - Don't ask for preemptible quota. A Spot machine counts against the normal C4A quota when
@@ -77,9 +85,14 @@ cycle on your computer, with a fake trainer and a local folder standing in for t
      asked for some payment history first.
    - If `launch` fails with a quota error that names a disk (Hyperdisk Balanced capacity), ask
      for that quota the same way.
-   - `python -m tools.cloud check` shows the C4A quota and how much of it is used. It looks for a
-     quota called `C4A_CPUS`, which follows Google's naming for the other families but hasn't
-     been checked on a real project. If `check` says it found none, read the Quotas page.
+   - `python -m tools.cloud check` shows the C4A quota. It first looks for `C4A_CPUS` in
+     `gcloud compute regions describe` (Google's naming for older families, with its usage),
+     which probably isn't there. Then it reads the "CPUs per VM family" quota's limit through
+     the Cloud Quotas API (`gcloud beta quotas info describe
+     CPUS-PER-VM-FAMILY-per-project-region --service=compute.googleapis.com`, or `... list`),
+     which has the limit but not the usage. If neither works it prints a "?" line naming the
+     quota, so read the Quotas page. The Cloud Quotas path is tested on Google's documented
+     format only, not on a real project.
 
 5. **The settings file.**
 
@@ -147,6 +160,13 @@ Any program that keeps this contract:
 - Optional: progress lines on stdout, one JSON object per line, such as
   `{"iterations": 1200000, "target_iterations": 200000000}`. `watch` shows them with iterations
   per second (over the last 10 minutes) and the time left. All output is kept in the logs.
+- Optional: results (artifacts). Any other file in `<dir>` whose name matches
+  `ARTIFACT_PATTERNS` (default `*.bps,*.jsonl`: the blueprint's strategy files, `stages.jsonl`
+  and its `log.jsonl`) goes to `artifacts/<name>` in the bucket once it has not changed for a
+  few seconds, again each time it changes, and is never deleted there. A new machine gets all of
+  them back before the trainer starts, so a trainer that compares a result with the one before
+  (the blueprint's change measure) finds it on the disk. Write big ones whole and rename them,
+  as checkpoints; small ones may be appended to. `none` turns it off.
 
 How the trainer gets to the machine:
 
@@ -160,6 +180,17 @@ How the trainer gets to the machine:
   (the settings check reads its header) or a script, such as `tools/cloud/fake_trainer.py`.
 - `TRAINER_CONFIG` is copied and passed as `--config`. `TRAINER_ARGS` adds arguments, such as
   `--threads 64`.
+- `TRAINER_FILES` (optional): files or folders the trainer reads, such as the bucket tables. Each
+  goes into the bundle and is installed at `/opt/pscloud/bundle/files/<its name>` (a folder's
+  files keep their place inside it), so a config names them there:
+  `"abstraction": "/opt/pscloud/bundle/files/k200"`. `check` and `launch` refuse a config that
+  names a path there that `TRAINER_FILES` doesn't provide.
+
+The trainer's sizes can be given, and are then checked before anything is rented:
+`TRAINER_MEMORY_GB` (its peak memory, measured) against the machine type's memory (with 10% to
+spare; `check` also compares it with the memory Google reports), and `CHECKPOINT_GB` with
+`ARTIFACTS_GB` against `DISK_SIZE_GB` (4 checkpoints, all the artifacts and 30 GB for the
+system). `watch` warns when the trainer's peak passes 90% of the machine's memory.
 
 ## Commands
 
@@ -174,9 +205,11 @@ Run them from the repo root: `python -m tools.cloud <command>`.
 | `logs [--supervisor] [-n 60]` | the end of the trainer's (or the supervisor's) output, from the bucket |
 | `stop` | the trainer saves, the last checkpoint is uploaded, the machine powers off. Keeps the disk and the bucket |
 | `resume` | after a stop (or after raising `BUDGET_USD`): starts the machine again, or makes a new one |
+| `artifacts [--download DIR] [--only GLOB]` | lists the run's artifacts in the bucket (strategy files, `stages.jsonl`); with `--download`, copies the ones `DIR` doesn't have yet (`stages.jsonl` every time) |
 | `cleanup [--yes]` | stops the run, deletes the machine and its disk, keeps the bucket, lists what is left |
 | `leftovers` | everything in the project that still costs money: machines, disks, IPs, snapshots, images, buckets |
 | `local-test [--keep DIR]` | the whole cycle on this computer: fake trainer, folder as bucket, SIGTERM, resume |
+| `local-test --trainer T --config C [--files F] [--trainer-args A]` | a dress rehearsal of a real run on this computer (see "Testing without money") |
 
 A run:
 
@@ -196,6 +229,7 @@ trainer     running (resumed), up 3 h 08 min, crashes 0
 progress    41,250,000 iterations of 200,000,000 (20.6%), 3,810 per second, about 11 h 34 min left (reported 42 s ago)
 memory      trainer 302.0 GB (peak 305.0 GB), machine 311.0 of 541.0 GB used
 checkpoint  written 11 min ago (blueprint.ckpt, 4.8 GB); uploaded 10 min ago; 3 in the bucket
+artifacts   9 in the bucket; last strategy-128000000.bps 25 min ago  (python -m tools.cloud artifacts --download DIR)
 cost        about $13.36 so far (at the last report: machine $13.10, IP $0.03, disk $0.20); cap $40.00 (33%); at $2.08/h the cap is reached in 12 h 49 min
 restarts    1 of 10 (last: start at 2026-11-27 06:02 UTC, preempted at 2026-11-27 05:58 UTC)
 report      40 s ago
@@ -219,6 +253,7 @@ gs://<BUCKET>/runs/<RUN_NAME>/
                    the trainer (or the engine's source, and the saved build)
   checkpoints/     <sequence>-<UTC time>-<name>, e.g. 00000012-20261127T093000Z-blueprint.ckpt
                    (the last KEEP_CHECKPOINTS of them)
+  artifacts/       the trainer's other results under their own names (ARTIFACT_PATTERNS), all kept
   status.json      the supervisor's report, every STATUS_SECONDS
   state.json       the run's final state once it has one: done, failed, budget or stopped
   sessions/        one file per boot of a machine; the cost estimate comes from these
@@ -238,7 +273,8 @@ makes the bucket in `REGION` with uniform access, public access prevention, and 
 where the run is in the bucket, and which bundle version to install. At every boot the script:
 
 1. installs gcloud and Python if the image lacks them;
-2. downloads the bundle, once per version (a reboot of the same machine skips this);
+2. downloads the bundle, once per version (a reboot of the same machine skips this), with the
+   `TRAINER_FILES` under `/opt/pscloud/bundle/files/`;
 3. in build mode, installs Rust and builds the trainer, or downloads the build that an earlier
    machine of the run saved;
 4. writes the systemd service `pscloud-trainer` and starts it.
@@ -261,6 +297,8 @@ The supervisor:
 - runs the trainer, with `--resume` when a checkpoint is on the disk;
 - uploads each new checkpoint as soon as it is complete, checks its size in the bucket, and only
   then deletes the bucket's checkpoints beyond the newest `KEEP_CHECKPOINTS`;
+- puts back the bucket's artifacts that the disk lacks (a new machine), and uploads each new or
+  changed artifact after the checkpoints (all are kept);
 - writes `status.json` every `STATUS_SECONDS`: progress, iterations per second, memory (the
   machine's, and the trainer's current and peak), checkpoints, and cost;
 - when Google gives notice of a preemption, the machine shuts down, the budget is reached, or
@@ -369,6 +407,19 @@ the cheap real test.
   local test passed
   ```
 
+- **`python -m tools.cloud local-test --trainer T --config C`:** a dress rehearsal of a real run,
+  with the real trainer and its real config, at this computer's thread count
+  (`--trainer-args "--threads 4"`). Paths under `/opt/pscloud/bundle/files/<name>` in the config
+  point at the local copies given with `--files` (the same as `TRAINER_FILES`); nothing else in
+  it changes. Machine 1 starts fresh and gets SIGTERM once `--sigterm-after` stages (default 2)
+  are in the bucket; machine 2 starts with an empty disk, gets the checkpoint and every artifact
+  back, resumes, and once `--stop-after` stages (default 4) are in the bucket the stop marker is
+  written, as `stop` does. It checks that the SIGTERM save was uploaded and resumed from at
+  exactly its iteration, that the first stage after the resume was compared with the one before
+  it (so the artifacts came back), that every stage is there once and in order, and that the run
+  ends "stopped" with the last save uploaded. It prints the times that matter for a paid run and
+  the trainer's memory; `--report FILE` saves them. The Phase 6 rehearsal:
+  `docs/research/runs/phase6/README.md`, "The dress rehearsal".
 - **`python -m tools.cloud launch --dry-run`:** prints every gcloud command and upload launch
   would make, as for a new run, and runs none of them (it doesn't even need a login).
 
@@ -411,9 +462,11 @@ That trains for about 17 minutes and writes a 100 MB checkpoint every minute. Th
 - **Nothing here has run on real Google Cloud yet.** Every gcloud flag was checked offline against
   the help of gcloud 570. Not checked: the exact output of `gcloud storage ls -l` (the supervisor
   reads it to list the checkpoints), the field names `gcloud storage buckets describe` returns
-  (for check's soft delete and location lines), the name of the C4A quota, the Hyperdisk price,
-  and whether the beta 2-minute notice works on C4A. The cheap real test covers all but the last
-  two.
+  (for check's soft delete and location lines), what the Cloud Quotas API prints for the C4A
+  quota on a real project, and whether the beta 2-minute notice works on C4A. The cheap real
+  test covers the first two. Read in the console on 27 Nov 2026: the C4A quota's name ("CPUs
+  per VM family", vm_family C4A), the C4A prices and the Hyperdisk Balanced prices
+  (`settings.example.env`).
 - **`recover` runs on your computer.** If the computer sleeps or loses its network, nothing starts
   the machine again. The run is safe meanwhile (a stopped machine, the checkpoints in the bucket,
   only the disk billing), but it doesn't go on. Run `recover` under `caffeinate -i`, on power,
@@ -430,8 +483,9 @@ That trains for about 17 minutes and writes a 100 MB checkpoint every minute. Th
 - [ ] The real trainer keeps the contract: run it locally on a small config, send it `kill -TERM`
       halfway, check that it saved and exited, then run it with `--resume` and check that it goes
       on from the saved point and finishes with exit code 0.
-- [ ] The trainer's memory fits the machine (512 GB on c4a-highmem-64) with room to spare: measured
-      at a smaller size and scaled up.
+- [ ] The trainer's memory fits the machine (512 GB on c4a-highmem-64, 128 GB on c4a-highcpu-64)
+      with room to spare: measured at a smaller size and scaled up, and set as
+      `TRAINER_MEMORY_GB` so `check` compares it with the machine.
 - [ ] The cheap real test has passed in this project: report, upload, stop and restart, a new
       machine resuming from the bucket, cleanup.
 - [ ] `python -m tools.cloud check` ends with "all checks passed": login, APIs, machine type,
@@ -440,8 +494,10 @@ That trains for about 17 minutes and writes a 100 MB checkpoint every minute. Th
       and `DISK_PRICE_PER_GB_MONTH`), and `BUDGET_USD` is what you are willing to spend on this run.
 - [ ] A budget alert is set on the billing account (Setup, step 2).
 - [ ] `RUN_NAME` is new, or its checkpoints in the bucket are the ones to resume from.
-- [ ] The checkpoints fit: `DISK_SIZE_GB` holds 4 of them plus 30 GB; with checkpoints of several
-      GB, `DISK_THROUGHPUT_MBPS` is raised; the trainer saves within a minute of SIGTERM.
+- [ ] The checkpoints fit: `DISK_SIZE_GB` holds 4 of them, the artifacts and 30 GB (set
+      `CHECKPOINT_GB` and `ARTIFACTS_GB` and `check` says so); with checkpoints of several GB,
+      `DISK_THROUGHPUT_MBPS` is raised; the trainer saves within a minute of SIGTERM.
+- [ ] `TRAINER_FILES` lists everything the config names under `/opt/pscloud/bundle/files/`.
 - [ ] `TRAINER_CONFIG` and `TRAINER_ARGS` are what you mean to train (iterations, 64 threads).
 - [ ] `python -m tools.cloud launch --dry-run` shows the machine type, zone, Spot, disk size and
       maximum run duration you expect.

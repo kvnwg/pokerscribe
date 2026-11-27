@@ -208,6 +208,16 @@ if [ "$installed" != "$VERSION" ]; then
   fetch supervisor.py
   fetch run.json
   fetch "config/$(mget config_name)"
+  # TRAINER_FILES (the bucket tables, say): each to the same name under $BUNDLE/files/.
+  python3 -c 'import json, sys
+for n in json.load(open(sys.argv[1])).get("extra_files", []):
+    print(n)' "$ROOT$BUNDLE/manifest.json" > "$ROOT$OPT/extra-files.txt"
+  while IFS= read -r extra; do
+    fetch "$extra"
+  done < "$ROOT$OPT/extra-files.txt"
+  if [ -s "$ROOT$OPT/extra-files.txt" ]; then
+    log "installed $(wc -l < "$ROOT$OPT/extra-files.txt" | tr -d ' ') trainer file(s) in $BUNDLE/files"
+  fi
   if [ "$(mget mode)" = "copy" ]; then
     fetch trainer
   elif gcloud storage ls "$STORE/bundle/trainer-built-$VERSION" >/dev/null 2>&1; then

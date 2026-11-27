@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! blueprint train --spec FILE --dir RUN --until N [--every-minutes M] [--threads T]
-//! blueprint lbr --strategy FILE [--tables DIR] [--hands N] [--seed S] [--settings LIST]
+//! blueprint lbr --strategy FILE[,FILE...] [--tables DIR] [--hands N] [--seed S] [--settings LIST]
 //!               [--small-bets smallest|check-or-call]
 //! blueprint reference --stack BB [--hands N] [--seed S] [--settings LIST]
 //! blueprint bench --spec FILE [--seconds S] [--warmup S] [--threads 1,2,4]
@@ -10,6 +10,7 @@
 //! blueprint compare --a DEALS --b DEALS
 //! blueprint gate --plan FILE
 //! blueprint info FILE
+//! blueprint export (--config FILE | --spec FILE) --checkpoint CKPT --out FILE [--tables DIR]
 //! blueprint --config FILE --checkpoint-dir DIR [--resume] [--threads T]
 //! ```
 //!
@@ -23,7 +24,15 @@
 //! minutes if left out). It trains in the checkpoint directory as `train` does, saves
 //! `checkpoint.ckpt` about every M minutes and prints a progress line after each save. On
 //! SIGTERM it saves and exits with 75; when it reaches N it writes `strategy.bps` there
-//! and exits with 0.
+//! and exits with 0. With `"strategies": {"first": F, "factor": K}` it also writes the
+//! strategy at fixed stages, F, F x K, F x K x K, ... and N, as `strategy-<iterations>.bps`
+//! in the checkpoint directory, each with a line in `stages.jsonl` there: how much the
+//! strategy changed since the stage before, how far the regrets have fallen, and what
+//! pruning skipped (see `stage`).
+//!
+//! `export` writes the strategy file of any saved checkpoint, off the machine that trained
+//! it: the spec (a trainer config or a run's `spec.json`), the checkpoint, and the bucket
+//! tables (`--tables`, or the directory the spec names).
 //!
 //! Every command prints one JSON object per result on standard output.
 
@@ -234,38 +243,54 @@ fn measure(
     Ok(())
 }
 
+/// `lbr`. `--strategy` may name several files, comma-separated (with as many `--label`s):
+/// they are measured one after the other in this process, so LBR's exact preflop win
+/// probabilities, worked out the first time each starting hand comes up (minutes), are
+/// worked out once for all of them.
 fn lbr_command(a: &Args) -> Result<(), String> {
-    let path = PathBuf::from(a.need("strategy")?);
+    let paths: Vec<&str> = a.need("strategy")?.split(',').collect();
+    let labels: Vec<&str> = match a.get("label") {
+        Some(l) => l.split(',').collect(),
+        None => paths.clone(),
+    };
+    if labels.len() != paths.len() {
+        return Err(format!(
+            "--label: {} labels for {} strategies",
+            labels.len(),
+            paths.len()
+        ));
+    }
     let tables = a.get("tables").map(PathBuf::from);
     let small_bets = match a.get("small-bets") {
         None => SmallBets::default(),
         Some(name) => SmallBets::parse(name)
             .ok_or_else(|| format!("--small-bets: smallest or check-or-call, not {name:?}"))?,
     };
-    let blueprint = Blueprint::load(&path, tables.as_deref())
-        .map_err(|e| e.to_string())?
-        .with_small_bets(small_bets);
-    let stack_bb = blueprint.game().config().stack / blueprint.game().config().big_blind;
-    let header = StrategyFile::load(&path).map_err(|e| e.to_string())?.header;
-    let label = a
-        .get("label")
-        .unwrap_or(path.to_str().unwrap_or("strategy"));
-    measure(
-        &blueprint,
-        label,
-        stack_bb,
-        a,
-        || {
-            json!({
-                "iterations": header.iterations,
-                "train_seconds": header.train_seconds,
-                "decisions": blueprint.decisions(),
-                "off_tree_share": blueprint.off_tree_share(),
-                "small_bets": small_bets.name(),
-            })
-        },
-        || blueprint.reset_counters(),
-    )
+    for (path, label) in paths.iter().zip(labels) {
+        let path = PathBuf::from(path);
+        let blueprint = Blueprint::load(&path, tables.as_deref())
+            .map_err(|e| e.to_string())?
+            .with_small_bets(small_bets);
+        let stack_bb = blueprint.game().config().stack / blueprint.game().config().big_blind;
+        let header = StrategyFile::load(&path).map_err(|e| e.to_string())?.header;
+        measure(
+            &blueprint,
+            label,
+            stack_bb,
+            a,
+            || {
+                json!({
+                    "iterations": header.iterations,
+                    "train_seconds": header.train_seconds,
+                    "decisions": blueprint.decisions(),
+                    "off_tree_share": blueprint.off_tree_share(),
+                    "small_bets": small_bets.name(),
+                })
+            },
+            || blueprint.reset_counters(),
+        )?;
+    }
+    Ok(())
 }
 
 fn reference(a: &Args) -> Result<(), String> {
@@ -398,6 +423,36 @@ struct CloudConfig {
     until: u64,
     #[serde(default = "ten_minutes")]
     every_minutes: f64,
+    /// Strategy files at fixed stages of the run, if given.
+    #[serde(default)]
+    strategies: Option<Stages>,
+}
+
+/// Where a run writes its strategy files: at `first` iterations, then at every `factor`
+/// times that (`factor` 2: at each doubling), and at the end.
+#[derive(serde::Deserialize, Clone, Copy, Debug)]
+#[serde(deny_unknown_fields)]
+struct Stages {
+    first: u64,
+    factor: u64,
+}
+
+impl Stages {
+    /// The stages up to and including `until` (which is always the last one).
+    fn upto(&self, until: u64) -> Vec<u64> {
+        let mut out = Vec::new();
+        let mut at = self.first;
+        while at < until {
+            out.push(at);
+            at = at.saturating_mul(self.factor);
+        }
+        out.push(until);
+        out
+    }
+}
+
+fn stage_name(iterations: u64) -> String {
+    format!("strategy-{iterations}.bps")
 }
 
 fn ten_minutes() -> f64 {
@@ -407,6 +462,121 @@ fn ten_minutes() -> f64 {
 /// Exit code after a stop asked for by SIGTERM: the state is saved, start again with
 /// `--resume` (EX_TEMPFAIL, as `tools/cloud` suggests).
 const STOPPED: u8 = 75;
+
+/// How far the regrets have fallen, street by street: what negative-regret pruning can
+/// skip. For each street, the regret slots met so far, the share below -1,000, -10,000,
+/// -100,000 and -1,000,000 big blinds, below the run's pruning threshold, and at the floor
+/// (within a big blind of it), and the lowest regret.
+fn regret_summary(run: &Run) -> serde_json::Value {
+    let game = run.solver.game();
+    let nodes = game.tree().len() as u64;
+    let levels = [-1e3, -1e4, -1e5, -1e6];
+    let threshold = run.spec.training.pruning.map(|p| p.threshold);
+    let floor = run.spec.training.regret_floor;
+    #[derive(Default, Clone)]
+    struct Street {
+        slots: u64,
+        below: [u64; 4],
+        below_threshold: u64,
+        at_floor: u64,
+        lowest: f64,
+    }
+    let mut streets = vec![Street::default(); 4];
+    run.solver.for_each_set(|key, regrets, _sums| {
+        let node = (key % nodes) as u32;
+        let st = &mut streets[game.tree().node(node).street.index()];
+        for &r in regrets {
+            st.slots += 1;
+            for (count, level) in st.below.iter_mut().zip(levels) {
+                *count += (r < level) as u64;
+            }
+            if let Some(t) = threshold {
+                st.below_threshold += (r < t) as u64;
+            }
+            if let Some(f) = floor {
+                st.at_floor += (r <= f + 1.0) as u64;
+            }
+            st.lowest = st.lowest.min(r);
+        }
+    });
+    let names = ["preflop", "flop", "turn", "river"];
+    let by_street: serde_json::Map<String, serde_json::Value> = streets
+        .iter()
+        .zip(names)
+        .map(|(st, name)| {
+            let share = |n: u64| n as f64 / st.slots.max(1) as f64;
+            (
+                name.to_string(),
+                json!({
+                    "slots": st.slots,
+                    "below_1e3": share(st.below[0]),
+                    "below_1e4": share(st.below[1]),
+                    "below_1e5": share(st.below[2]),
+                    "below_1e6": share(st.below[3]),
+                    "below_threshold": threshold.map(|_| share(st.below_threshold)),
+                    "at_floor": share(st.at_floor),
+                    "lowest": st.lowest,
+                }),
+            )
+        })
+        .collect();
+    json!({"threshold": threshold, "floor": floor, "streets": by_street})
+}
+
+/// Pruning's counters so far: traversals that pruned, and actions they skipped.
+fn pruning_counters(run: &Run) -> serde_json::Value {
+    let stats = run.solver.stats();
+    json!({"pruned_traversals": stats.pruned_traversals, "pruned_actions": stats.pruned_actions,
+           "nodes_touched": stats.nodes_touched})
+}
+
+/// Writes the strategy of the run as it is now, as the stage `strategy-<iterations>.bps`
+/// in `dir`, and a line in `dir/stages.jsonl`. The change is measured against the latest
+/// earlier stage whose file is in `dir` (the stage before, unless a file is missing).
+fn stage(run: &Run, dir: &Path, stages: &[u64], until: u64) -> Result<serde_json::Value, String> {
+    let at = run.solver.iterations();
+    let started = Instant::now();
+    let export = run.export();
+    let name = stage_name(at);
+    let bytes = export.file.save(&dir.join(&name)).map_err(|e| e.to_string())?;
+    let export_seconds = started.elapsed().as_secs_f64();
+    let before = stages
+        .iter()
+        .rev()
+        .copied()
+        .filter(|&s| s < at)
+        .find(|&s| dir.join(stage_name(s)).exists());
+    let measured = Instant::now();
+    let change = match before {
+        Some(b) => {
+            let earlier = StrategyFile::load(&dir.join(stage_name(b))).map_err(|e| e.to_string())?;
+            let layout = Layout::of(run.solver.game());
+            Some(export.file.change_from(&earlier, &layout, &export.weights))
+        }
+        None => None,
+    };
+    let line = json!({
+        "event": "stage",
+        "iterations": at,
+        "target_iterations": until,
+        "strategy": name,
+        "strategy_bytes": bytes,
+        "export_seconds": export_seconds,
+        "change": change,
+        "change_from": before.map(stage_name),
+        "info_sets": export.file.header.info_sets,
+        "visited": export.file.header.visited,
+        "from_regrets": export.from_regrets,
+        "train_seconds": export.file.header.train_seconds,
+        "regrets": regret_summary(run),
+        "pruning": pruning_counters(run),
+        "measure_seconds": measured.elapsed().as_secs_f64(),
+        "resident_bytes": blueprint::resident_bytes(),
+        "peak_resident_bytes": peak_resident_bytes(),
+    });
+    append(Some(&dir.join("stages.jsonl").to_string_lossy()), &line)?;
+    Ok(line)
+}
 
 /// The `tools/cloud` trainer: see the module documentation.
 fn cloud(items: &[String]) -> Result<ExitCode, String> {
@@ -424,6 +594,11 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
     if !(config.every_minutes.is_finite() && config.every_minutes > 0.0) {
         return Err("--config: every_minutes must be more than 0".into());
     }
+    if let Some(s) = config.strategies {
+        if s.first == 0 || s.factor < 2 {
+            return Err("--config: strategies needs a first stage above 0 and a factor of 2 or more".into());
+        }
+    }
     if let Some(t) = a.get("threads") {
         config.spec.training.threads = t.parse().map_err(|_| "--threads: a number")?;
     }
@@ -436,6 +611,7 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
     }
     signal::watch_sigterm().map_err(|e| e.to_string())?;
     let until = config.until;
+    let stages = config.strategies.map(|s| s.upto(until)).unwrap_or_default();
     let mut run = Run::open(config.spec, &dir).map_err(|e| e.to_string())?;
     let started_at = run.solver.iterations();
     append(
@@ -445,15 +621,25 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
             "iterations": started_at,
             "target_iterations": until,
             "threads": run.spec.training.threads,
+            "stages": stages,
         }),
     )?;
-    // Each session trains for about `every_minutes` and ends with a save (cfr saves when a
-    // train call returns), then reports. The first one is short, to measure the speed.
+    // A stop that came between a stage's save and its strategy file: write the file now.
+    if started_at < until
+        && stages.contains(&started_at)
+        && !dir.join(stage_name(started_at)).exists()
+    {
+        stage(&run, &dir, &stages, until)?;
+    }
+    // Each session trains for about `every_minutes` (and never past the next stage) and
+    // ends with a save (cfr saves when a train call returns), then reports. The first one
+    // is short, to measure the speed.
     let mut chunk = 1_000_000u64;
     while run.solver.iterations() < until {
         let at = run.solver.iterations();
+        let next = stages.iter().copied().find(|&s| s > at).unwrap_or(until);
         let s = run
-            .train(until.min(at.saturating_add(chunk)), None)
+            .train(until.min(at.saturating_add(chunk)).min(next), None)
             .map_err(|e| e.to_string())?;
         append(
             None,
@@ -461,25 +647,46 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
                 "iterations": s.to,
                 "target_iterations": until,
                 "iterations_per_second": s.iterations_per_second,
+                "nodes_per_second": s.nodes_per_second,
                 "info_sets": s.info_sets,
                 "table_bytes": s.table_bytes,
                 "resident_bytes": s.resident_bytes,
                 "save_seconds": s.longest_save_seconds,
                 "stopped": s.stopped,
+                "pruning": pruning_counters(&run),
             }),
         )?;
-        if s.stopped {
+        if s.stopped || (signal::stop_requested() && s.to < until) {
+            // Saved at s.to. A stage reached just now gets its file when the run resumes.
             append(
                 None,
                 &json!({"event": "saved on SIGTERM", "iterations": s.to, "target_iterations": until}),
             )?;
             return Ok(ExitCode::from(STOPPED));
         }
-        chunk = ((s.iterations_per_second * config.every_minutes * 60.0) as u64).max(1_000);
+        if s.to == next && s.to < until && !stages.is_empty() {
+            stage(&run, &dir, &stages, until)?;
+        }
+        if s.iterations_per_second > 0.0 {
+            chunk = ((s.iterations_per_second * config.every_minutes * 60.0) as u64).max(1_000);
+        }
     }
-    let export = run.export();
     let path = dir.join("strategy.bps");
-    let bytes = export.file.save(&path).map_err(|e| e.to_string())?;
+    let bytes = if stages.is_empty() {
+        run.export().file.save(&path).map_err(|e| e.to_string())?
+    } else {
+        // The last stage is the end: its file is strategy.bps too (a hard link, so no
+        // second copy on the disk).
+        if !dir.join(stage_name(until)).exists() {
+            stage(&run, &dir, &stages, until)?;
+        }
+        let last = dir.join(stage_name(until));
+        let _ = fs::remove_file(&path);
+        if fs::hard_link(&last, &path).is_err() {
+            fs::copy(&last, &path).map_err(|e| e.to_string())?;
+        }
+        fs::metadata(&path).map_err(|e| e.to_string())?.len()
+    };
     append(
         None,
         &json!({
@@ -495,12 +702,54 @@ fn cloud(items: &[String]) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `export`: the strategy file of a saved checkpoint (see the module documentation).
+fn export(a: &Args) -> Result<(), String> {
+    let spec = match (a.get("config"), a.get("spec")) {
+        (Some(c), None) => {
+            let text = fs::read_to_string(c).map_err(|e| format!("--config: {e}"))?;
+            serde_json::from_str::<CloudConfig>(&text)
+                .map_err(|e| format!("--config: {e}"))?
+                .spec
+        }
+        (None, Some(p)) => {
+            Spec::from_json(&fs::read_to_string(p).map_err(|e| format!("--spec: {e}"))?)?
+        }
+        _ => return Err("export takes --config (a trainer config) or --spec, one of them".into()),
+    };
+    let checkpoint = PathBuf::from(a.need("checkpoint")?);
+    let out = PathBuf::from(a.need("out")?);
+    let tables = a.get("tables").map(PathBuf::from).unwrap_or(spec.abstraction.clone());
+    let started = Instant::now();
+    let buckets = Arc::new(Buckets::load(&tables).map_err(|e| format!("{}: {e}", tables.display()))?);
+    let game = build_game(&spec, buckets.clone()).map_err(|e| e.to_string())?;
+    let solver = Mccfr::resume(game, &checkpoint)
+        .map_err(|e| format!("{}: {e}", checkpoint.display()))?;
+    let train_seconds: f64 = a.num("train-seconds", 0.0)?;
+    let exported = StrategyFile::from_solver(
+        &solver,
+        Some(spec),
+        Some(buckets.info().clone()),
+        train_seconds,
+    );
+    let bytes = exported.file.save(&out).map_err(|e| e.to_string())?;
+    let line = json!({
+        "command": "export",
+        "checkpoint": checkpoint,
+        "strategy": out,
+        "strategy_bytes": bytes,
+        "iterations": exported.file.header.iterations,
+        "info_sets": exported.file.header.info_sets,
+        "visited": exported.file.header.visited,
+        "seconds": started.elapsed().as_secs_f64(),
+        "peak_resident_bytes": peak_resident_bytes(),
+    });
+    append(a.get("log"), &line)
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args
-        .iter()
-        .any(|s| s == "--config" || s == "--checkpoint-dir")
-    {
+    // The cloud trainer has no command word: its first argument is an option.
+    if args.first().is_some_and(|s| s.starts_with("--")) {
         return match cloud(&args) {
             Ok(code) => code,
             Err(e) => {
@@ -519,9 +768,12 @@ fn main() -> ExitCode {
             "size" => size(&a),
             "compare" => compare(&a),
             "gate" => gate_command(&a),
+            "export" => export(&a),
             _ => Err(format!("unknown command {cmd:?}")),
         }),
-        None => Err("a command: train, lbr, reference, bench, size, compare, gate or info".into()),
+        None => Err(
+            "a command: train, lbr, reference, bench, size, compare, gate, export or info".into(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -529,5 +781,25 @@ fn main() -> ExitCode {
             eprintln!("blueprint: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stages_grow_by_the_factor_and_end_at_the_end() {
+        let s = Stages {
+            first: 1_000_000,
+            factor: 2,
+        };
+        assert_eq!(
+            s.upto(8_000_000),
+            vec![1_000_000, 2_000_000, 4_000_000, 8_000_000]
+        );
+        assert_eq!(s.upto(5_000_000), vec![1_000_000, 2_000_000, 4_000_000, 5_000_000]);
+        assert_eq!(s.upto(500_000), vec![500_000]);
+        assert_eq!(stage_name(2_000_000), "strategy-2000000.bps");
     }
 }

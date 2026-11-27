@@ -21,7 +21,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
-use crate::game::{child, Game, Node};
+use crate::game::{child, Game, InfoKey, Node};
 use crate::policy::TabularPolicy;
 use crate::rng::Rng;
 use crate::scratch::Scratch;
@@ -536,6 +536,23 @@ impl<G: Game> Mccfr<G> {
             out.extend((0..e.num_actions).map(|i| self.core.sums.get(e.offset + i)));
         }
         out
+    }
+
+    /// Calls `f(key, regrets, strategy_sums)` once for every information set seen so far,
+    /// in no particular order, with that set's regrets (in the game's units) and strategy
+    /// sums. Unlike [`Mccfr::table`], [`Mccfr::regrets`] and [`Mccfr::strategy_sums`] it
+    /// copies nothing but one set's numbers at a time, so a big run can be read (to write a
+    /// strategy file, say) without twice its memory.
+    pub fn for_each_set(&self, mut f: impl FnMut(InfoKey, &[f64], &[f64])) {
+        let mut regrets = Vec::new();
+        let mut sums = Vec::new();
+        self.core.table.for_each(|e| {
+            regrets.clear();
+            sums.clear();
+            regrets.extend((0..e.num_actions).map(|i| self.core.regret.get(e.offset + i)));
+            sums.extend((0..e.num_actions).map(|i| self.core.sums.get(e.offset + i)));
+            f(e.key, &regrets, &sums);
+        });
     }
 
     /// The table in key order, with each entry of the shared index.
