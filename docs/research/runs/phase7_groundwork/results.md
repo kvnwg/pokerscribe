@@ -2,8 +2,23 @@
 
 The runs of `README.md` (committed before they started, in 2d9a22a), on 27 Nov 2026, on this
 machine (4 cores, Intel Xeon at 2.1 GHz). Groundwork, not the Phase 7 gate: nothing here passes
-or fails. Raw outputs are next to this file: the JSON reports, `log.txt` (the runs' output in order), and
-the LBR runs' `.deals` files (what each deal won, which `search compare` reads).
+or fails. Raw outputs are next to this file: the JSON reports, `log.txt` and `log-repeat.txt`
+(the runs' output in order), and the LBR runs' `.deals` files (what each deal won, which `search
+compare` reads; `repeat-` for runs 7 and 8).
+
+In short:
+
+- **Head-to-head** search does not beat the blueprint it searches on: -2.51 ± 4.56 bb/100 over
+  3,000 deals.
+- **LBR** wins less against search than against the blueprint, by 35.8 ± 5.7 bb/100 with 56 bet
+  sizes (`b56_14`, z -6.3, pooled over two seeds) and 10.7 ± 5.3 with fold, call, pot and all in
+  (`fcpa14`, z -2.0). The `b56_14` gain is the off-menu bets being added and re-solved.
+- **Decisions** take 0.48 s on the flop, 2.2 s on the turn and 39 ms on the river at the median
+  on 4 threads (p95 0.75 s, 6.0 s, 158 ms). For the 200bb Phase 6 game on 64 cores: about 0.3 to
+  0.6 s, 1.5 to 5 s and under 0.3 s, and 9.7 GB of leaf tables.
+- **Ranges**: both players' real hands were in the range and in the solve at all 415 decisions
+  checked.
+- **B0** plays the search agent end to end from Python (200 hands, no illegal action).
 
 What changed after the plan was committed, none of it in how any agent plays:
 
@@ -33,10 +48,11 @@ twice with the seats swapped, all-in hands scored by equity (410 hands), 4 threa
 | In the big blind | -14.73 | 8.84 | | | |
 
 No illegal action. The search agent does not beat the blueprint it searches on: the result is
-within one SE of 0, and an edge of more than +6.6 bb/100 (two SEs above the result) is unlikely. At the Phase 7
-gate's bar (2.5 SE) this would fail. What it does show is that the search plays a full match at
-the blueprint's level without breaking: no leak large enough to show in 6,000 hands, in spite of
-the flop's leaf values, the turn's small river menu and the unsafe re-solving.
+within one SE of 0, and an edge of more than +6.6 bb/100 (two SEs above the result) is unlikely.
+At the Phase 7 gate's bar (2.5 SE) this would fail. What it does show is that the search plays a
+full match at the blueprint's level without breaking: no leak large enough to show in 6,000
+hands, in spite of the flop's leaf values, the turn's small river menu and the unsafe
+re-solving.
 
 Why no gain is the expected first result here, not a surprise:
 
@@ -45,9 +61,10 @@ Why no gain is the expected first result here, not a surprise:
   never re-solves: its edge can only come from playing exact hands instead of 200 buckets, and
   from solving each street again with the real ranges.
 - At 20 big blinds with 200 buckets a street, the blueprint is already a fine abstraction of a
-  small game (LBR `fcpa14` won +3.5 ± 2.0 against the Phase 5 gate's standard-k200 file; against this one, below). There is little left for search
-  to fix, and the search's own errors (1% of the pot on the flop, 2% on the turn, the leaf
-  tables' noise) are of the same order.
+  small game (LBR `fcpa14` won +3.5 ± 2.0 against the Phase 5 gate's standard-k200 file, and
+  -4.7 ± 7.2 against this one, below). There is little left for search to fix, and the search's
+  own errors (1% of the pot on the flop, 2% on the turn, the leaf tables' noise) are of the same
+  order.
 - The flop leaves value the rest of the hand with the blueprint (and its biased versions) by
   bucket, so on the flop the search inherits the blueprint's card abstraction for every later
   street.
@@ -71,16 +88,17 @@ The search agent's solves in these runs (from the rebuilt binary's report):
 | `fcpa14` | 1,205 (231) | 453 (25) | 289 (8) | 450, 696 ms | 1,332, 5,827 ms | 18, 69 ms |
 | `b56_14` | 5,182 (1,026) | 1,335 (174) | 436 (29) | 122, 291 ms | 770, 4,293 ms | 11, 45 ms |
 
-- **`b56_14`**: LBR wins +118 against the blueprint (the Phase 5 gate's file: +112.3 ± 1.9), almost
-  all of it from bet sizes off the blueprint's menu, which the blueprint maps to a menu size.
+- **`b56_14`**: LBR wins +118 against the blueprint (the Phase 5 gate's file: +112.3 ± 1.9),
+  most of it from bet sizes off the blueprint's menu (Phase 5), which the blueprint maps to a
+  menu size.
   Against search it wins 42 bb/100 less (3.5 SE): the search adds each off-menu bet to its tree
   and solves the street again (one flop solve in five was a re-solve), which is what Phase 7's
-  search is for. It still wins +75.5: the search's later streets are solved with the blueprint's
-  menu, the flop's leaves are the blueprint's, and the opponent's range after an off-menu bet is
-  read through the blueprint's mapping.
+  search is for. It still wins +75.5. Likely reasons, not tested: the search's own bets are
+  still the blueprint's menu, the flop's leaves are the blueprint's, and the opponent's range
+  after an off-menu bet is read through the blueprint's mapping.
 - **`fcpa14`**: LBR finds nothing against either at this sample (both negative); against search
   it does 28 bb/100 worse (2.4 SE).
-- The pilots' 3 s a hand was about 5 times the full runs' 0.4 to 0.5 s. Why is not known. The
+- The pilots' 3 s a hand was 6 to 10 times the full runs' 0.3 to 0.5 s. Why is not known. The
   addendum to the plan guessed the first slow solve of each flop; that is not it, since every
   hand has a new flop, and loading isn't in the time either. Most likely the cost per hand is very
   uneven (a hand where LBR probes many sizes on the turn costs many turn solves), and 8 to 32
@@ -88,7 +106,32 @@ The search agent's solves in these runs (from the rebuilt binary's report):
 
 Runs 7 and 8 (below) repeat both on fresh seeds with four times the hands.
 
-REPEAT
+## LBR again on fresh seeds (7, 8)
+
+Added after runs 1 to 6 and written into the plan before it ran (commit 01166a1): the same two
+settings, 6,000 hands against each agent, seeds 7201 (`fcpa14`) and 7202 (`b56_14`).
+
+| Setting | LBR against the blueprint | LBR against search | Search minus blueprint (paired) | z | Time (blueprint, search) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `fcpa14` | +0.4 ± 7.9 | -6.0 ± 8.0 | -6.4 ± 6.0 | -1.07 | 620 s, 1,712 s |
+| `b56_14` | +111.6 ± 7.5 | +77.4 ± 7.6 | -34.1 ± 6.4 | -5.33 | 187 s, 3,105 s |
+
+Both repeat by the plan's rule: search minus blueprint is negative again on the new seeds.
+`b56_14`'s strongly; `fcpa14`'s only in sign. Pooled over both seeds (weighted by hands,
+7,500 hands each):
+
+| Setting | LBR against the blueprint | LBR against search | Search minus blueprint | z |
+| --- | ---: | ---: | ---: | ---: |
+| `fcpa14` | -4.7 ± 7.2 | -15.4 ± 7.2 | -10.7 ± 5.3 | -2.01 |
+| `b56_14` | +112.8 ± 6.6 | +77.1 ± 6.7 | -35.8 ± 5.7 | -6.30 |
+
+The search agent's solves (`b56_14`): 18,857 on the flop (3,453 re-solves, 18%), 5,496 on the
+turn (524), 1,808 on the river (110); `fcpa14`: 4,384 (780), 1,612 (95), 902 (18).
+
+So the search takes about 36 bb/100 (a third) off what the strongest LBR here wins against the
+blueprint, and LBR with fold, call, pot and all in finds nothing against either. Against the
+blueprint `fcpa14` is now +0.4 ± 7.9, in line with the Phase 5 gate's +3.5 ± 2.0 for its
+standard-k200 file; run 2's -25.1 ± 16.6 was 1.7 SE below that, by luck.
 
 ## Timing (4)
 

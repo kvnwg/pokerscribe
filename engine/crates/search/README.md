@@ -208,7 +208,8 @@ on 4 cores (Intel Xeon at 2.1 GHz), pre-registered in `docs/research/runs/phase7
 | Search against the blueprint, 3,000 deals | -2.51 ± 4.56 bb/100 (z -0.55): no gain, no loss |
 | LBR `b56_14` (56 bet sizes), 1,500 hands | blueprint +118.0 ± 14.0, search +75.5 ± 14.3; paired -42.5 ± 12.2 (z -3.47) |
 | LBR `fcpa14`, 1,500 hands | blueprint -25.1 ± 16.6, search -53.0 ± 16.2; paired -27.9 ± 11.8 (z -2.35) |
-| REPEAT_ROW
+| The same on fresh seeds, 6,000 hands | `b56_14` paired -34.1 ± 6.4 (z -5.33); `fcpa14` -6.4 ± 6.0 (z -1.07) |
+| Pooled, 7,500 hands | `b56_14` blueprint +112.8 ± 6.6, search +77.1 ± 6.7, paired -35.8 ± 5.7 (z -6.30); `fcpa14` paired -10.7 ± 5.3 (z -2.01) |
 | Real hand in the range and in the solve, 300 hands against the blueprint | 100% of 415 decisions, both players |
 | B0, 100 deals | B0 -4.70 ± 22.08 against search (+11.78 ± 18.25 against the blueprint); no illegal action |
 
@@ -217,8 +218,9 @@ on 4 cores (Intel Xeon at 2.1 GHz), pre-registered in `docs/research/runs/phase7
   so its edge can only be exact hands over 200 buckets, which at 20 big blinds is small next to
   its own solving error.
 - **Against LBR** the search is less exploitable than the blueprint, most of all against
-  `b56_14`, whose sizes are off the menu: there the search adds each size to its tree and
-  re-solves (one flop solve in five was a re-solve). That is the part of the blueprint's
+  `b56_14`, whose sizes are mostly off the menu: there the search adds each size to its tree and
+  re-solves (18% of its flop solves were re-solves), which most likely is where the gain comes
+  from. That is the part of the blueprint's
   weakness the Phase 5 gate found (about 18% of its decisions off the tree).
 
 Decision time on 4 threads (`search bench`, 150 hands against the blueprint; a decision that
