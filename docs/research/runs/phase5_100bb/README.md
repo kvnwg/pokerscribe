@@ -106,3 +106,122 @@ Only speed was measured before this plan; no LBR result was used to choose anyth
 
 Expected time: about 1 hour for standard-k10, 2 for standard-k50 and 4 for standard-k200,
 7 in all, in one process (`blueprint gate --plan plan.json`), as the gate ran.
+
+## Results (27 Nov 2026)
+
+Run from 09:17 to 12:13 UTC (`blueprint gate --plan plan.json`, one process, exit 0), from commit
+350f9c4's plan. The tables are in `results.md` (`analyse.py`'s output); the checks after the
+plan in `checks.md` (`checks.py`); the files are listed under "Files" below.
+
+### Training
+
+All three runs met the stop rule; none reached the cap.
+
+| Run | Stopped at | Change, last doubling | Train time | Iterations/s (4 threads) | Peak memory | Iterations per information set |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| standard-k10 | 16M | 0.077 | 7 min | 38,518 | 0.23 GB | 43 |
+| standard-k50 | 64M | 0.068 | 40 min | 26,870 | 0.58 GB | 35 |
+| standard-k200 | 128M | 0.073 | 1.57 h | 22,786 | 1.62 GB | 18 |
+
+The whole plan took 2 hours 56 minutes, not the 7 hours expected: standard-k10 converged at 16M
+and standard-k200 at 128M, and LBR's `b56_14` ran at 1,189 to 1,314 hands a second on the final
+deals, not the pilot's 220 (the pilot's figure was wrong).
+
+### Final LBR (seed 778, 100,000 hands, the same deals for all three), bb/100
+
+| Run | 56 bets, 1-4 | 56 bets, 3-4 | fcpa, 1-4 | fcpa, 3-4 | fc, 3-4 | fc, 1-4 | M |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| standard-k10 | 592.6 ± 7.9 | 397.0 ± 5.8 | 74.9 ± 6.7 | 108.5 ± 5.0 | -24.7 ± 3.3 | 1.3 ± 2.5 | 592.6 |
+| standard-k50 | 575.6 ± 7.7 | 431.8 ± 5.8 | 96.0 ± 6.8 | 132.8 ± 5.2 | -15.2 ± 3.0 | 0.2 ± 2.6 | 575.6 |
+| standard-k200 | 592.9 ± 7.7 | 439.3 ± 6.0 | 111.4 ± 6.8 | 151.3 ± 5.4 | -11.2 ± 3.2 | 4.2 ± 2.7 | 592.9 |
+
+M is `b56_14` for all three, so M of six and M of the gate's five are the same. With the 56
+sizes, 9.1% to 10.1% of the blueprint's decisions are off the tree (18% at 20 big blinds); with
+`fcpa14` 1.5% to 1.7%.
+
+Paired differences, the second run minus the first:
+
+| Buckets | 56 bets, 1-4 (M) | 56 bets, 3-4 | fcpa, 1-4 | fcpa, 3-4 | fc, 3-4 | fc, 1-4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 to 50 | -16.9 ± 7.8 (-2.2 SE) | +34.8 ± 6.8 (+5.1) | +21.1 ± 7.5 (+2.8) | +24.4 ± 6.2 (+3.9) | +9.5 ± 3.7 (+2.6) | -1.1 ± 2.9 (-0.4) |
+| 50 to 200 | +17.3 ± 7.0 (+2.5 SE) | +7.5 ± 6.6 (+1.1) | +15.3 ± 7.2 (+2.1) | +18.5 ± 6.5 (+2.8) | +4.0 ± 3.5 (+1.1) | +4.0 ± 3.0 (+1.3) |
+| 10 to 200 | +0.4 ± 7.7 (+0.0 SE) | +42.3 ± 7.0 (+6.1) | +36.5 ± 7.5 (+4.9) | +42.8 ± 6.5 (+6.6) | +13.5 ± 3.7 (+3.6) | +2.9 ± 3.0 (+1.0) |
+
+### The verdict, by the plan's rule
+
+- **Buckets help from 10 to 50**: M falls by 16.9 ± 7.8 bb/100, 2.2 paired SE (the bar is 2).
+- **But M doesn't flatten from 50 to 200: it rises again**, by 17.3 ± 7.0 (2.5 SE), above the
+  2 SE the rule allows. standard-k200's M is standard-k10's (+0.4 ± 7.7).
+
+None of the four outcomes listed above fits: this is "help from 10 to 50, then worse from 50 to
+200". (`analyse.py` prints it as "buckets help from 10 to 50; does not flatten".)
+
+### Checks after the plan (not pre-registered)
+
+Written after the k10 and k50 results, while standard-k200 trained (`after.sh`, `checks.py`):
+the 10 to 50 fall was close to the bar, and at 20 big blinds one run's figure on seed 778 was
+3 SE off its other two deal sets.
+
+**A second deal set** (`b56_14`, seed 779, 100,000 hands, every run's final strategy):
+
+| Buckets | Seed 778 | Seed 779 | Both (200,000 hands) |
+| --- | ---: | ---: | ---: |
+| 10 to 50 | -16.9 ± 7.8 (-2.2 SE) | -24.0 ± 7.7 (-3.1 SE) | -20.5 ± 5.5 (-3.7 SE) |
+| 50 to 200 | +17.3 ± 7.0 (+2.5 SE) | +7.0 ± 7.0 (+1.0 SE) | +12.2 ± 5.0 (+2.5 SE) |
+| 10 to 200 | +0.4 ± 7.7 (+0.0 SE) | -16.9 ± 7.6 (-2.2 SE) | -8.3 ± 5.4 (-1.5 SE) |
+
+The fall from 10 to 50 repeats. The rise from 50 to 200 is smaller on seed 779 (1.0 SE), and
+pooled it is 2.5 SE. From 10 to 200, pooled, M moves by -8.3 ± 5.4, which is not 2 SE.
+
+**By seat** (`b56_14`; each deal is played twice, LBR once in each seat):
+
+| Seed | LBR | k10 | k50 | k200 | 10 to 50 | 50 to 200 | 10 to 200 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 778 | on the button | 607.4 | 614.2 | 655.8 | +6.9 ± 11.4 | +41.5 ± 10.6 | +48.4 ± 11.5 |
+| 778 | in the big blind | 577.8 | 537.1 | 530.1 | -40.8 ± 10.5 | -6.9 ± 9.2 | -47.7 ± 10.3 |
+| 779 | on the button | 628.7 | 629.4 | 648.0 | +0.7 ± 11.4 | +18.6 ± 10.5 | +19.2 ± 11.3 |
+| 779 | in the big blind | 582.4 | 533.8 | 529.3 | -48.6 ± 10.3 | -4.5 ± 9.1 | -53.1 ± 10.2 |
+
+All of M's fall from 10 to 50 is with the blueprint on the button (LBR in the big blind): -41 and
+-49 on the two seeds (3.9 and 4.7 SE), with nothing more from 50 to 200. With the blueprint in
+the big blind, nothing changes from 10 to 50, and LBR wins more from 50 to 200 (+42 and +19).
+This split isn't the same at 20 big blinds: there, from 10 to 200 buckets, LBR in the big blind
+won more (+11.9 ± 2.1 on the standard menu, +12.9 ± 2.3 on the small one) and LBR on the button
+about the same (+2.5 and +4.0) (the gate's final deals, seed 778).
+
+### What it means
+
+**Kevin's question: is the 20bb result the stack depth?** Partly. Deeper, the coarsest buckets
+do show up in M, but the gain stops at 50 buckets, and the settings that stay near the menu get
+more exploitable with every step, more than at 20 big blinds. That part is likely to carry into
+Phase 6.
+
+1. **What changed with the depth.** At 20 big blinds M rose from 10 to 50 buckets on the
+   standard menu (+4.6 pooled over two deal sets, 4.5 SE). At 100 it falls (-20.5 ± 5.5 pooled, 3.7
+   SE), all of it with the blueprint on the button. So 10 buckets a street are too coarse at
+   100 big blinds in a way LBR can see.
+2. **What didn't.** From 50 to 200 buckets M doesn't fall (pooled +12.2 ± 5.0), and from 10 to
+   200 it moves by -8.3 ± 5.4 (1.5 SE). LBR shows no gain from Phase 6's 200 buckets over 50.
+3. **Near the menu, more buckets are more exploitable, at every step.** From 10 to 200 buckets
+   (seed 778): `fcpa14` +36.5 (4.9 SE), `fcpa34` +42.8 (6.6 SE), `b56_34` +42.3 (6.1 SE),
+   `fc34` +13.5 (3.6 SE); only `fc14`, which never bets, doesn't move (+2.9 ± 3.0). These
+   exploiters stay close to the menu: with `fcpa14` 1.5% to 1.7% of the blueprint's decisions
+   are off the tree. At 20 big blinds the same settings moved by -1.7 to +6.5 (at most 2.7 SE).
+   So it isn't only the bet translation, which the plan's outcome 3 named as the other
+   possibility: the finer strategies lose more even where LBR plays the menu's own bets.
+4. **It isn't that standard-k200 trained less.** It met the same stop rule (change 0.073, LBR
+   flat), and no run's LBR fell by more than the noise as it trained: `fcpa34` was already
+   159.5 against standard-k200 at 4M iterations, against 101.7 for standard-k10 at 4M. Training on
+   would not close the gap; at 20 big blinds it didn't (`experiments.md`, the gate, check 3).
+   standard-k200 had 18 iterations per information set against 43 for standard-k10, and that
+   remains a difference between them.
+
+Why finer buckets are more exploitable here is not tested. The gate's three candidates stand:
+abstraction pathologies (Waugh et al. 2009), imperfect recall (each street clustered on its
+own), and finer strategies fitting the abstract betting more closely (Johanson et al. 2011).
+
+**For Phase 6** (200 big blinds, 200 buckets a street): don't count on LBR, as measured here, to
+show that 200 buckets are worth their cost (at 100 big blinds, 4 times the information sets
+of 50, 2.8 times the memory and 2.4 times the training time). Check the card abstraction another way first, for example standard-k50
+against standard-k200 head to head at 100 big blinds in the arena (both are `Strategy` agents;
+not done here).

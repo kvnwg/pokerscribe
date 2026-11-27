@@ -16,3 +16,9 @@ done
 # repeat exactly, so they could not be rebuilt from the plan.
 (cd $B && tar -cf - */deals/*-final-*.deals | xz -9 -T4 > $D/deals.tar.xz)
 ls -la $D/deals.tar.xz
+# The checks after the plan (after.sh): logs, results and their per-deal files.
+A=/root/bp/100bb-after
+mkdir -p $R/after
+cp $A/after.log $A/seed779.jsonl $A/references.jsonl $R/after/
+(cd $A && tar -cf - seed779/*.deals references/*.deals | xz -9 -T4 > $R/after/deals.tar.xz)
+ls -la $R/after/deals.tar.xz
