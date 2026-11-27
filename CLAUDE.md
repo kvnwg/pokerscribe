@@ -125,9 +125,10 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   Whether that is good enough is Kevin's call, as with run 5. The bots keep their six-max
   styles, so heads-up they fold a lot and B0 beats every table. Not built: head-to-head play
   (two agents against each other heads-up), which Phase 6 will need.
-- Found by the heads-up work, not fixed (it would change six-max instructions): B0 can say a
-  bet under the minimum in a tiny pot (BET 1.5 into two big blinds, six-max, 1 in 2038
-  instructions). A bug fix with a regression test.
+- Fixed on 27 Nov 2026 (found by the heads-up work): B0 said a bet under the minimum in a tiny
+  pot (BET 1.5 into two big blinds, six-max, about 1 in 5200 instructions). A last check in
+  `advise()` (`_legal_size`) keeps every bet and raise between the minimum and the stack. No
+  simulated hand's result changed (`experiments.md`, B0 fix: no bet under the minimum).
 - Phase 2 is basically done: the river solver and the push-or-fold solver in `app/solver/` match the
   closed-form and published results, with p95 decision time under 400 ms. They are now the
   reference that the Phase 4 Rust solver must match. The switch `river_solver` stays off.

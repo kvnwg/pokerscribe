@@ -75,6 +75,14 @@ def _chips(x: float) -> float:
     return round(x, 2)
 
 
+def _chips_up(x: float) -> float:
+    """Rounded like _chips, but never down: a minimum stays a legal amount."""
+    y = _chips(x)
+    if y < x - 1e-9:
+        y = _chips(y + (1.0 if x >= 10 else 0.5 if x >= 1 else 0.01))
+    return y
+
+
 def _amt(x: float) -> str:
     return fmt_amount(_chips(x))
 
@@ -326,7 +334,7 @@ def advise(state: GameState, computed: Optional[dict] = None, range_spec: Option
     waiting = _waiting_on_others(s)
     if waiting:
         return Advice("wait", "WAIT", waiting, basis="none", hand=text)
-    adv = _never_fold_a_free_check(s, _preflop(s) if not board else _postflop(s))
+    adv = _legal_size(s, _never_fold_a_free_check(s, _preflop(s) if not board else _postflop(s)))
     adv.hand = text
     if not state.hero_to_act.known:
         adv.detail = _join(adv.detail, "(No action buttons visible: this is the plan for when it's your turn.)")
@@ -347,6 +355,63 @@ def _never_fold_a_free_check(s: _Spot, adv: Advice) -> Advice:
         return Advice("check", "CHECK OR FOLD", _join(reason, "Check if you can; if there's a bet to call, fold."),
                       basis=adv.basis, detail=adv.detail, hand=adv.hand)
     return adv
+
+
+def _min_to(s: _Spot, kind: str) -> Optional[float]:
+    """The smallest bet or raise the table takes, as the total in front of you this round:
+    the biggest bet plus the last raise (its gap down to the next bet on the table), and at
+    least one big blind more. A first bet is at least one big blind. None when neither the
+    big blind nor a bet to raise is known.
+
+    It's worked out from the bets on the table, so it can come out a little low after an
+    all-in that wasn't a full raise. The raises the rules choose are at least twice the bet
+    they answer, well above the minimum in those spots: it's the small bets in small pots
+    that need it."""
+    mine = s.hero_bet or 0.0
+    levels = {0.0, mine}
+    for p in s.state.players:
+        if p.bet.known and p.bet.value is not None:
+            levels.add(float(p.bet.value))
+    if s.to_call:
+        levels.add(mine + s.to_call)
+    if kind == "bet" or s.facing is False:
+        levels = {x for x in levels if x <= mine + 1e-9}  # nothing to call: a bigger bet on screen is a misread
+    top = max(levels)
+    bb = s.bb or s.bb_guess
+    if not s.board and bb:
+        top = max(top, bb)  # before the flop the big blind is the bet to raise
+    below = max((x for x in levels if x < top - 1e-9), default=0.0)
+    step = max(top - below, bb or 0.0)
+    return top + step if step > 0 else None
+
+
+def _legal_size(s: _Spot, adv: Advice) -> Advice:
+    """The last check on every bet and raise: the table takes nothing under the minimum
+    (_min_to) and nothing over your chips. A size worked out from a small pot goes up to the
+    minimum (a third of a 4-chip pot is 1.5, but the minimum bet is the big blind, 2). When the
+    minimum is more than you have, it's all your chips: going all in for less is allowed.
+
+    A size from a big blind guessed from the pot ("RAISE TO ABOUT 5") is a guess: it is kept
+    under your chips the same way, but never turned into ALL IN."""
+    if adv.action not in ("bet", "raise") or adv.amount is None:
+        return adv
+    noun = "bet" if adv.action == "bet" else "raise"
+    guessed = " ABOUT " in adv.headline
+    low = _min_to(s, adv.action)
+    to, note = adv.amount, ""
+    if low is not None and to < low - 1e-9:
+        to = _chips_up(low)
+        note = f"That's the smallest {noun} allowed."
+        if s.total is not None and to > s.total + 1e-9:
+            note = f"The smallest {noun} allowed, {_amt(to)}, is more than you have: all in for less is allowed."
+        elif not guessed and s.trusted and s.total is not None and to >= ALL_IN_SHARE * s.total:
+            note = f"The smallest {noun} allowed, {_amt(to)}, is most of your chips."
+    elif s.total is None or to <= s.total + 1e-9:
+        return adv
+    word = ("BET ABOUT" if noun == "bet" else "RAISE TO ABOUT") if guessed else None
+    out = _sized(s, adv.action, to, adv.reason, _join(adv.detail, note), adv.basis, word=word, all_in=not guessed)
+    out.close, out.missing = adv.close, list(adv.missing)
+    return out
 
 
 def _waiting_on_others(s: _Spot) -> str:
@@ -381,18 +446,24 @@ def _aggressive(s: _Spot, kind: str, to: Optional[float], reason: str, detail: s
         word = "BET ABOUT" if kind == "bet" else "RAISE TO ABOUT"
         return Advice(kind, f"{word} {_amt(est)}", reason, amount=est, basis=basis,
                       detail=_join(size_hint, detail))
-    total = s.total
-    if to is not None:
-        to = _chips(to)
-        if s.trusted and total is not None and (to >= ALL_IN_SHARE * total
-                                                or s.stack is not None and to - (s.hero_bet or 0) >= s.stack):
-            return Advice("all-in", f"ALL IN ({_amt(total)})", reason, amount=total, basis=basis, detail=detail)
-        if total is not None and to > total:
-            to = total  # can't bet more than you have
-    word = "BET" if kind == "bet" else "RAISE TO"
     if to is None:
+        word = "BET" if kind == "bet" else "RAISE TO"
         head = f"{word} {relative}" if relative else ("BET" if kind == "bet" else "RAISE")
         return Advice(kind, head, reason, basis=basis, detail=_join(size_hint, detail))
+    return _sized(s, kind, _chips(to), reason, detail, basis)
+
+
+def _sized(s: _Spot, kind: str, to: float, reason: str, detail: str = "", basis: str = "rule",
+           word: Optional[str] = None, all_in: bool = True) -> Advice:
+    """BET / RAISE TO `to`, or ALL IN when that is most of the stack anyway (and the stack was
+    read reliably, and all_in allows it). Never more than you have."""
+    total = s.total
+    if all_in and s.trusted and total is not None and (to >= ALL_IN_SHARE * total
+                                                       or s.stack is not None and to - (s.hero_bet or 0) >= s.stack):
+        return Advice("all-in", f"ALL IN ({_amt(total)})", reason, amount=total, basis=basis, detail=detail)
+    if total is not None and to > total:
+        to = total  # can't bet more than you have
+    word = word or ("BET" if kind == "bet" else "RAISE TO")
     return Advice(kind, f"{word} {_amt(to)}", reason, amount=to, basis=basis, detail=detail)
 
 
