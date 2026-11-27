@@ -15,7 +15,11 @@ the real one. This crate trains one for heads-up No-Limit Hold'em:
 Status, 27 Nov 2026: built and tested; the Phase 5 gate has been run with it ("The Phase 5
 gate" below).
 
-GATE_SUMMARY
+In short: bet sizes lower LBR's win rate a lot at 20 big blinds, buckets don't, so the gate
+fails (3 of 7 conditions). Phase 6 keeps OCHS on the river and the default reading of small
+bets. The Phase 6 game (200bb, a rich preflop, 200 buckets: 97M information sets) needs about 5
+to 7 GB, so memory is not what limits it; its training time is uncertain by a factor of about
+100 (below).
 
 ## Use
 
@@ -143,7 +147,8 @@ actions` probabilities each, in decision point order, with no keys:
 
 - It holds the average strategy. Information sets reached only while their own player was
   traversing have no strategy sums; they get the current strategy (regret matching).
-- Two bytes a probability: SIZE_LINE
+- Two bytes a probability: 5.5 MB for standard-k200 at 20 big blinds, 0.50 GB for the Phase 6
+  game (251.7M slots).
 - Loading checks the magic, version, length and checksum, that the file fits the game, and
   that the tables are the ones it was trained with (their checksums), so a strategy is never
   played with other tables.
