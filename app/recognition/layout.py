@@ -789,6 +789,13 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         nh = max(h, 10)
         rx0, rx1 = int(max(0, x - 0.6 * w)), int(min(W, x + 1.6 * w))
         ry0, ry1 = int(max(0, y - 3.2 * nh)), int(min(H, y + 1.2 * nh))
+        pic = _seat_picture(res, s, text_h) if res.pictures else None
+        if pic is not None:
+            # the backs lie beside the picture, on either side. On a crowded table (eight
+            # players) they reach past the name's width, and cut off they were no card
+            px, py, pr = pic
+            rx0, rx1 = min(rx0, int(max(0, px - 3.2 * pr))), max(rx1, int(min(W, px + 3.2 * pr)))
+            ry0, ry1 = min(ry0, int(max(0, py - 1.6 * pr))), max(ry1, int(min(H, py + 1.6 * pr)))
         contours = []
         for m in masks:
             roi = m[ry0:ry1, rx0:rx1]
@@ -827,10 +834,13 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         if best:
             s.has_cards, s.cards_conf = True, best
             found_any = True
-    # at showdown the players still in turn their cards face up
-    for r in res.other_cards:
-        rx, ry = r.center
-        near = [s for s in res.seats if not s.is_hero and math.hypot(s.center[0] - rx, s.center[1] - ry) < 3 * r.box[3]]
+    # at showdown the players still in turn their cards face up. A player's two cards go to one
+    # seat together: one by one, the card further out can be nearer the next seat's name
+    for hand in _hands_shown(res.other_cards):
+        rx = sum(r.center[0] for r in hand) / len(hand)
+        ry = sum(r.center[1] for r in hand) / len(hand)
+        ch = max(r.box[3] for r in hand)
+        near = [s for s in res.seats if not s.is_hero and math.hypot(s.center[0] - rx, s.center[1] - ry) < 3 * ch]
         if near:
             s = min(near, key=lambda s: math.hypot(s.center[0] - rx, s.center[1] - ry))
             s.has_cards, s.cards_conf = True, 0.85
@@ -842,6 +852,23 @@ def _find_card_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox])
         for s in res.seats:
             if not s.is_hero and s.has_cards is None:
                 s.has_cards, s.cards_conf = False, 0.75
+
+
+def _hands_shown(cards: List[CardReading]) -> List[List[CardReading]]:
+    """Face-up cards in twos: cards of one size on one line, touching or nearly, belong to one
+    player."""
+    hands: List[List[CardReading]] = []
+    for r in sorted(cards, key=lambda r: r.box[0]):
+        x, y, w, h = r.box
+        for hand in hands:
+            lx, ly, lw, lh = hand[0].box
+            if (len(hand) == 1 and abs((y + h / 2) - (ly + lh / 2)) < 0.3 * h and 0.8 <= h / lh <= 1.25
+                    and x - (lx + lw) < 0.35 * w):
+                hand.append(r)
+                break
+        else:
+            hands.append([r])
+    return hands
 
 
 def _plain_backs(res: LayoutResult, image: np.ndarray, boxes: List[TextBox]) -> bool:

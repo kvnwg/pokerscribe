@@ -452,13 +452,16 @@ def test_the_blinds_come_from_the_chips_the_blinds_posted(rec):
 NAMES8 = NAMES + ["Ines", "Otto"]
 
 
-def read8(rec, layout, stacks, bets=None, folded=(), button=5, buttons=(), acting=None, hero_cards=("8c", "2d")):
+def read8(rec, layout, stacks, bets=None, folded=(), button=5, buttons=(), acting=None, hero_cards=("8c", "2d"),
+          board=(), collected=0.0, shown=None, timer_left=0.6):
     """Eight players on a layout's seat spots (Kevin: "it also needs to be trained on an 8
     people table"): the reading and its seats keyed by screen seat."""
     lay = for_players(LAY[layout], 8)
-    bets = bets or {}
-    seats = [SeatView(name, stacks[i], bets.get(i, 0.0), has_cards=i not in folded) for i, name in enumerate(NAMES8)]
-    view = TableView(seats, list(hero_cards), [], 0.0, button, acting, list(buttons), hand_no=7, timer_left=0.6)
+    bets, shown = bets or {}, shown or {}
+    seats = [SeatView(name, stacks[i], bets.get(i, 0.0), has_cards=i not in folded, shown=shown.get(i))
+             for i, name in enumerate(NAMES8)]
+    view = TableView(seats, list(hero_cards), list(board), collected, button, acting, list(buttons), hand_no=7,
+                     timer_left=timer_left)
     img, meta = render(view, lay)
     res = rec.recognize(img)
     plates = meta["plates"]
@@ -504,3 +507,31 @@ def test_eight_round_pictures_the_top_stack_is_not_the_pot(rec):
     assert sorted(seats) == list(range(8))
     assert seats[4].stack.value == 157 * unit
     assert res.state.pot.value is None
+
+
+@needs_ocr
+def test_eight_backs_on_the_far_side_of_the_picture(rec):
+    """8-player self-test, round pictures: a seat on the right has its backs on the left of its
+    picture, further out than the name is wide. The search beside the name cut the outer card
+    off, and the inner one, between the picture and the timer ring round it (most of his time
+    left), was no clean card: the player read as folded on their turn."""
+    stacks = [191, 290.5, 191, 361, 129, 176, 194, 239.5]
+    res, seats, unit = read8(rec, "avatars", stacks, folded=(0, 1, 2, 4, 5, 7), button=2, acting=6, hero_cards=(),
+                             board=("7s", "Js", "Qc"), collected=18, timer_left=0.9)
+    assert sorted(seats) == list(range(8))
+    assert seats[6].has_cards is True  # Ines, to act
+    assert seats[3].has_cards is True
+    assert [seats[i].has_cards for i in (1, 2, 4, 5, 7)] == [False] * 5
+
+
+@needs_ocr
+def test_eight_shown_cards_stay_together(rec):
+    """8-player self-test, showdown: Quinn's second card lies nearer Jasper's name than Quinn's,
+    and one card at a time it made Jasper, who had folded, a player still in."""
+    stacks = [199, 198, 192, 200, 192, 200, 200, 192]
+    shown = {2: ("Tc", "Qc"), 4: ("Ah", "5c"), 7: ("9h", "Ac")}
+    res, seats, unit = read8(rec, "stock", stacks, folded=(0, 1, 3, 5, 6), button=7, hero_cards=(),
+                             board=("6h", "7c", "Jc", "Ks", "4s"), collected=27, shown=shown)
+    assert sorted(seats) == list(range(8))
+    assert [seats[i].has_cards for i in (2, 4, 7)] == [True, True, True]
+    assert seats[3].has_cards is False  # Jasper folded
