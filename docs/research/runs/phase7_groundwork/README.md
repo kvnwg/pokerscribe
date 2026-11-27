@@ -90,3 +90,20 @@ extended on its result.
   lighter than the real hand (0.5 would mean the real hand is a typical member).
 - **B0 (6)**: `tools/b0_arena.py`, B0 against search, and against the blueprint on the same
   deals, to show the search plays end to end from Python. Short: no conclusion is drawn.
+
+## Added after runs 1 to 6: LBR again on fresh seeds (written before it ran)
+
+Runs 2 and 3 took 10 and 13 minutes for the search agent, not the 75 the pilots suggested (the
+pilots' few hands were mostly the slow first solves of each flop), and gave search minus
+blueprint -27.9 ± 11.8 (`fcpa14`) and -42.5 ± 12.2 (`b56_14`). Following the project's rule that
+a result must repeat on fresh seeds, LBR is run again, four times as many hands, on seeds not
+used before:
+
+| # | What | Command | Seed |
+| --- | --- | --- | --- |
+| 7 | LBR `fcpa14`, 6,000 hands, against each agent (same deals) | `search lbr --strategy $S --agent blueprint\|search --setting fcpa14 --hands 6000 --seed 7201` | 7201 |
+| 8 | LBR `b56_14`, 6,000 hands, against each agent (same deals) | `search lbr ... --setting b56_14 --hands 6000 --seed 7202` | 7202 |
+
+Read as runs 2 and 3. The result repeats if search minus blueprint is negative on the new seeds
+for the same setting; the two seeds' results are also pooled (weighted by hands) for the
+estimate. The samples are fixed; `run-repeat.sh` in this directory runs them.
