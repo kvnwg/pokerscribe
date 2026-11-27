@@ -82,6 +82,21 @@ def test_launch_creates_bucket_bundle_and_machine(tmp_path):
     assert fake.instances["ps-hu-test"]["status"] == "RUNNING"
 
 
+def test_launch_with_throughput_only_sends_the_iops_too(tmp_path):
+    # Kevin's first calibration launch (27 Nov 2026): DISK_THROUGHPUT_MBPS=400 with DISK_IOPS
+    # empty, and Google refused the create. The fake refuses it the same way.
+    ctx, fake, out = make_ctx(tmp_path, DISK_SIZE_GB=80, DISK_THROUGHPUT_MBPS=400)
+    assert control.launch(ctx) == 0, out
+    create = next(c for c in fake.calls if "create" in c and "instances" in c)
+    assert "--boot-disk-provisioned-iops=3000" in create
+    assert "--boot-disk-provisioned-throughput=400" in create
+    assert fake.instances["ps-hu-test"]["status"] == "RUNNING"
+    rc, _, err = fake(["compute", "instances", "create", "other", "--zone=us-central1-a",
+                       "--boot-disk-type=hyperdisk-balanced",
+                       "--boot-disk-provisioned-throughput=400", "--metadata=k=v"])
+    assert rc == 1 and "must be all provided" in err
+
+
 def test_launch_refusals(tmp_path):
     ctx, fake, out = make_ctx(tmp_path)
     fake.add("ps-hu-test")
