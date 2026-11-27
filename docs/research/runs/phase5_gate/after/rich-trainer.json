@@ -1,0 +1,1 @@
+{"spec": {"stack_bb": 200, "menu": "rich", "abstraction": "/root/abstraction/k200", "training": {"seed": 1, "threads": 4, "compact_scale": 100.0, "regret_floor": -3100000.0, "linear": [200000, 20000000], "pruning": null}}, "until": 100000000000, "every_minutes": 2.0}

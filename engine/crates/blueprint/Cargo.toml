@@ -1,0 +1,23 @@
+[package]
+name = "blueprint"
+version = "0.1.0"
+edition = "2021"
+description = "Heads-up blueprint for PokerScribe: external-sampling MCCFR on the abstract game with the abstraction crate's buckets, a compact strategy file, and LBR's Strategy for the result."
+publish = false
+
+[dependencies]
+abstract_game = { path = "../abstract_game" }
+abstraction = { path = "../abstraction" }
+cfr = { path = "../cfr" }
+lbr = { path = "../lbr" }
+nlhe = { path = "../nlhe", features = ["eval"] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "blueprint"
+path = "src/bin/blueprint.rs"
+
+[dev-dependencies]
+eval = { path = "../eval" }

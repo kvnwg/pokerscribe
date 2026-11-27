@@ -448,6 +448,18 @@ def test_the_rust_agents_by_name():
         pe.run_match(["tag", 42], 10)
 
 
+def test_a_blueprint_is_named_by_its_strategy_file(tmp_path):
+    # "blueprint:<file>" plays the strategy in that file (engine/crates/blueprint). A file that
+    # can't be loaded is an error that names it, not "no Rust agent".
+    missing = tmp_path / "missing.bps"
+    with pytest.raises(ValueError, match=re.escape(f"blueprint:{missing}")):
+        pe.run_match(["tag", f"blueprint:{missing}"], 10)
+    damaged = tmp_path / "damaged.bps"
+    damaged.write_bytes(b"PSBLUEP\n" + bytes(100))
+    with pytest.raises(ValueError, match="blueprint:"):
+        pe.run_match(["tag", f"blueprint:{damaged}"], 10)
+
+
 def test_a_match_from_python_adds_up_and_repeats():
     report = pe.run_match(["call", "tag"], 3000, seed=7)
     d = report.to_dict()

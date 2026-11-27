@@ -1,0 +1,3 @@
+{"after":121.84325999999999,"before":116.98118,"change":0.0948697223760744,"converged":false,"from":4000000,"lbr_flat":false,"lowered_by":-4.86208,"run":"small-k50eq","setting":"b56_14","settled":false,"std_err":1.9083076319725614,"to":8000000}
+{"after":128.41654,"before":121.84325999999999,"change":0.08630028940763469,"converged":false,"from":8000000,"lbr_flat":false,"lowered_by":-6.57328,"run":"small-k50eq","setting":"b56_14","settled":false,"std_err":1.8727896797155765,"to":16000000}
+{"after":129.69278,"before":128.41654,"change":0.07393810382075634,"converged":true,"from":16000000,"lbr_flat":true,"lowered_by":-1.27624,"run":"small-k50eq","setting":"b56_14","settled":true,"std_err":1.6307829491932277,"to":32000000}

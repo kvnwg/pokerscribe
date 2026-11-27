@@ -1,0 +1,110 @@
+{
+ "format": "pokerscribe-arena/1",
+ "config": {
+  "lineup": [
+   0,
+   1
+  ],
+  "stack": 2000,
+  "small_blind": 50,
+  "big_blind": 100,
+  "ante": 0,
+  "deals": 1000,
+  "seed": 2027,
+  "duplicate": true,
+  "all_in_equity": true,
+  "max_runouts": 10000,
+  "shared_randomness": false,
+  "threads": 1
+ },
+ "scoring": "all-in equity (at most 10000 boards)",
+ "agents": [
+  "b0",
+  "blueprint:/root/bp/gate/standard-k200/strategy-64000000.bps"
+ ],
+ "players": 2,
+ "deals": 1000,
+ "replays_per_deal": 2,
+ "hands": 2000,
+ "adjusted_hands": 38,
+ "results": [
+  {
+   "index": 0,
+   "agent": "b0",
+   "seats": 1,
+   "hands": 2000,
+   "bb_per_100": -24.889780808080808,
+   "se": 6.782922819649806,
+   "actual_bb_per_100": -32.4935,
+   "actual_se": 7.830706716218239,
+   "plain_se": 9.117525739842106,
+   "illegal_actions": 0,
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 1000,
+     "bb_per_100": -22.54690707070707,
+     "se": 11.183287451241013
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 1000,
+     "bb_per_100": -27.23265454545454,
+     "se": 10.321587769490753
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "agent": "blueprint:/root/bp/gate/standard-k200/strategy-64000000.bps",
+   "seats": 1,
+   "hands": 2000,
+   "bb_per_100": 24.889780808080808,
+   "se": 6.782922819649806,
+   "actual_bb_per_100": 32.4935,
+   "actual_se": 7.830706716218239,
+   "plain_se": 9.117525739842106,
+   "illegal_actions": 0,
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 1000,
+     "bb_per_100": 27.23265454545454,
+     "se": 10.321587769490753
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 1000,
+     "bb_per_100": 22.54690707070707,
+     "se": 11.183287451241013
+    }
+   ]
+  }
+ ],
+ "timing": {
+  "seconds": 282.650636154,
+  "hands_per_second": 7.075872983035905,
+  "threads": 1
+ },
+ "b0": [
+  {
+   "name": "b0",
+   "variant": null,
+   "hands": 2000,
+   "instructions": 4111,
+   "illegal": {},
+   "illegal_examples": [],
+   "always_wrong": {},
+   "always_wrong_examples": [],
+   "seconds": {
+    "spot": 0.3942370180193393,
+    "advice": 280.4425132319884,
+    "checks": 1.6200557140036835
+   }
+  }
+ ]
+}

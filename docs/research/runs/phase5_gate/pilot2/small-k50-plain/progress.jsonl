@@ -1,0 +1,3 @@
+{"after":121.01562,"before":115.264,"converged":false,"from":2000000,"lowered_by":-5.75162,"run":"small-k50-plain","setting":"b56_14","std_err":1.6608890524034166,"to":4000000}
+{"after":126.60676000000001,"before":121.01562,"converged":false,"from":4000000,"lowered_by":-5.59114,"run":"small-k50-plain","setting":"b56_14","std_err":1.537373689138518,"to":8000000}
+{"after":128.55502,"before":126.60676000000001,"converged":false,"from":8000000,"lowered_by":-1.94826,"run":"small-k50-plain","setting":"b56_14","std_err":1.407034326213132,"to":16000000}

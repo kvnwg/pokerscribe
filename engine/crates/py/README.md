@@ -235,17 +235,20 @@ same thing:
 | --- | --- |
 | `fold`, `call`, `raise`, `minraise`, `jam`, `random`, `tag`, `tag-loose` | The arena's test bots (`engine/crates/arena/README.md`, "Test bots"), arena `Player`s |
 | `lbr-fold`, `lbr-call`, `lbr-jam`, `lbr-call-or-raise`, `lbr-random` | LBR's chumps (`engine/crates/lbr/src/chumps.rs`): always fold, always check or call, always all in, call or raise half and half, and fold, call or raise with equal chances. They are `Strategy`s, played through the adapter below |
+| `blueprint:<file>` | The blueprint in that strategy file (`engine/crates/blueprint`), with the bucket tables it was trained with (the directory the file records). A `Strategy`, played through the adapter below. Seat it at the stacks and blinds it was trained for: `blueprint info <file>` shows them. A file that can't be loaded is a `ValueError` naming it. `agents()` doesn't list it, since the name holds a path |
 
 **The hook for new agents** is `rust_agent` in `src/agents.rs`. A Rust agent becomes
 playable from Python, B0 included, with one line there:
 
 ```rust
 "mine" => Agent::of(name, MyPlayer::new()),               // anything that implements arena's Player
-"blueprint" => strategy_agent(name, Blueprint::load(..)),  // anything that implements lbr's Strategy
+"mine-too" => strategy_agent(name, MyStrategy::new()),    // anything that implements lbr's Strategy
 ```
 
+The blueprint went in this way, as `blueprint_agent`, with a name that carries the file.
+
 - A `Player` (the arena's trait) is copied into every seat and thread, as in the arena.
-- A `Strategy` (LBR's trait, which the blueprint will implement) gives a probability for
+- A `Strategy` (LBR's trait, which the blueprint implements) gives a probability for
   each action. `strategy_agent` asks it at every decision, with the public state rebuilt
   from the view (`visible_state`: the same table, betting and board, the seat's own cards,
   every other card made up), and draws the action with `View::pick`, so a match repeats
