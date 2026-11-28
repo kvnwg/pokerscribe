@@ -44,8 +44,8 @@
 //!  "gate": {"chunk": 2000, "seed": 7600, "pass_z": 2.5},
 //!  "variants": [{"name": "modicum", "agent": {"leaf_choice": "opponent", "play": "average"},
 //!                "chunks": 4, "seed": 7800}],
-//!  "lbr": {"hands": 1000, "chunks": 2,
-//!          "settings": [{"name": "fcpa14", "seed": 7560}, {"name": "b56_14", "seed": 7570}]},
+//!  "lbr": {"hands": 1000, "chunks": 28,
+//!          "settings": [{"name": "fcpa14", "seed": 7300}, {"name": "b56_14", "seed": 7400}]},
 //!  "repeat": {"seed": 7700}}
 //! ```
 
@@ -308,9 +308,11 @@ impl PlanConfig {
             blueprint::gate::lbr_setting(&s.name)
                 .ok_or_else(|| format!("lbr setting {:?} is not known", s.name))?;
         }
-        // The match seeds: the pilot's, then each chunked match's range.
+        // Every run's seeds: the bench's and the pilot's, then each chunked match's and each
+        // LBR setting's range. No two runs share one.
         let most = z.max / g.chunk;
         let mut ranges: Vec<(String, u64, u64)> = vec![
+            ("bench".into(), self.bench.seed, self.bench.seed),
             ("pilot".into(), self.pilot.seed, self.pilot.seed),
             ("gate".into(), g.seed + 1, g.seed + most),
             (
@@ -322,10 +324,13 @@ impl PlanConfig {
         for v in &self.variants {
             ranges.push((format!("variant {}", v.name), v.seed + 1, v.seed + v.chunks));
         }
+        for s in &l.settings {
+            ranges.push((format!("lbr {}", s.name), s.seed + 1, s.seed + l.chunks));
+        }
         for (i, a) in ranges.iter().enumerate() {
             for b in &ranges[i + 1..] {
                 if a.1 <= b.2 && b.1 <= a.2 {
-                    return Err(format!("the {} and {} matches share seeds", a.0, b.0));
+                    return Err(format!("the {} and {} runs share seeds", a.0, b.0));
                 }
             }
         }
@@ -963,10 +968,19 @@ mod tests {
             )
         );
         assert_eq!(
-            (p.gate.seed, p.repeat.seed, p.pilot.seed),
-            (7600, 7700, 7501)
+            (p.gate.seed, p.repeat.seed, p.pilot.seed, p.bench.seed),
+            (7600, 7700, 7501, 7581)
         );
         assert_eq!(p.size.deals_for(800.0), 40_000);
+        // LBR: 28,000 hands a setting against each agent, about ±30 bb/100 each.
+        assert_eq!((p.lbr.hands, p.lbr.chunks), (1000, 28));
+        let lbr: Vec<_> = p
+            .lbr
+            .settings
+            .iter()
+            .map(|s| (s.name.as_str(), s.seed))
+            .collect();
+        assert_eq!(lbr, [("fcpa14", 7300), ("b56_14", 7400)]);
     }
 
     #[test]
@@ -1007,6 +1021,12 @@ mod tests {
         assert!(p.check().unwrap_err().contains("share seeds"));
         let mut p = plan();
         p.variants[0].seed = 7500; // its first chunk is the pilot's seed
+        assert!(p.check().unwrap_err().contains("share seeds"));
+        let mut p = plan();
+        p.bench.seed = 7610; // a gate chunk's seed
+        assert!(p.check().unwrap_err().contains("share seeds"));
+        let mut p = plan();
+        p.lbr.settings[1].seed = 7561; // its runs start inside fcpa14's
         assert!(p.check().unwrap_err().contains("share seeds"));
         let mut p = plan();
         p.gate.chunk = 3000; // the step is not a multiple of it

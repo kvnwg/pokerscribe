@@ -2955,8 +2955,8 @@ kept unless the bug is in their build), and both versions are logged here.
 | **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
 | Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported |
 | Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported |
-| LBR `fcpa14`, against the gate agent and the blueprint | 2,000 hands each, 2 runs of 1,000 | 7561, 7562 | reported |
-| LBR `b56_14`, against the gate agent and the blueprint | 2,000 hands each, 2 runs of 1,000 | 7571, 7572 | reported |
+| LBR `fcpa14`, against the gate agent and the blueprint | 28,000 hands each, 28 runs of 1,000 | 7301 to 7328 | reported |
+| LBR `b56_14`, against the gate agent and the blueprint | 28,000 hands each, 28 runs of 1,000 | 7401 to 7428 | reported |
 | Repeat on fresh seeds (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion |
 
 - **Every match**: duplicate deals (each deal played twice with the seats swapped) and the
@@ -2971,6 +2971,12 @@ kept unless the bug is in their build), and both versions are logged here.
 - **The pass rule**: the head-to-head condition passes when the pooled gate match has z =
   bb/100 / SE >= 2.5, read on the gate match alone. Anything below does not pass: no extra
   deals, no other seeds, no pooling with the pilot, the variants or the repeat.
+- **AIVAT**: the gate's measure is the plain head-to-head above. If AIVAT is in the Rust arena
+  by the time of the run (another session is building it), its figure is reported beside the
+  plain one, and it may decide the gate once it is shown unbiased (the roadmap's decisions:
+  mean about 0 on identical agents, and agreeing with the plain figure on a large run). Which
+  figure decides is settled by whether that has been shown before the gate match is read, never
+  after; the same z >= 2.5 applies. The job doesn't compute AIVAT yet.
 - **For promotion** (CLAUDE.md, ground rules, beyond the gate): the repeat on fresh seeds also
   at z >= 2.5, and LBR winning less against the search than against the blueprint. The job plays
   the repeat only after the gate match passes. The repeat is read alone, not pooled with the
@@ -2981,10 +2987,11 @@ kept unless the bug is in their build), and both versions are logged here.
   this plan: it would be a new agent version with its own plan.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes)
   against both agents, the same seeds for both, so each run is paired deal by deal; the
-  difference is pooled over the runs with equal weights. At Phase 6's spread (about 50 big
-  blinds a hand; the paired difference no tighter) 2,000 hands give about ±110 bb/100 for each
-  agent and ±130 for the difference: only a fall of more than about 300 bb/100 would show at
-  2.5 SE. More hands, if wanted, are a later run on seeds 7563 on and 7573 on.
+  difference is pooled over the runs with equal weights. 28,000 hands a setting against each
+  agent: at Phase 6's spread (about 50 big blinds a hand; the paired difference no tighter) that
+  is about ±30 bb/100 for each agent and ±35 for the difference, so a fall of more than about
+  90 bb/100 would show at 2.5 SE (2,000 hands would give ±110 and ±130). LBR against the search
+  is most of the run's cost: about 15.7 of its hours.
 - **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, with the
   iterations, solver nodes and exploitability. **Bounded** means the slowest decision of each
   street is within flop 40 s, turn 65 s, river 2 s: twice the worst case at the iteration caps
@@ -2997,9 +3004,10 @@ kept unless the bug is in their build), and both versions are logged here.
   the build, the bench (on a pool of 4 of its threads), the matches and LBR (on all 64). The Mac
   only downloads the results and runs `gate.py`.
 - **The cost** (`runs/phase7/README.md`, "Sizes and costs"): about $3.0 for the build (2.1
-  hours) and $4.0 to $7.6 for the matches and LBR (2.7 to 5.1 hours), so $7.0 to $10.6 in all
-  and $7.4 to $14.6 with the repeat, capped at $20. With 7 lanes and Modicum's agent it would be
-  $4.9 to $7.4 ($5.2 to $10.2 with the repeat). An Axion core is taken as 1.1 to 1.2 of this
+  hours) and $25.4 to $29.0 for the matches and LBR (17.2 to 19.6 hours, LBR $23.2 of it), so
+  $28.4 to $32.0 in all and $28.8 to $36.0 with the repeat (up to 24.4 hours), **capped at
+  $50**. With 7 lanes and Modicum's agent it would be $19.9 to $22.5 ($20.2 to $25.3 with the
+  repeat, cap $35). An Axion core is taken as 1.1 to 1.2 of this
   container's Xeon threads (1.15 in the figures), and the costs a deal are the 2M blueprint's,
   an upper bound. The cap stops the run without changing the plan: the results so far are kept
   and it goes on after a resume.
@@ -3008,7 +3016,7 @@ kept unless the bug is in their build), and both versions are logged here.
 
 The roadmap's decisions of 28 Nov 2026 (`README.md`, "Decisions") put Pluribus's search fixes in
 Phase 7. This plan has two of them (both players choosing at the leaves, and the last iteration
-tried against the average); the third, and AIVAT, come later:
+tried against the average); the third comes later:
 
 - **f16 and mmap**: 16-bit leaf values (11.1 GB) would let a 64 GB machine hold the tables, and
   a mapped table file would let the system page them in as memory allows; not needed at 128 GB,
@@ -3018,10 +3026,8 @@ tried against the average); the third, and AIVAT, come later:
 - **Preflop search of off-menu raises** (Phase 7, later): before the flop the agent plays the
   blueprint, which reads an off-menu raise as a menu size (the pseudo-harmonic mapping);
   Pluribus searched in the first round when a bet was far enough off its menu.
-- **AIVAT in the Rust arena**, a lower-variance measure. The roadmap lets gate SEs come from it
-  once it is shown unbiased on identical agents; it isn't built, so this plan's measure is the
-  plain head-to-head (duplicate deals, all-in equity), and AIVAT would be reported beside it
-  only if it exists by the time of the run. Not built here.
+- **AIVAT in the plan job**: once the arena has it, the job's matches can report it (the AIVAT
+  rule above); not built here.
 - **Slumbot and the GTO Wizard Benchmark**: the gate's other two conditions, with their own
   plan.
 
@@ -3094,7 +3100,7 @@ solves: costs here are an upper bound), 4 vCPU, Intel Xeon at 2.1 GHz:
 - Projected on the rented machine (64 threads, an Axion core 1.15 threads here, 12.3
   core-seconds a deal so that a chunk's slowest block is allowed for): the build 1.76 hours, a
   chunk of 2,000 deals about 8 minutes (the gate match 0.27 hours at 4,000 deals to 2.7 at
-  40,000), LBR about 1.2 hours.
+  40,000), LBR about 15.7 hours (LBR's preflop table is built once for the whole job).
 
 ## Phase 7: AIVAT in the arena (28 Nov 2026)
 

@@ -40,7 +40,7 @@ On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
    2026). It is a separate file so Phase 6's `cloud.env` stays as it was; every command below
    names it through `P`.
 
-3. **Check and launch** (about 5 to 10 hours, capped at $20; "Sizes and costs"):
+3. **Check and launch** (about 20 to 25 hours, capped at $50; "Sizes and costs"):
 
    ```
    P="--settings $HOME/.config/pokerscribe/cloud-phase7.env"
@@ -62,7 +62,7 @@ On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
 4. **If it stops early:**
    - `end.json` says "a street is over its bound: no match was played": the job ended after the
      bench, by the plan. Download (step 5) and tell the manager session; don't change the bound.
-   - The $20 cap stops it ("budget"): raise `BUDGET_USD` and `python -m tools.cloud $P resume`.
+   - The $50 cap stops it ("budget"): raise `BUDGET_USD` and `python -m tools.cloud $P resume`.
      The parts and the results done are kept.
 
 5. **The results**, when `recover` exits and `watch` says done:
@@ -101,8 +101,8 @@ written before any run on it512M; `phase7.json` is its machine form. In short:
 | 5. **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
 | 6. Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported: only the opponent chooses at the leaves |
 | 6. Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported: the gate agent playing the last iteration |
-| 7. LBR `fcpa14` | 2 runs of 1,000 hands against each agent | 7561, 7562 | reported |
-| 7. LBR `b56_14` | 2 runs of 1,000 hands against each agent | 7571, 7572 | reported |
+| 7. LBR `fcpa14` | 28 runs of 1,000 hands against each agent | 7301 to 7328 | reported |
+| 7. LBR `b56_14` | 28 runs of 1,000 hands against each agent | 7401 to 7428 | reported |
 | 8. Repeat (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion (CLAUDE.md ground rules) |
 
 - **The gate agent**: the search agent at the plan's commit with `Settings::default()`'s caps
@@ -132,16 +132,22 @@ written before any run on it512M; `phase7.json` is its machine form. In short:
   25 bb/100 shows at 2.5 SE.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes),
   against the gate agent and the blueprint on the same seeds, so each run is paired deal by deal
-  (`compare-SETTING-K.json`). At Phase 6's spread, 2,000 hands give about ±110 bb/100 for each
-  agent and ±130 for the difference: only a fall of more than about 300 bb/100 shows at 2.5 SE.
+  (`compare-SETTING-K.json`). 28,000 hands a setting against each agent: at Phase 6's spread
+  (about 50 big blinds a hand) that is about ±30 bb/100 for each agent and ±35 for the
+  difference, so a fall of more than about 90 bb/100 shows at 2.5 SE. LBR against the search
+  is most of the run's cost ("Sizes and costs" has cheaper sizes).
 - **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, checked
   against the bound ("Decision time"). The match's and LBR's solve times are reported beside
   it, not checked.
 - **Hardware**: one c4a-highcpu-64 (64 Arm Axion cores, 128 GB), Spot, through `tools/cloud`.
-- **Later, not in this plan**: preflop search of off-menu raises, and AIVAT in the Rust arena
-  (the roadmap's decisions of 28 Nov 2026; `experiments.md`, the plan's "Options and later
-  work"). This plan's measure is the plain head-to-head; AIVAT would be reported beside it only
-  if it exists by the time of the run.
+- **AIVAT**: the gate's measure is the plain head-to-head above. If AIVAT is in the Rust arena
+  by the time of the run (another session is building it), its figure is reported beside the
+  plain one, and it may decide the gate once it is shown unbiased (the roadmap's decisions of 28
+  Nov 2026: mean about 0 on identical agents, and agreeing with the plain figure on a large
+  run). Which figure decides is settled by whether that has been shown before the gate match is
+  read, never after. The job doesn't compute AIVAT yet.
+- **Later, not in this plan**: preflop search of off-menu raises (`experiments.md`, the plan's
+  "Options and later work").
 
 ## Both players choose at the leaves
 
@@ -286,7 +292,7 @@ chunk's 2,000 deals in blocks of 32 on its threads, so a chunk is one round of 6
 deals one after the other on each thread, and it lasts as long as its slowest block. A 192-deal
 match here with every core busy (6 blocks in play) took 7.7 core-seconds a deal; the table keeps
 the 60-deal match's 12.3 (cores partly idle), which leaves about 1.6 times for that tail. At 7.7
-the plan with the repeat at N = 40,000 would be 7.5 hours, $11.0.
+the plan with the repeat at N = 40,000 would be 22.0 hours, $32.5.
 
 | Step | 16 lanes, both choose (the plan) | 7 lanes, Modicum |
 | --- | ---: | ---: |
@@ -298,22 +304,34 @@ the plan with the repeat at N = 40,000 would be 7.5 hours, $11.0.
 | A chunk of 2,000 deals | about 8 minutes | about 6 minutes |
 | Gate match, N from 4,000 to 40,000 | 0.27 to 2.70 h | 0.19 to 1.90 h |
 | Variants, 8,000 deals each | 0.92 h (both) | 0.38 h (`final` only) |
-| LBR, 2 settings x 2,000 hands against each agent | 1.21 h | 0.89 h |
+| LBR, 2 settings x 28,000 hands against each agent | 15.7 h | 11.1 h |
 | Upload at the end | 0.08 h | 0.08 h |
-| **The matches and LBR** | **2.7 to 5.1 h, $4.0 to $7.6** | **1.7 to 3.4 h, $2.5 to $5.0** |
-| **In all, without the repeat** | **4.8 to 7.2 h, $7.0 to $10.6** | **3.3 to 5.0 h, $4.9 to $7.4** |
+| **The matches and LBR** | **17.2 to 19.6 h, $25.4 to $29.0** | **11.9 to 13.6 h, $17.6 to $20.1** |
+| **In all, without the repeat** | **19.3 to 21.7 h, $28.4 to $32.0** | **13.5 to 15.2 h, $19.9 to $22.5** |
 | The repeat, only after a pass | 0.27 to 2.70 h | 0.19 to 1.90 h |
-| **In all, with the repeat** | **5.0 to 9.9 h, $7.4 to $14.6** | **3.5 to 6.9 h, $5.2 to $10.2** |
-| **Cap (`BUDGET_USD`)** | **$20** | $15 |
+| **In all, with the repeat** | **19.5 to 24.4 h, $28.8 to $36.0** | **13.7 to 17.1 h, $20.2 to $25.3** |
+| **Cap (`BUDGET_USD`)** | **$50** | $35 |
 
 The ranges are N, from the rule's floor to its cap; the cap is the likely case (sd 946 and 1,377
-here). Both players choosing costs about 40% more than Modicum: $3.2 more at N = 40,000 without the
-repeat, $4.4 with it. The plan is the 16-lane one: it is the only one that can play the
+here). Both players choosing costs about 40% more than Modicum: $9.5 more at N = 40,000 without
+the repeat, $10.7 with it. The plan is the 16-lane one: it is the only one that can play the
 both-choose gate agent, and it plays Modicum too, as a variant. The 7-lane plan would be a change
 to `phase7.json` (`lanes` 7, the gate agent `opponent`, the `final` variant only) and to the
 pre-registration, made before the launch.
 
-$20 buys about 13.3 hours at $1.476 an hour after the 15-minute margin: 1.35 times the
+LBR is most of the cost. Its size decides how small a difference it can see (16 lanes; each
+setting, against each agent):
+
+| LBR hands | SE each | SE of the difference | Hours | Dollars | The plan with the repeat, and a cap |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 2,000 | ±112 | ±130 | 1.2 | $1.8 | 9.9 h, $14.6; cap $20 |
+| 10,000 | ±50 | ±58 | 5.7 | $8.4 | 14.4 h, $21.2; cap $30 |
+| **28,000 (the plan)** | **±30** | **±35** | **15.7** | **$23.2** | **24.4 h, $36.0; cap $50** |
+
+A smaller size is a change to `phase7.json` (`lbr.chunks`) and to the pre-registration, made
+before the launch.
+
+$50 buys about 33.6 hours at $1.476 an hour after the 15-minute margin: 1.38 times the
 projection with the repeat. The projection's speeds are the uncertain part; the pilot's
 `size.json` gives the real hours of the gate match before it starts, and if the cap stops the
 run the results so far are kept and it goes on after `resume`.

@@ -17,7 +17,7 @@
    "agent": {"leaf_choice": "both", "play": "final",
              "flop_iterations": 400, "turn_iterations": 300, "river_iterations": 1000, "prune": 0.001}}
  ],
- "lbr": {"hands": 1000, "chunks": 2,
-         "settings": [{"name": "fcpa14", "seed": 7560}, {"name": "b56_14", "seed": 7570}]},
+ "lbr": {"hands": 1000, "chunks": 28,
+         "settings": [{"name": "fcpa14", "seed": 7300}, {"name": "b56_14", "seed": 7400}]},
  "repeat": {"seed": 7700}
 }
