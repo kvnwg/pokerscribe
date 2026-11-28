@@ -59,23 +59,23 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
         return made.ok();
     }
     Some(match name {
-        "lbr-fold" => strategy_agent(name, AlwaysFold),
-        "lbr-call" => strategy_agent(name, AlwaysCall),
-        "lbr-jam" => strategy_agent(
+        "lbr-fold" => answering_strategy_agent(name, AlwaysFold),
+        "lbr-call" => answering_strategy_agent(name, AlwaysCall),
+        "lbr-jam" => answering_strategy_agent(
             name,
             AlwaysRaise {
                 size: RaiseSize::AllIn,
             },
         ),
-        "lbr-call-or-raise" => strategy_agent(name, CallOrRaise),
-        "lbr-random" => strategy_agent(name, UniformRandom::Kinds),
+        "lbr-call-or-raise" => answering_strategy_agent(name, CallOrRaise),
+        "lbr-random" => answering_strategy_agent(name, UniformRandom::Kinds),
         _ => return None,
     })
 }
 
 /// The agent a name `blueprint:<file>` asks for: the blueprint in that strategy file
 /// (engine/crates/blueprint), with the bucket tables it was trained with (the directory
-/// the file records), played through [`strategy_agent`]. `blueprint:<file>?tables=<dir>`
+/// the file records), played through [`answering_strategy_agent`]. `blueprint:<file>?tables=<dir>`
 /// loads the tables from `dir` instead, for a file trained on another machine; they must
 /// still be the same tables (the file's checksums are checked). `None` for any other
 /// name; an error when the file or its tables can't be loaded. Play it at the stacks and
@@ -88,7 +88,7 @@ pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
     };
     Some(
         blueprint::Blueprint::load(Path::new(path), tables)
-            .map(|b| strategy_agent(name, b))
+            .map(|b| answering_strategy_agent(name, b))
             .map_err(|e| format!("{name}: {e}")),
     )
 }
@@ -103,29 +103,35 @@ pub fn search_agent(name: &str) -> Option<Result<Agent, String>> {
     let path = name.strip_prefix("search:")?;
     Some(
         search::SearchAgent::load(Path::new(path), search::Settings::default())
-            // It reports the chances it played with, but answering for situations the
-            // hand didn't reach would mean a search for each one (seconds): AIVAT asks
-            // only the chances it played with.
-            .map(|s| strategy_agent_with(name, s, false))
+            .map(|s| strategy_agent(name, s))
             .map_err(|e| format!("{name}: {e}")),
     )
 }
 
 /// An agent that plays a [`Strategy`]: at each decision it asks the strategy for its action
 /// probabilities and draws one with [`View::pick`], so a match repeats exactly. It reports
-/// the probabilities ([`Player::probabilities`]), so AIVAT corrects its choices, and says
-/// what the strategy would play at any other situation ([`Player::chances_at`]), so AIVAT
-/// values the other players' actions by its answers. For a strategy that is cheap to ask
-/// and depends only on the public state and the cards, as a blueprint does.
+/// the probabilities ([`Player::probabilities`]), so AIVAT corrects its choices. It doesn't
+/// say what it would play at situations the hand didn't reach: for the search agent each
+/// answer would be a search.
 pub fn strategy_agent<S>(name: &str, strategy: S) -> Agent
 where
     S: Strategy + Send + 'static,
 {
-    strategy_agent_with(name, strategy, true)
+    seat_strategy(name, strategy, false)
 }
 
-/// [`strategy_agent`], answering for other situations only when `answers` is true.
-pub fn strategy_agent_with<S>(name: &str, strategy: S, answers: bool) -> Agent
+/// [`strategy_agent`] that also says what the strategy would play at any situation
+/// ([`Player::chances_at`]), so AIVAT values the other players' actions by its answers. For
+/// a strategy that is cheap to ask and depends only on the public state and the cards, as a
+/// blueprint and LBR's chumps do.
+pub fn answering_strategy_agent<S>(name: &str, strategy: S) -> Agent
+where
+    S: Strategy + Send + 'static,
+{
+    seat_strategy(name, strategy, true)
+}
+
+fn seat_strategy<S>(name: &str, strategy: S, answers: bool) -> Agent
 where
     S: Strategy + Send + 'static,
 {

@@ -5,9 +5,11 @@ reports who won in bb/100 with a standard error (SE). It is the tool behind the 
 version replaces the last one only if it beats it by 2.5 SE", so behind the gates of Phases
 6, 7 and 8. The rules come from the `nlhe` crate and the showdowns from `eval`.
 
-Status, 27 Nov 2026: built and tested on five simple bots. B0 plays in it from Python
-(`tools/b0_arena.py`, through `engine/crates/py`); the blueprint and LBR come later, and
-nothing in the app uses it.
+Status, 28 Nov 2026: built and tested on simple bots; B0 plays in it from Python
+(`tools/b0_arena.py`, through `engine/crates/py`), and so do the blueprint and the search
+agent. Every match is also scored with AIVAT ("AIVAT" below), which needs fewer hands for the
+same standard error; it is reported next to the main figure, not used to judge anything yet.
+Nothing in the app uses the arena.
 
 | Asked for | Result |
 | --- | --- |
@@ -48,7 +50,7 @@ plain play would have given over the same number of hands.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `--agents A,B` | Agents by name: `fold call raise minraise jam random tag tag-loose`. | |
+| `--agents A,B` | Agents by name: `fold call raise minraise jam random tag tag-loose mixed mixed-loose`. | |
 | `--players N` | Table size, 2 to 6. The second agent sits in each seat in turn, the first in all the others. | 2 |
 | `--lineup I,J,...` | The agent (0 for the first) at each place of the table, for any other mix. | |
 | `--deals N` | Deals. With duplicate play each is played once per rotation of the lineup. | 10000 |
@@ -61,6 +63,9 @@ plain play would have given over the same number of hands.
 | `--stack-bb N`, `--blinds SB/BB`, `--ante N` | Stacks in big blinds, blinds and ante in chips. | 100, 50/100, 0 |
 | `--threads N` | Worker threads. | every core |
 | `--out FILE` | Save the report as JSON. | |
+| `--no-aivat` | Don't score with AIVAT as well. | AIVAT on |
+| `--aivat-facing NAME` | How AIVAT values a bet still to be answered: `minimum-defense`, `called` or `taken-back` (see "AIVAT"). | `minimum-defense` |
+| `--aivat-boards N` | Boards AIVAT draws for its values before the flop. | 2000 |
 
 Exit code 0: played. 1: the match settings are wrong or the file can't be written. 2: the
 command line is wrong.
@@ -97,6 +102,11 @@ pub trait Player: Send {
 
     fn begin_hand(&mut self, _view: &View<'_>) {}   // optional
     fn end_hand(&mut self, _view: &View<'_>) {}     // optional
+
+    // Optional, for AIVAT: the chances the last action was drawn with, and the chances
+    // this player would play with at any view.
+    fn probabilities(&self) -> Option<&[(Action, f64)]> { None }
+    fn chances_at(&self, _view: &View<'_>, _out: &mut Vec<(Action, f64)>) -> bool { false }
 }
 ```
 
@@ -186,7 +196,8 @@ order, so the result does not depend on the number of threads, to the last bit.
 
 ## Luck reduction
 
-Three things, each optional.
+Three things, each optional, for the main figure; AIVAT, a fourth, is reported next to it
+(its own section below).
 
 **1. Duplicate play**, above. It removes the luck of who was dealt what.
 
@@ -228,7 +239,7 @@ the agents differ. Identical agents score exactly 0. On the test bots, which har
 random numbers, it changes little (0.42 to 0.41 below). It is there for agents with mixed
 strategies, drawn with `view.pick`, and its worth for those is not measured yet.
 
-**The hook for AIVAT.** A `Scorer` turns a finished hand into each seat's score:
+**Scorers.** A `Scorer` turns a finished hand into each seat's score:
 
 ```rust
 pub trait Scorer: Send + Sync {
@@ -239,12 +250,125 @@ pub trait Scorer: Send + Sync {
 ```
 
 `HandRecord` has the final nlhe `State` (every hole card, the board, the whole history, the
-starting stacks), the agent in each seat, the real payouts and a seed. All-in equity is one
-scorer (`AllInEquity`), real chips another (`ActualChips`). AIVAT will be a third: built
-holding a value estimate and the strategies of the agents being measured, it corrects for
-the luck of the hole cards, of each board card and of the agents' own random choices. Pass
-it to `run_match_scored(&config, &agents, &scorer)`. Duplicate play, the SE and the report
-work on whatever the scorer returns.
+starting stacks), the agent in each seat, the real payouts, the chances each player reported
+for its actions, and a seed. All-in equity is one scorer (`AllInEquity`), real chips another
+(`ActualChips`), AIVAT a third (`Aivat`). Pass one to `run_match_scored(&config, &agents,
+&scorer)` for the main figure. Duplicate play, the SE and the report work on whatever the
+scorer returns. A match runs AIVAT next to its main scorer when `config.aivat` is set (with
+the players at hand, so it can ask them for answers; as the main scorer it can't).
+
+## AIVAT
+
+After Burch, Schmid, Moravcik, Morrill and Bowling, "AIVAT: A New Variance Reduction
+Technique for Agent Evaluation in Imperfect Information Games" (AAAI 2018). In
+`src/aivat.rs`.
+
+On by default in the binary (`--no-aivat` turns it off) and in Python's `run_match`
+(`aivat=False`); in Rust, `MatchConfig::heads_up(...).with_aivat()`. Each agent's line in the
+summary gets a second line:
+
+```
+AGENT_LINES
+```
+
+`SE x` is AIVAT's SE over the main figure's, `minus the above` the paired difference AIVAT
+minus the main figure, deal by deal, with its SE: both figures have no bias, so it should be
+0 up to its SE. The last line counts the decisions whose random choice was corrected.
+
+**What it takes out.** A hand is a sequence of events: the deal of the hole cards, each
+board card, each action. At every event whose chances are known exactly, AIVAT subtracts
+the luck of its outcome `x`:
+
+```
+v(after x) - sum over every outcome y of P(y) v(after y)
+```
+
+where `v` is a value estimate for each seat. Known chances:
+
+- The deal and the board cards, always. The arena deals them: every unseen card is equally
+  likely, whatever the players did, since nobody sees the cards before they fall. The deal's
+  correction compares its value with the exact average over every deal, worked out without
+  dealing (every seat that can win a pot is as likely as any other to hold the best hand).
+- The actions of an agent that reports the chances it drew its action with
+  (`Player::probabilities`): the blueprint (`blueprint:<file>` from Python, `search
+  match`), the search agent (`search:<file>`: the strategy its solve played), any LBR
+  `Strategy` played through the py crate, and the test bot `mixed`.
+- Not the actions of an agent whose chances are unknown: the rule bots (`tag` and the
+  others), B0 and any Python agent. Their actions stay as they are; they still get the
+  correction for the cards and the deal, which is all a hand tracker could do for them.
+
+**Why it has no bias, by construction.** Given everything before an event, its correction
+averages exactly 0, whatever `v` is: the outcome is drawn with the chances `P`, so the first
+term averages to the second. So every hand's corrected score has the same expected value as
+its real result, and no agent's expected win rate moves. The argument needs only three
+things, each checked or enforced in the code:
+
+1. The chances are the real ones. For the cards this is how the arena deals (the deck is
+   every card not in a hand, folded ones too, and not on the board). For an agent, the
+   action must have been drawn with the chances it reports, from a random number nothing else
+   depends on: `View::pick` does exactly that, and the blueprint and search adapters use it.
+   An action that is not among the reported chances, or chances that include an illegal
+   action, are not used, and the report counts them (`unexplained_decisions`: above 0 means a
+   bug in the agent).
+2. `v` after each outcome is a fixed function of the situation (every card, which the arena
+   knows, the chips, the betting so far), not of the random number that picked the outcome.
+   It can be as rough as it likes: a poor `v` takes out less luck, it never moves the average.
+   That is why AIVAT may use every player's cards: it is the arena that computes it, not an
+   agent.
+3. The answers used to value an action (below) depend only on the situation asked about,
+   not on what happened in the hand (`Player::chances_at`'s contract).
+
+The preflop values are averages over 2,000 random boards, drawn from a seed of the deal's own
+(the same in every replay), so they are estimates with no bias of the exact average, and the
+flop's correction, which compares the exact flop value with that estimate, still averages 0
+(a test checks it).
+
+**The value estimate `v`.** The check-down value: each seat's share of the chips in the
+middle if nobody bet again and the hand were shown down, averaged over every board still to
+come, minus what it put in. Exact on the flop, turn and river, 2,000 boards before the flop
+(`--aivat-boards`). Side pots are paid as at the table and ties split exactly. A bet still to
+be answered is valued as `--aivat-facing` says:
+
+- `minimum-defense` (the default): each player facing it calls with the chance `P / (P + r)`
+  and folds otherwise, each on its own (`r`: what it must add to call, `P`: the chips in the
+  middle at its own level). With it a bet that never wins at a showdown is worth exactly as
+  much as giving up, as against an opponent that defends just enough.
+- `taken-back`: only the chips everyone matched are checked down.
+- `called`: everyone facing it calls. Clearly worse: it values every bluff as a loss.
+
+And an action is valued one step further when the next player to act can say what it would
+play there (`Player::chances_at`): the value after each of its answers, averaged with its
+chances. The blueprint can, and so can `mixed`; the search agent says no (an answer would cost
+a search), and so do B0 and the rule bots. Against a known strategy a bet is then worth what
+that strategy's folds and calls make it worth, not what the minimum defense frequency guesses.
+
+**What it gains.** SE of AIVAT over the SE of the main figure (duplicate play and all-in
+equity already applied), heads-up:
+
+| Match | Chances known | Deals | AIVAT SE over the main SE | Over plain play's SE |
+| --- | --- | ---: | ---: | ---: |
+| 20bb blueprint (64M iterations) against a copy of itself, two seeds | Both | 1,000,000 each | 0.610, 0.611 | 0.318 |
+| 64M against the same run's 16M file | Both | 1,000,000 | 0.618 | 0.331 |
+| 64M against the 4M file | Both | 1,000,000 | 0.635 | 0.349 |
+| SEARCH_ROW |
+| 64M against `tag` | The blueprint's | 200,000 | 0.790 | 0.641 |
+| `tag` against `tag`, 20bb | Neither: cards only | 1,000,000 | 0.807 | 0.142 |
+| `mixed` against `mixed`, 100bb | Both | 100,000 | 0.695 | 0.516 |
+| `tag` against `mixed-loose`, 100bb | `mixed-loose`'s | 100,000 | 0.890 | 0.749 |
+| `tag-loose` against `tag`, 100bb | Neither: cards only | 100,000 | 0.884 | 0.443 |
+
+The blueprint rows are the pre-registered checks of `docs/research/experiments.md` ("Phase 7:
+AIVAT in the arena"); the bot rows at 100bb are pilots (seed 3).
+
+The hands needed for a given SE shrink by the square of the ratio. Cards-only AIVAT (agents
+with unknown chances) gains least; it is the agents' own random choices, and the bets valued
+by real answers, that carry most of it.
+
+**What it costs.** COST_TEXT
+
+**Choices made on pilots, then frozen.** Valuing bets as called, taken back or by the minimum
+defense frequency, and the answers: `docs/research/experiments.md`, "Phase 7: AIVAT in the
+arena", with the checks that show it unbiased (pre-registered there before they ran).
 
 ## The report
 
@@ -253,8 +377,9 @@ work on whatever the scorer returns.
 | Field | What |
 | --- | --- |
 | `format` | `"pokerscribe-arena/1"` |
-| `config` | The settings: `lineup`, `stack`, `small_blind`, `big_blind`, `ante`, `deals`, `seed`, `duplicate`, `all_in_equity`, `max_runouts`, `shared_randomness`, `threads` |
+| `config` | The settings: `lineup`, `stack`, `small_blind`, `big_blind`, `ante`, `deals`, `seed`, `duplicate`, `all_in_equity`, `max_runouts`, `shared_randomness`, `threads`, `aivat` (`null`, or its `boards` and `facing`) |
 | `scoring` | The scorer's name, such as `"all-in equity (at most 10000 boards)"` |
+| `aivat_scoring` | AIVAT's settings in words, or `null` without AIVAT |
 | `agents` | The agents' names; the lineup holds indexes into this list |
 | `players`, `deals`, `replays_per_deal`, `hands` | Table size, deals, replays of each deal, hands played |
 | `adjusted_hands` | Hands whose score differs from the real chips |
@@ -270,6 +395,7 @@ Each entry of `results`:
 | `actual_bb_per_100`, `actual_se` | The same match in real chips, before the scorer's adjustment |
 | `plain_se` | The SE plain play would give over the same number of hands: real chips, every hand its own sample |
 | `illegal_actions` | Illegal actions it returned |
+| `aivat` | `null` without AIVAT, otherwise: `bb_per_100` and `se` (AIVAT's figure), `minus_main` and `minus_main_se` (AIVAT minus `bb_per_100` deal by deal), `se_ratio` (`se` over the main `se`), `corrected_decisions`, `unknown_decisions`, `unexplained_decisions` (its decisions corrected, without known chances, and with chances that can't be right) |
 | `by_seat` | For each seat: `seat`, `position` (`BTN`, `SB`, `BB`, `UTG`, `HJ`, `CO`; heads-up `BTN/SB` and `BB`), `hands`, `bb_per_100`, `se` |
 
 ## Test bots
@@ -284,6 +410,8 @@ In `src/bots.rs`. None is meant to play well.
 | `random` | Fold, check or call, and raise with equal chances; a raise goes to an amount drawn evenly between the minimum and a pot-sized raise |
 | `tag` | Tight-aggressive rules. Before the flop: the Chen score of its two cards against a bar that rises with the players still to act; opens for 2.5 big blinds, re-raises its best hands. After the flop: the share of the other possible hands it beats right now; bets or raises strong hands, calls when the price fits its strength, folds the rest, and bets the flop half the time after raising before it |
 | `tag-loose` | `tag` with a bar one point lower before the flop. It stands in for "the next version" |
+| `mixed` | A mixed strategy whose chances are known, for testing AIVAT. With `s` the strength of its hand (the Chen score scaled to 0 to 1 before the flop, `tag`'s hand strength after it), it weighs fold `3 (1 - s)^2` (when there is a bet), check or call 1, raises of half the pot, the pot and all in `s^2`, `s^3` and `s^6`, draws one with `view.pick`, and reports the weights |
+| `mixed-loose` | `mixed` with half the weight on folding |
 
 Heads-up, tag beats call by 222 bb/100, random by 73 and raise by 136, and tag-loose beats
 tag by 11 (400,000 hands each). tag is not strong: jam beats it by 10 bb/100 (SE 1.7 over
@@ -292,8 +420,8 @@ tag by 11 (400,000 hands each). tag is not strong: jam beats it by 10 bb/100 (SE
 ## Tests
 
 ```bash
-cargo test -p arena              # 29 tests, about 30 seconds
-cargo test --release -p arena    # the same in 2 seconds
+cargo test -p arena              # 40 tests, about 2.5 minutes (most of it the AIVAT tests)
+cargo test --release -p arena    # the same in about 15 seconds
 cargo clippy -p arena --all-targets
 ```
 
@@ -312,6 +440,22 @@ cargo clippy -p arena --all-targets
 | `an_illegal_action_becomes_a_check_or_a_fold_and_is_counted`, `the_test_bots_only_make_legal_actions` | An always-illegal player scores exactly as `fold` does; the eight bots never return an illegal action, at 3 and 100 big blinds |
 | `a_player_sees_its_own_cards_and_only_public_things`, `players_can_be_structs_or_closures`, `pick_follows_the_weights` | The view from inside a match |
 | `a_custom_scorer_is_the_hook_for_aivat` | The report is built from what a custom scorer returns |
+
+`tests/aivat.rs`:
+
+| Test | Checks |
+| --- | --- |
+| `a_card_correction_averages_zero_over_every_card_that_can_come` | 300 random hands (2 to 6 players, uneven stacks, antes) stopped when the flop's or the turn's betting ends: the check-down value averaged over every next card is the value before it, exactly, and the values add up to 0 |
+| `the_flop_correction_averages_zero_and_the_sample_before_it_has_no_bias` | The flop's check-down value over all 17,296 flops averages to the exact value before the flop; 40 estimates from 2,000 boards each average to it within their spread |
+| `the_check_down_value_on_the_river_pays_like_the_engine` | Over 1,000 random showdowns (side pots, folded players, ties) the river's check-down value is what nlhe pays, to within the odd chips the engine hands out whole |
+| `a_bet_still_to_be_answered_is_valued_as_the_rule_says` | The big blind before the small blind acts, a bluff and a value bet, worked out by hand under each rule; a bluff that never wins is worth as much as giving up under the minimum defense frequency |
+| `the_deal_correction_averages_zero` | The value at the start of 6,000 random deals averages, within its SE, to the even shares the deal correction subtracts, at 2, 3 and 6 players |
+| `identical_agents_give_zero_with_aivat` | `mixed` against itself, heads-up and three-handed, duplicate and plain, three seeds: AIVAT and AIVAT minus the main figure within 3 SE of 0; exactly 0 with shared randomness |
+| `aivat_agrees_with_the_main_figure_and_narrows_it` | Five pairs of bots, heads-up and six-max, with and without known chances: AIVAT minus the main figure within 3.5 SE, the results add up to 0, only agents with known chances get their decisions corrected, and the SE is smaller for `mixed` |
+| `answers_narrow_aivat_and_wrong_answers_do_no_harm` | With `mixed`'s answers the SE is smaller than without; a player that gives wrong answers still gets an AIVAT figure that agrees with the main one, and two of them give about 0 |
+| `chances_that_cannot_be_right_are_not_used_and_are_counted` | A player that reports chances it did not play with is never corrected and is counted as unexplained |
+| `aivat_repeats_on_any_number_of_threads_and_saves_to_json` | 1, 2 and 3 threads the same to the last bit; the JSON fields; a report from before AIVAT still loads |
+| `aivat_is_a_scorer_too_and_its_scores_add_up_to_zero` | As the main scorer it gives the figure it gives next to it; one hand's scores add up to 0 |
 
 `tests/equity.rs`:
 
@@ -434,22 +578,26 @@ decision after the flop, and against call every hand reaches the river. Four thr
 6. The SE treats the win rate as normal, as every bb/100 figure does. With few deals and
    rare huge pots the true spread is wider than the SE says. The 24 identical-agent matches
    of the tests, a few thousand hands each, stay within 1.9 SE.
-7. Not built yet: AIVAT (the hook is there), uneven stacks, and a hand history file. A
-   `Scorer` sees every finished hand and could write one. The bridge to Python for B0 is
-   built (`engine/crates/py`).
+7. AIVAT is reported, not used to judge: the gates read the main figure until the checks in
+   `docs/research/experiments.md` ("Phase 7: AIVAT in the arena") show it unbiased. Its
+   corrections for an agent's own choices are only as honest as the chances the agent
+   reports; `unexplained_decisions` above 0 means they can't be right.
+8. Not built yet: uneven stacks, and a hand history file. A `Scorer` sees every finished hand
+   and could write one. The bridge to Python for B0 is built (`engine/crates/py`).
 
 ## Layout
 
 | File | What |
 | --- | --- |
 | `src/player.rs` | `Player`, `View`, `Agent` |
-| `src/hand.rs` | `play_hand`: one hand between players, illegal actions replaced and counted |
+| `src/hand.rs` | `play_hand`: one hand between players, illegal actions replaced and counted; `play_hand_recorded` keeps the chances each player reported (`Decisions`) |
 | `src/runner.rs` | `MatchConfig`, `run_match`: rotations, seeds, threads, the sums and the SE |
 | `src/equity.rs` | `Pots` (showdown pots as nlhe pays them) and `all_in_equity` |
 | `src/luck.rs` | `Scorer`, `HandRecord`, `ActualChips`, `AllInEquity` |
+| `src/aivat.rs` | `Aivat`: the AIVAT scorer, its check-down values and `Facing` |
 | `src/report.rs` | `MatchReport`, its JSON and its text table |
 | `src/bots.rs` | The test bots, the Chen score, hand strength |
 | `src/ranker.rs` | `EvalRanker` (nlhe's own, the `eval` crate behind its `HandRanker`, re-exported) and `to_eval`, an nlhe card as an `eval` card |
 | `src/bin/arena.rs` | The command line |
 | `examples/variance.rs`, `examples/speed.rs` | The tables above |
-| `tests/` | `matches.rs` and `equity.rs` |
+| `tests/` | `matches.rs`, `equity.rs` and `aivat.rs` |

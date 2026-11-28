@@ -2984,6 +2984,62 @@ heads-up, each deal twice with the seats swapped, the main figure with all-in eq
   pass. If one fails, AIVAT stays reported only, the cause is looked for, and no setting is
   changed and run again on these seeds.
 
+### Results (28 Nov 2026)
+
+Every run as planned, on the plan's seeds, none stopped or extended. Raw reports in
+`runs/phase7_aivat/<id>.json`, the summaries in `log.txt`, the table below in `results.md`
+(from `summarize.py`). Heads-up at 20bb; "main" is the arena's figure with duplicate play and
+all-in equity. "Over plain" is AIVAT's SE over `plain_se`, what plain play (real chips, every
+hand on its own) gives over the same hands.
+
+RESULTS_TABLE
+
+**The verdict: AIVAT is unbiased as far as these checks can show.** All six checks the verdict
+rests on pass (1a, 1b, 1c, 2a, 2b, 3). Identical agents average 0 with AIVAT (largest |z| 1.15),
+and on 1,000,000 deals AIVAT and the main figure agree deal by deal to within 0.28 bb/100, at most
+1.42 of the paired SE, with and without an agent whose chances are unknown. For scale: a bias
+of 0.6 bb/100 in 2a or 2b would have shown at 3 SE.
+
+**What it gains.** On blueprint against blueprint the SE is 0.61 to 0.64 of the main figure's,
+so the same SE takes 37% to 40% of the deals; against plain play it is 0.32 to 0.35, about a
+tenth of the hands. With one agent whose chances are unknown (`tag`, whose choices can't be
+corrected) 0.79, and with cards only 0.81. The gain is close to the pilots' (0.635 for 16M
+against 4M). SEARCH_GAIN
+
+**Speed.** Blueprint against blueprint ran at 26,000 to 31,000 hands a second on 4 threads with
+AIVAT, sharing the machine with a leaf-table build; the same match without AIVAT runs about five
+times faster (`engine/crates/arena/README.md`, "AIVAT", has the costs). For any agent slower
+than a blueprint the cost is lost in the agent's own time.
+
+**Changed after the plan was committed**, none of it in what these runs use: the check-down
+of three or more players was made faster (each group of players' average share of a pot is
+worked out once per table rather than board by board: the same values, summed in another
+order; every run here is heads-up, which has its own code; the AIVAT tests went from about
+3 minutes to 9 seconds with it), a test was adapted to the new report fields, and the docs were
+written. The plan's commit is dc05265. After it, the Python adapter for strategies was changed
+so that a strategy answers for situations the hand didn't reach only when asked to (the
+blueprint and LBR's chumps are; the search agent isn't, as before): what the runs used is the
+same.
+
+**Seeds.** Pull request #51 (Phase 7 at 200 big blinds, open when these ran) also names seed
+7501, for its pilot. The same seed deals the same cards, but the agents, the depth and the
+question differ, and neither run chooses anything for the other, so neither is tuned on the
+other's seed. The clash is noted so that no one reads the two as the same run.
+
+### Not done
+
+- **B0 with AIVAT**: B0's choices can't be corrected (its chances are unknown), so it would get
+  what `tag` got in run 3. Not run here.
+- **Six-max**: tested (`tests/aivat.rs`), not measured on blueprints.
+- **A better value estimate**: the check-down value knows nothing of the betting still to
+  come. The paper's large gains (DeepStack) came from a value estimate that does; the blueprint's
+  own expected values, or the search's, would be the next step, and change nothing about the
+  bias argument.
+- **Answers from the search agent**: it reports the chances it played with, so its own choices
+  are corrected, but it doesn't say what it would play at situations the hand didn't reach (a
+  search each), so the blueprint's actions against it are valued by the minimum defense
+  frequency.
+
 ## Research notes (paraphrased, with sources)
 
 - **Big stack pressure.** A big stack should stay active and attack short stacks: open

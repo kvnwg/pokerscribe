@@ -297,11 +297,13 @@ enum Outcomes {
         win: [f64; 2],
         tie: f64,
     },
-    /// More seats: each board's hand rank of each seat of `seats` (higher is better).
+    /// More seats: for every group of the seats of `seats` (a bit per place in `seats`),
+    /// each one's average share of a pot only that group can win (by place in `seats`).
+    /// Each pot of a check-down goes to the best hand among the players who can win it,
+    /// so its average is its chips times these shares.
     Many {
         seats: Vec<usize>,
-        ranks: Vec<u16>,
-        boards: usize,
+        shares: Vec<[f64; MAX_PLAYERS]>,
     },
 }
 
@@ -365,17 +367,41 @@ impl Outcomes {
                 tie: ties as f64 / total,
             }
         } else {
-            let mut ranks = Vec::with_capacity(boards.len() * seats.len());
+            let groups = 1usize << seats.len();
+            let mut shares = vec![[0.0; MAX_PLAYERS]; groups];
+            let mut best = vec![0u16; groups];
+            let mut rank = [0u16; MAX_PLAYERS];
             for board in &boards {
-                for h in &holes {
-                    ranks.push(board.add(h[0]).add(h[1]).eval7().value());
+                for (j, h) in holes.iter().enumerate() {
+                    rank[j] = board.add(h[0]).add(h[1]).eval7().value();
+                }
+                for group in 1..groups {
+                    let first = group.trailing_zeros() as usize;
+                    let rest = group & (group - 1);
+                    best[group] = if rest == 0 {
+                        rank[first]
+                    } else {
+                        best[rest].max(rank[first])
+                    };
+                    let top = best[group];
+                    let winners = (0..seats.len())
+                        .filter(|&j| group & (1 << j) != 0 && rank[j] == top)
+                        .count();
+                    let share = 1.0 / winners as f64;
+                    for j in 0..seats.len() {
+                        if group & (1 << j) != 0 && rank[j] == top {
+                            shares[group][j] += share;
+                        }
+                    }
                 }
             }
-            Outcomes::Many {
-                seats,
-                ranks,
-                boards: boards.len(),
+            let total = boards.len() as f64;
+            for row in &mut shares {
+                for x in row.iter_mut() {
+                    *x /= total;
+                }
             }
+            Outcomes::Many { seats, shares }
         }
     }
 
@@ -400,40 +426,21 @@ impl Outcomes {
                     }
                 });
             }
-            Outcomes::Many {
-                seats,
-                ranks,
-                boards,
-            } => {
-                let k = seats.len();
-                for b in 0..*boards {
-                    let row = &ranks[b * k..(b + 1) * k];
-                    share_levels(levels, stakes.active, &mut won, |eligible, amount, won| {
-                        let mut top = 0u16;
-                        let mut winners = 0u8;
-                        for (j, &seat) in seats.iter().enumerate() {
-                            if eligible & bit(seat) == 0 {
-                                continue;
-                            }
-                            if winners == 0 || row[j] > top {
-                                top = row[j];
-                                winners = bit(seat);
-                            } else if row[j] == top {
-                                winners |= bit(seat);
-                            }
+            Outcomes::Many { seats, shares } => {
+                share_levels(levels, stakes.active, &mut won, |eligible, amount, won| {
+                    let mut group = 0usize;
+                    for (j, &seat) in seats.iter().enumerate() {
+                        if eligible & bit(seat) != 0 {
+                            group |= 1 << j;
                         }
-                        debug_assert_eq!(winners & !eligible, 0);
-                        let share = amount / winners.count_ones() as f64;
-                        for &seat in seats {
-                            if winners & bit(seat) != 0 {
-                                won[seat] += share;
-                            }
+                    }
+                    debug_assert_eq!(group.count_ones(), eligible.count_ones());
+                    for (j, &seat) in seats.iter().enumerate() {
+                        if group & (1 << j) != 0 {
+                            won[seat] += amount * shares[group][j];
                         }
-                    });
-                }
-                for w in won.iter_mut() {
-                    *w /= *boards as f64;
-                }
+                    }
+                });
             }
         }
         net(stakes, &won)
@@ -721,6 +728,7 @@ impl Aivat {
 
     /// The correction for `action`, taken in `state` by a player that reported `chances`,
     /// or `None` when the chances can't be the ones it was drawn with.
+    #[allow(clippy::too_many_arguments)]
     fn choice(
         &self,
         state: &State,
@@ -802,7 +810,7 @@ fn merge(state: &State, chances: &[(Action, f64)]) -> Option<Vec<(Action, f64)>>
     let legal = state.legal_actions();
     let mut merged: Vec<(Action, f64)> = Vec::with_capacity(chances.len());
     for &(a, w) in chances {
-        if !(w > 0.0) {
+        if w.is_nan() || w <= 0.0 {
             continue;
         }
         if !legal.allows(a) {
