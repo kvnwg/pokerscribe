@@ -32,11 +32,21 @@ history belongs in `experiments.md`, not here. Updated 28 Nov 2026.
   by +16.3 ± 4.1, z +4.00). Cloud cost $4.67; only the checkpoint bucket is left (about $0.41 a
   month). Raw results in `runs/phase6/calibration/`; the entry is "Phase 6: the calibration
   run and the gate" in `experiments.md` (PR 47).
-- **Phase 7 is next** (Kevin said go, 28 Nov 2026; "Phase 7 - 2" is writing the plan): Modicum-style search on the 200bb blueprint
-  (`engine/crates/search`). Its 200bb leaf tables are about 9.7 GB and 134 core-hours: a cloud
-  build, roughly $3 to $5. Kevin's Mac (M3, 8 GB) can't hold the tables, so the match runs in
-  the cloud too; a local Claude session on his Mac runs the commands (Remote Control can't share
-  folders with cloud sessions in his app version). The exact cap goes to Kevin with the plan before any launch.
+- **Phase 7, planned, waiting on Kevin's cap** (28 Nov 2026). Merged: AIVAT in the arena (PR 52,
+  unbiased on its pre-registered checks) and the plan (PR 51, `runs/phase7/README.md`,
+  `phase7.json`, `gate.py`). Search with 16 lanes (both players pick at leaves) on it512M. The
+  whole run (leaf tables, bench, pilot, gate match, variants `modicum` and `final`, LBR, repeat) is
+  one tools/cloud job. The gate is read on AIVAT (z at least 2.5), the plain figure beside it, and
+  falls back to the plain figure if AIVAT is missing or a decision is unexplained. At 200bb AIVAT's
+  SE ratio was about 0.81 on 192 deals (0.61 at 20bb); the pilot measures it. LBR at about ±50
+  (`lbr.chunks` 10; 28 is ±30, 2 is ±110). Estimate 14 h, about $21; cap $30 in
+  `cloud.env.example` (±30: $36, cap $50; ±110: $14, cap $20). Nothing launched. Next: Kevin
+  picks the cap, "Phase 7 - 2" writes the paste brief, a local Claude session on his Mac (M3, 8 GB)
+  launches, watches and cleans up; then gate.py on the results.
+- **Phase 7 later work:** preflop search for off-tree raises, the Slumbot match, the GTO Wizard
+  Benchmark (README "Decisions" for self-improvement, finer blueprint, value networks, safe
+  exploitation). The stale branch `claude/phase7-plan-200bb-aivat-wip` can be deleted (the
+  sessions' proxy refuses deletes).
 - **Open, not started:** a safe re-solving comparison; huge pages for six-max
   (`runs/phase6/calibration/huge-pages.md`); two small cloud-tool notes from the PR 46 review
   (the max run duration on a poll where the status can't be read; a `_NOT_FOUND` match on the
