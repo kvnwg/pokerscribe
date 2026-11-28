@@ -215,5 +215,7 @@ level number beside every name, toward the middle). And eight, an eight-seat tab
 
 ## Next
 
-The two missing checks (step 10) and the predicted next actor, then confirm everything on 247
-from saved reads ("Save last reads").
+The two missing checks (step 10: "Total pot = Pot + bets" and the Call amount don't block
+advice yet) and the predicted next actor (not used as a check yet), then confirm everything on 247
+from saved reads ("Save last reads"). The reports still waiting for saved reads are listed in
+`CLAUDE.md`, "Reader work". Unconfirmed: whether the Q9 offsuit all-in hand was at 1/2 blinds.
