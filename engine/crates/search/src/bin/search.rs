@@ -1,7 +1,7 @@
 //! The search agent's command line: leaf tables, matches, LBR, timing and the range check.
 //!
 //! ```text
-//! search leaf    --strategy F [--deals N] [--seed S]
+//! search leaf    --strategy F [--deals N] [--seed S] [--lanes 7|16] [--part-nodes K] [--work DIR] [--threads T]
 //! search match   --strategy F --deals N --seed S [--threads T] [--against blueprint|search] [--out FILE]
 //! search lbr     --strategy F --agent search|blueprint --setting fcpa14|b56_14 --hands N --seed S --out FILE
 //! search compare FILE_A FILE_B
@@ -9,19 +9,37 @@
 //! search ranges  --strategy F --hands N --seed S [--out FILE]
 //! search trees   [--stack-bb B] [--menu standard]     (tree sizes, for the 200bb estimate)
 //! search scale   --strategy F --hands N --seed S [--spots K] (the same solves on 1, 2, 4 threads)
+//! search --config FILE --checkpoint-dir DIR [--resume] [--threads T]
 //! ```
+//!
+//! The commands that play the search agent take its settings: `--flop-target`,
+//! `--flop-iterations` (and the same for the turn and river), `--prune`, `--turn-river-menu
+//! allin|075|standard`, `--leaf-choice opponent|both` (who picks at the flop's leaves; both
+//! needs 16-lane tables) and `--play average|final` (the strategy a solve plays).
+//!
+//! Every command that loads a strategy file takes `--tables DIR`: the bucket tables, for a
+//! file trained on another machine (by default the folder the file names). They must be the
+//! tables it was trained with; the file's checksums are checked.
+//!
+//! `leaf` builds the leaf tables in parts (`search::leaf_job`) in a work folder (default
+//! `<strategy file>.leaf-parts`), and when every part is there writes `<strategy file>.leaf`
+//! and deletes the folder. Stopped (Ctrl-C), the same command goes on from the parts done.
+//! The last form is the same job under the `tools/cloud` trainer contract (its README, "The
+//! trainer"): the config is a `search::leaf_job::JobConfig` in JSON, the parts and the
+//! table file are written in the checkpoint directory, SIGTERM stops it with exit code 75,
+//! and it exits with 0 once the table file is written.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arena::{run_match, MatchConfig};
-use blueprint::{lbr_match, Blueprint, Deals};
-use lbr::{ActionProbs, PublicState, Strategy};
+use blueprint::{Blueprint, Deals};
+use lbr::{PublicState, Strategy};
 use nlhe::{Card, Config, Deal, State, Street};
-use search::cards::{combo_index, mix};
-use search::play::strategy_agent;
+use search::cards::combo_index;
+use search::runs::{self, play_hands, street_name};
+use search::solve::LeafChoice;
 use search::{leaf_path, SearchAgent, Settings};
 use serde_json::json;
 
@@ -55,6 +73,23 @@ fn need(opts: &HashMap<String, String>, k: &str) -> String {
         .unwrap_or_else(|| panic!("--{k} is needed"))
 }
 
+/// `--tables`, when given.
+fn tables(opts: &HashMap<String, String>) -> Option<PathBuf> {
+    opts.get("tables").map(PathBuf::from)
+}
+
+fn load_blueprint(
+    opts: &HashMap<String, String>,
+    strategy: &Path,
+) -> Blueprint<Arc<blueprint::Buckets>> {
+    Blueprint::load(strategy, tables(opts).as_deref()).expect("the blueprint loads")
+}
+
+fn load_search(opts: &HashMap<String, String>, strategy: &Path, settings: Settings) -> SearchAgent {
+    SearchAgent::load_with(strategy, tables(opts).as_deref(), settings)
+        .expect("the search agent loads")
+}
+
 /// The table every 20 big blind game here is played at: 2,000 chips, blinds 50 and 100.
 fn stack_of(bp: &Blueprint<Arc<blueprint::Buckets>>) -> u32 {
     bp.game().config().stack
@@ -76,10 +111,21 @@ fn settings(opts: &HashMap<String, String>) -> Settings {
     if let Some(m) = opts.get("turn-river-menu") {
         s.turn_river_menu = search::solve::river_menu_named(m).expect("a known river menu");
     }
+    if let Some(c) = opts.get("leaf-choice") {
+        s.leaf_choice = LeafChoice::named(c).expect("--leaf-choice opponent or both");
+    }
+    if let Some(p) = opts.get("play") {
+        s.play = search::solve::play_named(p).expect("--play average or final");
+    }
     s
 }
 
 fn main() {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    // The tools/cloud trainer has no command word: its first argument is an option.
+    if raw.first().is_some_and(|s| s.starts_with("--")) {
+        std::process::exit(cloud_job(&raw));
+    }
     let (cmd, opts, rest) = args();
     match cmd.as_str() {
         "leaf" => leaf(&opts),
@@ -97,51 +143,190 @@ fn main() {
     }
 }
 
+/// Exit code after a stop asked for by a signal: the parts done are saved, start again
+/// (with `--resume` under the trainer contract) to go on.
+const STOPPED: i32 = 75;
+
+fn say_line(v: serde_json::Value) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{v}");
+    let _ = out.flush();
+}
+
+fn global_threads(threads: Option<usize>) {
+    if let Some(t) = threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(t)
+            .build_global()
+            .ok();
+    }
+}
+
+/// `search leaf`: the leaf tables of a strategy file, in parts in a work folder, then
+/// `<file>.leaf`.
 fn leaf(opts: &HashMap<String, String>) {
+    use search::leaf_job::{self, JobConfig, JobEnd, CHECKPOINT};
     let strategy = PathBuf::from(need(opts, "strategy"));
-    let bp = Blueprint::load(&strategy, None).expect("the strategy loads");
-    let config = search::leaf::BuildConfig {
+    global_threads(opts.get("threads").and_then(|t| t.parse().ok()));
+    let config = JobConfig {
+        strategy: strategy.clone(),
+        tables: tables(opts),
         deals: get(opts, "deals", 4_000_000),
         seed: get(opts, "seed", 7),
-        ..Default::default()
+        part_nodes: get(opts, "part-nodes", leaf_job::PART_NODES),
+        lanes: get(opts, "lanes", search::leaf::MODICUM_LANES),
+        out: None,
     };
-    let nodes = search::leaf::turn_starts(&bp);
-    eprintln!("{} turn-start nodes, {} deals", nodes.len(), config.deals);
-    let t0 = Instant::now();
-    let tables = search::leaf::build(&bp, &strategy, &config, |done| {
-        eprintln!("  {done} deals, {:.0} s", t0.elapsed().as_secs_f64());
-    })
-    .expect("the tables build");
-    let out = leaf_path(&strategy);
-    tables.save(&out).expect("the tables save");
-    println!("{}", serde_json::to_string(&tables.header).unwrap());
-    eprintln!("wrote {}", out.display());
-}
-
-fn agent_named(name: &str, strategy: &Path, settings: Settings) -> Arc<dyn Strategy + Send + Sync> {
-    match name {
-        "search" => {
-            Arc::new(SearchAgent::load(strategy, settings).expect("the search agent loads"))
+    let work = opts.get("work").map(PathBuf::from).unwrap_or_else(|| {
+        let mut w = strategy.as_os_str().to_owned();
+        w.push(".leaf-parts");
+        w.into()
+    });
+    let bp = load_blueprint(opts, &strategy);
+    cfr::signal::watch_sigterm().ok();
+    cfr::signal::watch_sigint().ok();
+    let resume = work.join(CHECKPOINT).exists();
+    let end = leaf_job::run(
+        &bp,
+        &config,
+        &work,
+        resume,
+        &cfr::signal::stop_requested,
+        &mut |v| eprintln!("{v}"),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("search leaf: {e}");
+        std::process::exit(1)
+    });
+    match end {
+        JobEnd::Stopped => {
+            eprintln!(
+                "stopped; the parts done are in {}: run the same command again to go on",
+                work.display()
+            );
+            std::process::exit(STOPPED);
         }
-        "blueprint" => Arc::new(Blueprint::load(strategy, None).expect("the blueprint loads")),
-        _ => panic!("unknown agent {name}"),
+        JobEnd::Done(built) => {
+            let out = leaf_path(&strategy);
+            if std::fs::rename(&built, &out).is_err() {
+                std::fs::copy(&built, &out)
+                    .expect("the tables are copied next to the strategy file");
+            }
+            std::fs::remove_dir_all(&work).ok();
+            let header =
+                search::leaf::LeafTables::read_header(&out).expect("the tables were written");
+            println!("{}", serde_json::to_string(&header).unwrap());
+            eprintln!("wrote {}", out.display());
+        }
     }
 }
 
-struct Dyn(Arc<dyn Strategy + Send + Sync>);
-
-impl Strategy for Dyn {
-    fn action_probs(&self, public: &PublicState<'_>, hole: [Card; 2], out: &mut ActionProbs) {
-        self.0.action_probs(public, hole, out)
+/// The leaf table job under the `tools/cloud` trainer contract (see the module
+/// documentation). Returns the exit code.
+fn cloud_job(items: &[String]) -> i32 {
+    use search::leaf_job::{self, JobConfig, JobEnd};
+    use search::plan_job::{self, PlanConfig, PlanEnd};
+    let fail = |e: String| {
+        eprintln!("search: {e}");
+        1
+    };
+    let resume = items.iter().any(|s| s == "--resume");
+    let mut map = HashMap::new();
+    let rest: Vec<&String> = items.iter().filter(|s| *s != "--resume").collect();
+    let mut i = 0;
+    while i < rest.len() {
+        let Some(k) = rest[i].strip_prefix("--") else {
+            return fail(format!("unexpected argument {:?}", rest[i]));
+        };
+        if !["config", "checkpoint-dir", "threads"].contains(&k) {
+            return fail(format!("the job takes no --{k}"));
+        }
+        let Some(v) = rest.get(i + 1) else {
+            return fail(format!("--{k} needs a value"));
+        };
+        map.insert(k.to_string(), v.to_string());
+        i += 2;
     }
-    fn action_prob_for_range(
-        &self,
-        public: &PublicState<'_>,
-        action: nlhe::Action,
-        hands: &[[Card; 2]],
-        out: &mut [f64],
+    let (Some(config), Some(dir)) = (map.get("config"), map.get("checkpoint-dir")) else {
+        return fail("--config and --checkpoint-dir are needed".into());
+    };
+    let threads = match map.get("threads").map(|t| t.parse::<usize>()) {
+        Some(Ok(t)) if t > 0 => Some(t),
+        Some(_) => return fail("--threads: a number above 0".into()),
+        None => None,
+    };
+    let text = match std::fs::read_to_string(config) {
+        Ok(t) => t,
+        Err(e) => return fail(format!("--config: {e}")),
+    };
+    // A plan has a gate; anything else is the leaf table job alone.
+    let is_plan = serde_json::from_str::<serde_json::Value>(&text)
+        .map(|v| v.get("gate").is_some())
+        .unwrap_or(false);
+    global_threads(threads);
+    if let Err(e) = cfr::signal::watch_sigterm() {
+        return fail(e.to_string());
+    }
+    let dir = Path::new(dir);
+    if is_plan {
+        let config = match PlanConfig::from_json(&text) {
+            Ok(c) => c,
+            Err(e) => return fail(format!("--config: {e}")),
+        };
+        let bp = match Blueprint::load(&config.strategy, config.tables.as_deref()) {
+            Ok(bp) => Arc::new(bp),
+            Err(e) => return fail(format!("{}: {e}", config.strategy.display())),
+        };
+        return match plan_job::run(
+            bp,
+            &config,
+            dir,
+            resume,
+            &cfr::signal::stop_requested,
+            &mut say_line,
+        ) {
+            Ok(PlanEnd::Done(_)) => 0,
+            // The run being played is given up: leave at once, before the machine goes.
+            Ok(PlanEnd::Stopped) => STOPPED,
+            Err(e) => fail(e),
+        };
+    }
+    let config: JobConfig = match serde_json::from_str(&text) {
+        Ok(c) => c,
+        Err(e) => return fail(format!("--config: {e}")),
+    };
+    if let Err(e) = config.check() {
+        return fail(format!("--config: {e}"));
+    }
+    let bp = match Blueprint::load(&config.strategy, config.tables.as_deref()) {
+        Ok(bp) => bp,
+        Err(e) => return fail(format!("{}: {e}", config.strategy.display())),
+    };
+    match leaf_job::run(
+        &bp,
+        &config,
+        dir,
+        resume,
+        &cfr::signal::stop_requested,
+        &mut say_line,
     ) {
-        self.0.action_prob_for_range(public, action, hands, out)
+        Ok(JobEnd::Done(_)) => 0,
+        Ok(JobEnd::Stopped) => STOPPED,
+        Err(e) => fail(e),
+    }
+}
+
+fn agent_named(
+    opts: &HashMap<String, String>,
+    name: &str,
+    strategy: &Path,
+    settings: Settings,
+) -> Arc<dyn Strategy + Send + Sync> {
+    match name {
+        "search" => Arc::new(load_search(opts, strategy, settings)),
+        "blueprint" => Arc::new(load_blueprint(opts, strategy)),
+        _ => panic!("unknown agent {name}"),
     }
 }
 
@@ -154,21 +339,37 @@ fn head_to_head(opts: &HashMap<String, String>) {
         .get("against")
         .cloned()
         .unwrap_or_else(|| "blueprint".into());
-    let bp = Blueprint::load(&strategy, None).expect("the blueprint loads");
+    // One blueprint, shared by the search agent and the opponent (a 200bb file is 0.5 GB).
+    let bp = Arc::new(load_blueprint(opts, &strategy));
     let stack = stack_of(&bp);
-    let a = strategy_agent(
-        "search",
-        Arc::new(Dyn(agent_named("search", &strategy, settings(opts)))),
-    );
-    let b = strategy_agent(
-        &against,
-        Arc::new(Dyn(agent_named(&against, &strategy, settings(opts)))),
-    );
-    let mut config = MatchConfig::heads_up(deals, seed);
-    config.stack = stack;
-    config.threads = threads;
+    let searcher = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+        .expect("the search agent loads");
+    let other: Arc<dyn Strategy + Send + Sync> = match against.as_str() {
+        "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
+        "search" => Arc::new(
+            SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+                .expect("the search agent loads"),
+        ),
+        _ => panic!("unknown agent {against}"),
+    };
     let t0 = Instant::now();
-    let report = run_match(&config, &[a, b]).expect("the match runs");
+    let report = runs::head_to_head(
+        runs::Side {
+            name: "search",
+            strategy: Arc::new(searcher),
+            answers: false,
+        },
+        runs::Side {
+            name: &against,
+            strategy: other,
+            answers: against == "blueprint",
+        },
+        stack,
+        deals,
+        seed,
+        threads,
+    )
+    .expect("the match runs");
     eprintln!("{} s", t0.elapsed().as_secs_f64());
     println!("{}", report.summary());
     if let Some(out) = opts.get("out") {
@@ -182,44 +383,30 @@ fn lbr(opts: &HashMap<String, String>) {
     let setting = need(opts, "setting");
     let hands: u64 = get(opts, "hands", 1000);
     let seed: u64 = get(opts, "seed", 1);
-    let (paper, lbr_config) = blueprint::gate::lbr_setting(&setting).expect("a known LBR setting");
-    let bp = Blueprint::load(&strategy, None).expect("the blueprint loads");
-    let table = lbr::MatchConfig {
-        stack: stack_of(&bp),
-        ..lbr::MatchConfig::acpc(hands, seed)
-    };
+    let bp = Arc::new(load_blueprint(opts, &strategy));
     // The search agent keeps a record of its solves, to count the re-solves LBR's bets cause.
     let searcher = (name == "search").then(|| {
-        let mut a = SearchAgent::load(&strategy, settings(opts)).expect("the search agent loads");
+        let mut a = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+            .expect("the search agent loads");
         a.keep_records = true;
         Arc::new(a)
     });
-    let agent = Dyn(match &searcher {
+    let agent: Arc<dyn Strategy + Send + Sync> = match &searcher {
         Some(a) => Arc::clone(a) as Arc<dyn Strategy + Send + Sync>,
-        None => agent_named(&name, &strategy, settings(opts)),
-    });
-    let t0 = Instant::now();
-    let deals = lbr_match(&agent, &lbr_config, &table);
-    let secs = t0.elapsed().as_secs_f64();
-    let r = deals.result();
-    let mut solves = serde_json::Map::new();
-    if let Some(a) = &searcher {
-        let records = a.take_records();
-        for street in [Street::Flop, Street::Turn, Street::River] {
-            let of: Vec<_> = records.iter().filter(|r| r.street == street).collect();
-            let mut ms: Vec<f64> = of.iter().map(|r| r.ms).collect();
-            solves.insert(
-                street_name(street).into(),
-                json!({"solves": of.len(), "resolves": of.iter().filter(|r| r.resolve).count(),
-                       "solve_ms_p50": percentile(&mut ms, 0.5), "solve_ms_p95": percentile(&mut ms, 0.95)}),
-            );
-        }
-    }
-    println!(
-        "{}",
-        json!({"agent": name, "setting": setting, "paper": paper, "hands": r.hands, "seed": seed,
-               "lbr_bb_per_100": r.bb_per_100, "se": r.std_err, "seconds": secs, "solves": solves})
-    );
+        None if name == "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
+        None => agent_named(opts, &name, &strategy, settings(opts)),
+    };
+    let (deals, summary) = runs::lbr_run(
+        &name,
+        agent,
+        searcher.as_deref(),
+        &setting,
+        stack_of(&bp),
+        hands,
+        seed,
+    )
+    .expect("LBR runs");
+    println!("{summary}");
     let out = need(opts, "out");
     deals.save(Path::new(&out)).expect("the deals save");
 }
@@ -227,95 +414,10 @@ fn lbr(opts: &HashMap<String, String>) {
 fn compare(rest: &[String]) {
     let a = Deals::load(Path::new(&rest[0])).expect("deals A");
     let b = Deals::load(Path::new(&rest[1])).expect("deals B");
-    let (diff, se) = a.minus(&b).expect("the same deals");
-    let (ra, rb) = (a.result(), b.result());
-    println!(
-        "{}",
-        json!({"a": rest[0], "b": rest[1], "a_bb_per_100": ra.bb_per_100, "a_se": ra.std_err,
-               "b_bb_per_100": rb.bb_per_100, "b_se": rb.std_err, "a_minus_b": diff, "se": se,
-               "z": if se > 0.0 { diff / se } else { 0.0 }})
-    );
-}
-
-/// Plays `hands` hands of the search agent against the blueprint, seats alternating, with
-/// the real cards known, calling `look` before every decision of the search agent.
-fn play_hands(
-    agent: &SearchAgent,
-    hands: u64,
-    seed: u64,
-    mut look: impl FnMut(&State, usize, f64),
-) -> (f64, u64) {
-    let bp = &agent.bp;
-    let c = bp.game().config();
-    let mut won = 0.0;
-    let mut decisions = 0;
-    for h in 0..hands {
-        let s = mix(seed ^ mix(h));
-        let config = Config::new(
-            &[c.stack, c.stack],
-            c.small_blind,
-            c.big_blind,
-            0,
-            (h % 2) as usize,
-        )
-        .unwrap();
-        let mut cards: Vec<Card> = (0..52).collect();
-        let mut x = s;
-        for i in 0..9 {
-            x = mix(x.wrapping_add(i as u64 + 1));
-            let j = i + (x % (52 - i as u64)) as usize;
-            cards.swap(i, j);
-        }
-        let deal = Deal::new(
-            &[[cards[0], cards[1]], [cards[2], cards[3]]],
-            [cards[4], cards[5], cards[6], cards[7], cards[8]],
-        )
-        .unwrap();
-        let mut state = State::new(&config, deal).unwrap();
-        // The search agent sits in seat 0.
-        let mut probs = ActionProbs::new();
-        let mut step = 0u64;
-        while !state.is_terminal() {
-            let seat = state.current_player().unwrap();
-            let public = PublicState::new(&state);
-            let hole = state.hole_cards(seat);
-            probs.clear();
-            if seat == 0 {
-                let t0 = Instant::now();
-                agent.action_probs(&public, hole, &mut probs);
-                let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                look(&state, seat, ms);
-                decisions += 1;
-            } else {
-                bp.action_probs(&public, hole, &mut probs);
-            }
-            step += 1;
-            let u = (mix(s ^ (step << 8)) >> 11) as f64 / (1u64 << 53) as f64;
-            let a = probs.sample(u).expect("some action");
-            state.apply(a).expect("a legal action");
-        }
-        let payouts = state.payouts(&lbr::EvalRanker).expect("the hand is over");
-        won += payouts[0] as f64;
-    }
-    (won, decisions)
-}
-
-fn percentile(v: &mut [f64], p: f64) -> f64 {
-    if v.is_empty() {
-        return f64::NAN;
-    }
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let i = ((v.len() as f64 - 1.0) * p).round() as usize;
-    v[i]
-}
-
-fn street_name(s: Street) -> &'static str {
-    match s {
-        Street::Preflop => "preflop",
-        Street::Flop => "flop",
-        Street::Turn => "turn",
-        Street::River => "river",
-    }
+    let mut v = runs::compare(&a, &b).expect("the same deals");
+    v["a"] = json!(rest[0]);
+    v["b"] = json!(rest[1]);
+    println!("{v}");
 }
 
 fn bench(opts: &HashMap<String, String>) {
@@ -331,78 +433,9 @@ fn bench(opts: &HashMap<String, String>) {
         turn_threads: threads,
         ..settings(opts)
     };
-    let mut agent = SearchAgent::load(&strategy, settings).expect("the agent loads");
-    agent.keep_records = true;
-    let mut by_street: HashMap<&'static str, Vec<f64>> = HashMap::new();
-    let t0 = Instant::now();
-    let (_, decisions) = play_hands(&agent, hands, seed, |state, _, ms| {
-        by_street
-            .entry(street_name(state.street()))
-            .or_default()
-            .push(ms);
-    });
-    let records = agent.take_records();
-    let mut out = serde_json::Map::new();
-    for s in ["preflop", "flop", "turn", "river"] {
-        let mut v = by_street.remove(s).unwrap_or_default();
-        let n = v.len();
-        let (p50, p95, max) = (
-            percentile(&mut v, 0.5),
-            percentile(&mut v, 0.95),
-            percentile(&mut v, 1.0),
-        );
-        let mut solves: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.ms)
-            .collect();
-        let ns = solves.len();
-        let (s50, s95, smax) = (
-            percentile(&mut solves, 0.5),
-            percentile(&mut solves, 0.95),
-            percentile(&mut solves, 1.0),
-        );
-        let iters: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.iterations as f64)
-            .collect();
-        let expl: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.exploitability)
-            .collect();
-        let combos: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| (r.combos[0] + r.combos[1]) as f64 / 2.0)
-            .collect();
-        let nodes: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.solver_nodes as f64)
-            .collect();
-        let mean = |v: &[f64]| {
-            if v.is_empty() {
-                f64::NAN
-            } else {
-                v.iter().sum::<f64>() / v.len() as f64
-            }
-        };
-        out.insert(
-            s.into(),
-            json!({"decisions": n, "decision_ms_p50": p50, "decision_ms_p95": p95, "decision_ms_max": max,
-                   "solves": ns, "resolves": records.iter().filter(|r| street_name(r.street) == s && r.resolve).count(),
-                   "solve_ms_p50": s50, "solve_ms_p95": s95, "solve_ms_max": smax,
-                   "mean_iterations": mean(&iters), "mean_exploitability": mean(&expl),
-                   "mean_combos": mean(&combos), "mean_solver_nodes": mean(&nodes)}),
-        );
-    }
-    out.insert("hands".into(), json!(hands));
-    out.insert("decisions".into(), json!(decisions));
-    out.insert("threads".into(), json!(threads));
-    out.insert("seconds".into(), json!(t0.elapsed().as_secs_f64()));
-    let text = serde_json::to_string_pretty(&out).unwrap();
+    let mut agent = load_search(opts, &strategy, settings);
+    let report = runs::bench(&mut agent, hands, seed);
+    let text = serde_json::to_string_pretty(&report).unwrap();
     println!("{text}");
     if let Some(path) = opts.get("out") {
         std::fs::write(path, text).expect("the report saves");
@@ -413,7 +446,7 @@ fn ranges(opts: &HashMap<String, String>) {
     let strategy = PathBuf::from(need(opts, "strategy"));
     let hands: u64 = get(opts, "hands", 200);
     let seed: u64 = get(opts, "seed", 1);
-    let agent = SearchAgent::load(&strategy, settings(opts)).expect("the agent loads");
+    let agent = load_search(opts, &strategy, settings(opts));
     // [street][own, opponent]: (decisions, in the range, in the solve, sum of percentile)
     let mut tally: HashMap<&'static str, [[f64; 4]; 2]> = HashMap::new();
     play_hands(&agent, hands, seed, |state, me, _| {
@@ -539,8 +572,8 @@ fn trees(opts: &HashMap<String, String>) {
                         "flop_decisions": decisions, "flop_leaves": leaves, "turns": turns}),
         );
     }
-    // The whole abstract game's turn starts: one leaf table per start, 7 lanes of 200 x 200
-    // flop buckets in f32.
+    // The whole abstract game's turn starts: one leaf table per start, 7 or 16 lanes of
+    // 200 x 200 flop buckets in f32.
     let root = State::new(&config, deal).unwrap();
     let abstract_tree = abstract_game::tree::BettingTree::build(&root, &menus);
     let starts = search::leaf::turn_starts_in(&abstract_tree).len();
@@ -549,13 +582,14 @@ fn trees(opts: &HashMap<String, String>) {
     for id in 0..abstract_tree.len() as u32 {
         by_street[abstract_tree.node(id).street as usize] += 1;
     }
-    let table_bytes = starts as u64 * search::leaf::TABLE_LANES as u64 * 200 * 200 * 4;
+    let table_bytes = |lanes: usize| starts as u64 * lanes as u64 * 200 * 200 * 4;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"stack_bb": bb, "lines": out,
             "abstract_nodes": abstract_tree.len(), "abstract_nodes_by_street": by_street,
             "turn_starts": starts,
-            "leaf_table_bytes_at_200_buckets": table_bytes}))
+            "leaf_table_bytes_at_200_buckets": table_bytes(search::leaf::MODICUM_LANES),
+            "leaf_table_bytes_at_200_buckets_16_lanes": table_bytes(search::leaf::BOTH_LANES)}))
         .unwrap()
     );
 }
@@ -567,7 +601,7 @@ fn scale(opts: &HashMap<String, String>) {
     let hands: u64 = get(opts, "hands", 40);
     let seed: u64 = get(opts, "seed", 1);
     let spots: usize = get(opts, "spots", 6);
-    let base = SearchAgent::load(&strategy, settings(opts)).expect("the agent loads");
+    let base = load_search(opts, &strategy, settings(opts));
     let mut saved: Vec<State> = Vec::new();
     play_hands(&base, hands, seed, |state, _, _| {
         let street = state.street();

@@ -1,0 +1,23 @@
+{
+ "strategy": "/opt/pscloud/bundle/files/strategy-512000000.bps",
+ "tables": "/opt/pscloud/bundle/files/k200",
+ "leaf": {"deals": 16000000, "seed": 7, "lanes": 16, "part_nodes": 256},
+ "agent": {"leaf_choice": "both", "play": "average",
+           "flop_iterations": 400, "turn_iterations": 300, "river_iterations": 1000, "prune": 0.001},
+ "bench": {"hands": 200, "seed": 7581, "threads": 4,
+           "bound_ms": {"flop": 40000, "turn": 65000, "river": 2000}},
+ "pilot": {"deals": 2000, "seed": 7501},
+ "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 2000, "min": 4000, "max": 40000},
+ "gate": {"chunk": 2000, "seed": 7600, "pass_z": 2.5, "measure": "aivat"},
+ "variants": [
+  {"name": "modicum", "chunks": 4, "seed": 7800,
+   "agent": {"leaf_choice": "opponent", "play": "average",
+             "flop_iterations": 400, "turn_iterations": 300, "river_iterations": 1000, "prune": 0.001}},
+  {"name": "final", "chunks": 4, "seed": 7900,
+   "agent": {"leaf_choice": "both", "play": "final",
+             "flop_iterations": 400, "turn_iterations": 300, "river_iterations": 1000, "prune": 0.001}}
+ ],
+ "lbr": {"hands": 1000, "chunks": 10,
+         "settings": [{"name": "fcpa14", "seed": 7300}, {"name": "b56_14", "seed": 7400}]},
+ "repeat": {"seed": 7700}
+}

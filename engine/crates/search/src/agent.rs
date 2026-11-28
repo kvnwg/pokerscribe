@@ -115,12 +115,41 @@ pub const CACHE_ENTRIES: usize = 1024;
 impl SearchAgent<Arc<Buckets>> {
     /// The agent for a strategy file and its leaf tables (`<file>.leaf`, when there).
     pub fn load(strategy: &Path, settings: Settings) -> std::io::Result<SearchAgent> {
-        let bp = Arc::new(Blueprint::load(strategy, None)?);
+        SearchAgent::load_with(strategy, None, settings)
+    }
+
+    /// The same, with the bucket tables from `tables` instead of the folder the strategy
+    /// file names (a file trained on another machine; the tables must still be the ones it
+    /// was trained with).
+    pub fn load_with(
+        strategy: &Path,
+        tables: Option<&Path>,
+        settings: Settings,
+    ) -> std::io::Result<SearchAgent> {
+        let bp = Arc::new(Blueprint::load(strategy, tables)?);
+        SearchAgent::with_leaf_tables(bp, strategy, settings)
+    }
+
+    /// The agent on a loaded blueprint, with the leaf tables next to its strategy file
+    /// (`<file>.leaf`, when there), checked against the file.
+    pub fn with_leaf_tables(
+        bp: Arc<Blueprint<Arc<Buckets>>>,
+        strategy: &Path,
+        settings: Settings,
+    ) -> std::io::Result<SearchAgent> {
         let leaf_path = leaf_path(strategy);
         let leaf = if leaf_path.exists() {
-            let t = LeafTables::load(&leaf_path)?;
+            // The header first: a table for another file, or with too few lanes, is refused
+            // before gigabytes load.
+            let header = LeafTables::read_header(&leaf_path)?;
+            crate::solve::check_lanes(header.lanes, settings.leaf_choice).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}: {e}", leaf_path.display()),
+                )
+            })?;
             let hash = crate::leaf::file_hash(strategy)?;
-            if t.header.strategy_hash != hash {
+            if header.strategy_hash != hash {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
@@ -129,7 +158,7 @@ impl SearchAgent<Arc<Buckets>> {
                     ),
                 ));
             }
-            Some(Arc::new(t))
+            Some(Arc::new(LeafTables::load(&leaf_path)?))
         } else {
             None
         };
@@ -143,6 +172,11 @@ impl<B: Bucketer + Sync + Send> SearchAgent<B> {
         leaf: Option<Arc<LeafTables>>,
         settings: Settings,
     ) -> SearchAgent<B> {
+        if let Some(tables) = &leaf {
+            if let Err(e) = crate::solve::check_lanes(tables.header.lanes, settings.leaf_choice) {
+                panic!("{e}");
+            }
+        }
         let menus = bp.game().config().menus.clone();
         SearchAgent {
             bp,

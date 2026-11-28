@@ -8,11 +8,15 @@
 //! version of it (Modicum's continuation strategies, Brown, Sandholm and Amos 2018): at
 //! every decision of the rest of the hand the probability of folding, of checking or
 //! calling, or of betting or raising (all sizes together) is multiplied by [`BIAS`] and the
-//! strategy renormalized. Seven lanes:
+//! strategy renormalized. Each player has four choices (0 the blueprint, 1, 2, 3 biased
+//! toward folding, calling, raising), and a table holds one of two sets of lanes:
 //!
-//! - 0: both play the blueprint;
-//! - 1, 2, 3: the small blind (in position) is biased toward folding, calling, raising;
-//! - 4, 5, 6: the big blind (out of position) is biased the same three ways.
+//! - seven ([`MODICUM_LANES`], as Modicum: one player at a time picks, the other plays the
+//!   blueprint): 0 both play the blueprint; 1, 2, 3 the small blind (in position) biased
+//!   toward folding, calling, raising; 4, 5, 6 the big blind (out of position) biased the
+//!   same three ways;
+//! - sixteen ([`BOTH_LANES`], as Pluribus: both players pick): lane `4 sb + bb` for the small
+//!   blind's choice `sb` and the big blind's `bb`. They hold the seven above.
 //!
 //! The value of a lane is the big blind's share of the pot at `d`: `(net + C) / P`, with
 //! `net` what the big blind wins over the whole hand, `C` what it had put in at `d` and `P`
@@ -25,8 +29,13 @@
 //! deal the abstract subtree under every `d` is walked exactly, every action of both
 //! players weighted by its probability, with the turn and river buckets of the deal. A cell
 //! with few deals is pulled toward an additive fit of its row and column (a pseudo-count
-//! of [`PRIOR_DEALS`] deals). The deal stream is fixed by the seed and the blocks are split
-//! by `d`, so a build gives the same tables on any number of threads.
+//! of [`PRIOR_DEALS`] deals). The deal stream is fixed by the seed, and every cell adds its
+//! deals in the stream's order, so a build gives the same tables on any number of threads.
+//!
+//! A build can be split into parts, each a run of the turn starts ([`build_part`]): a part
+//! walks every deal for its nodes only, so its memory is the part's, and the parts put
+//! together are the whole build's tables bit for bit (`crate::leaf_job` runs them as a
+//! resumable job).
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -39,8 +48,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::cards::{eval_card, mix};
 
-/// Lanes in a table: the blueprint, then three biased lanes for each player.
-pub const TABLE_LANES: usize = 7;
+/// A player's choices of continuation strategy at a leaf: the blueprint, then biased toward
+/// folding, toward checking or calling, toward betting or raising.
+pub const CHOICES: usize = 4;
+/// Lanes in a table where one player at a time picks (Modicum): the blueprint, then three
+/// biased lanes for each player.
+pub const MODICUM_LANES: usize = 7;
+/// Lanes in a table where both players pick (Pluribus): every pair of choices.
+pub const BOTH_LANES: usize = CHOICES * CHOICES;
+/// The most lanes a table has.
+pub const MAX_LANES: usize = BOTH_LANES;
 /// How much a biased lane multiplies the favoured kind of action by.
 pub const BIAS: f64 = 5.0;
 /// Pseudo-count of the prior for sparse cells.
@@ -49,14 +66,39 @@ pub const PRIOR_DEALS: f64 = 3.0;
 const MAGIC: &[u8; 8] = b"PSLEAF1\n";
 const MAX_EDGES: usize = 16;
 
-/// The lanes a chooser picks among in the flop solver, in the solver's lane order
-/// (blueprint, fold-, call-, raise-biased): the big blind's lanes or the small blind's.
-pub fn chooser_lanes(chooser_is_big_blind: bool) -> [usize; 4] {
-    if chooser_is_big_blind {
-        [0, 4, 5, 6]
-    } else {
-        [0, 1, 2, 3]
+/// The lane of a table with `lanes` lanes in which the small blind plays choice `sb` and
+/// the big blind choice `bb` (0 the blueprint, 1, 2, 3 biased), or `None` when the table
+/// doesn't hold that pair.
+pub fn lane_of(lanes: usize, sb: usize, bb: usize) -> Option<usize> {
+    assert!(sb < CHOICES && bb < CHOICES, "a choice is 0 to 3");
+    match lanes {
+        MODICUM_LANES => match (sb, bb) {
+            (0, 0) => Some(0),
+            (s, 0) => Some(s),
+            (0, b) => Some(3 + b),
+            _ => None,
+        },
+        BOTH_LANES => Some(sb * CHOICES + bb),
+        _ => None,
     }
+}
+
+/// The choices of the small blind and the big blind in `lane` of a table with `lanes` lanes.
+pub fn lane_choices(lanes: usize, lane: usize) -> [usize; 2] {
+    match lanes {
+        MODICUM_LANES => match lane {
+            0 => [0, 0],
+            1..=3 => [lane, 0],
+            4..=6 => [0, lane - 3],
+            _ => panic!("lane {lane} of {lanes}"),
+        },
+        BOTH_LANES => [lane / CHOICES, lane % CHOICES],
+        _ => panic!("a table has {MODICUM_LANES} or {BOTH_LANES} lanes, not {lanes}"),
+    }
+}
+
+fn modicum_lanes() -> usize {
+    MODICUM_LANES
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +107,9 @@ pub struct Header {
     pub nodes: Vec<u32>,
     /// Flop buckets (both players use the same table).
     pub buckets: usize,
+    /// [`MODICUM_LANES`] or [`BOTH_LANES`] (files from before both existed have seven).
+    #[serde(default = "modicum_lanes")]
+    pub lanes: usize,
     pub deals: u64,
     pub seed: u64,
     pub bias: f64,
@@ -81,7 +126,7 @@ pub struct Header {
 pub struct LeafTables {
     pub header: Header,
     index: HashMap<u32, usize>,
-    /// `q[((node * TABLE_LANES + lane) * buckets + bb) * buckets + sb]`.
+    /// `q[((node * lanes + lane) * buckets + bb) * buckets + sb]`.
     q: Vec<f32>,
 }
 
@@ -91,43 +136,68 @@ impl LeafTables {
     pub fn table(&self, node: u32, lane: usize) -> Option<&[f32]> {
         let &i = self.index.get(&node)?;
         let b = self.header.buckets;
-        let start = (i * TABLE_LANES + lane) * b * b;
+        assert!(
+            lane < self.header.lanes,
+            "lane {lane} of {}",
+            self.header.lanes
+        );
+        let start = (i * self.header.lanes + lane) * b * b;
         Some(&self.q[start..start + b * b])
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let mut f = io::BufWriter::new(std::fs::File::create(path)?);
-        f.write_all(MAGIC)?;
-        let header = serde_json::to_vec(&self.header)?;
-        f.write_all(&(header.len() as u64).to_le_bytes())?;
-        f.write_all(&header)?;
-        for x in &self.q {
-            f.write_all(&x.to_le_bytes())?;
-        }
+        write_header(&mut f, &self.header)?;
+        write_f32s(&mut f, &self.q)?;
         f.flush()
     }
 
-    pub fn load(path: &Path) -> io::Result<LeafTables> {
-        let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    /// The tables as one slice, `[node][lane][big blind bucket][small blind bucket]`.
+    pub fn values(&self) -> &[f32] {
+        &self.q
+    }
+
+    /// The header of a table file, without its values.
+    pub fn read_header(path: &Path) -> io::Result<Header> {
         let mut f = io::BufReader::new(std::fs::File::open(path)?);
-        let mut magic = [0u8; 8];
-        f.read_exact(&mut magic)?;
-        if &magic != MAGIC {
-            return Err(bad("not a leaf table file"));
+        read_header_from(&mut f)
+    }
+
+    pub fn load(path: &Path) -> io::Result<LeafTables> {
+        let mut f = io::BufReader::new(std::fs::File::open(path)?);
+        let header = read_header_from(&mut f)?;
+        if header.lanes != MODICUM_LANES && header.lanes != BOTH_LANES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{} lanes: a table has {MODICUM_LANES} or {BOTH_LANES}",
+                    header.lanes
+                ),
+            ));
         }
-        let mut len = [0u8; 8];
-        f.read_exact(&mut len)?;
-        let mut header = vec![0u8; u64::from_le_bytes(len) as usize];
-        f.read_exact(&mut header)?;
-        let header: Header = serde_json::from_slice(&header)?;
         let b = header.buckets;
-        let n = header.nodes.len() * TABLE_LANES * b * b;
-        let mut bytes = vec![0u8; n * 4];
-        f.read_exact(&mut bytes)?;
-        let q = bytes
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
+        let n = header.nodes.len() * header.lanes * b * b;
+        // Read in slices straight into the table: a 200bb table is 9.7 GB, so a second copy
+        // of it as bytes would double the memory a load needs.
+        let mut q = Vec::with_capacity(n);
+        let mut buf = vec![0u8; (16 << 20).min(n * 4)];
+        let mut left = n * 4;
+        while left > 0 {
+            let k = left.min(buf.len());
+            f.read_exact(&mut buf[..k])?;
+            q.extend(
+                buf[..k]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
+            );
+            left -= k;
+        }
+        if f.read(&mut [0u8; 1])? != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the file is longer than its header says",
+            ));
+        }
         let index = header
             .nodes
             .iter()
@@ -138,13 +208,68 @@ impl LeafTables {
     }
 }
 
-/// FNV-1a over a file's bytes, as hex: ties a table file to its strategy file.
-pub fn file_hash(path: &Path) -> io::Result<String> {
-    let bytes = std::fs::read(path)?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
+fn read_header_from(f: &mut impl Read) -> io::Result<Header> {
+    let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    let mut magic = [0u8; 8];
+    f.read_exact(&mut magic)?;
+    if &magic != MAGIC {
+        return Err(bad("not a leaf table file"));
+    }
+    let mut len = [0u8; 8];
+    f.read_exact(&mut len)?;
+    let len = u64::from_le_bytes(len);
+    if len > 1 << 30 {
+        return Err(bad("a leaf table header too long"));
+    }
+    let mut header = vec![0u8; len as usize];
+    f.read_exact(&mut header)?;
+    Ok(serde_json::from_slice(&header)?)
+}
+
+/// The start of a table file: the magic and the header (the values follow it).
+pub fn write_header(f: &mut impl Write, header: &Header) -> io::Result<()> {
+    f.write_all(MAGIC)?;
+    let header = serde_json::to_vec(header)?;
+    f.write_all(&(header.len() as u64).to_le_bytes())?;
+    f.write_all(&header)
+}
+
+/// Values as little-endian f32, the table file's format.
+pub fn write_f32s(f: &mut impl Write, values: &[f32]) -> io::Result<()> {
+    let mut buf = Vec::with_capacity(1 << 20);
+    for chunk in values.chunks(1 << 18) {
+        buf.clear();
+        for x in chunk {
+            buf.extend_from_slice(&x.to_le_bytes());
+        }
+        f.write_all(&buf)?;
+    }
+    Ok(())
+}
+
+/// FNV-1a over bytes, continuing from `h` (start from [`FNV_START`]).
+pub fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+pub const FNV_START: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a over a file's bytes, as hex: ties a table file to its strategy file. Read in
+/// slices, so hashing a 0.5 GB strategy file doesn't hold it all in memory.
+pub fn file_hash(path: &Path) -> io::Result<String> {
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; 1 << 20];
+    let mut h = FNV_START;
+    loop {
+        let k = f.read(&mut buf)?;
+        if k == 0 {
+            break;
+        }
+        h = fnv(h, &buf[..k]);
     }
     Ok(format!("{h:016x}"))
 }
@@ -229,14 +354,10 @@ fn kind(a: Action) -> usize {
     }
 }
 
-/// The bias a lane puts on `player` (0 small blind, 1 big blind): the kind favoured, or
-/// `None` for the blueprint.
-fn lane_bias(lane: usize, player: usize) -> Option<usize> {
-    match (lane, player) {
-        (1..=3, 0) => Some(lane - 1),
-        (4..=6, 1) => Some(lane - 4),
-        _ => None,
-    }
+/// The bias a lane of a table with `lanes` lanes puts on `player` (0 small blind, 1 big
+/// blind): the kind favoured, or `None` for the blueprint.
+fn lane_bias(lanes: usize, lane: usize, player: usize) -> Option<usize> {
+    lane_choices(lanes, lane)[player].checked_sub(1)
 }
 
 /// `probs` biased toward `kind` (multiplied by [`BIAS`], renormalized).
@@ -253,11 +374,14 @@ pub fn biased(probs: &[f64], kinds: &[usize], favoured: usize, out: &mut [f64]) 
 
 struct Walker<'a, B> {
     bp: &'a blueprint::play::Blueprint<B>,
+    /// The lanes walked: [`MODICUM_LANES`] or [`BOTH_LANES`].
+    lanes: usize,
 }
 
 impl<B: Bucketer> Walker<'_, B> {
-    /// The big blind's net chips over the hand, in each lane, from decision point `node`.
-    fn walk(&self, node: u32, d: &Deal, out: &mut [f64; TABLE_LANES]) {
+    /// The big blind's net chips over the hand, in each lane (the first `lanes` of `out`),
+    /// from decision point `node`.
+    fn walk(&self, node: u32, d: &Deal, out: &mut [f64; MAX_LANES]) {
         let tree = self.bp.game().tree();
         let n = tree.node(node);
         let player = n.player as usize;
@@ -276,22 +400,22 @@ impl<B: Bucketer> Walker<'_, B> {
         for (k, e) in kinds.iter_mut().zip(edges) {
             *k = kind(e.action);
         }
-        let mut child = [[0f64; TABLE_LANES]; MAX_EDGES];
+        let mut child = [[0f64; MAX_LANES]; MAX_EDGES];
         for (a, e) in edges.iter().enumerate() {
             if probs[a] == 0.0 {
                 continue; // no lane ever takes it
             }
             match e.next() {
                 Next::Decision(c) => self.walk(c, d, &mut child[a]),
-                Next::End(p) => child[a] = [tree.payoff(p).chips[d.result][1] as f64; TABLE_LANES],
+                Next::End(p) => child[a] = [tree.payoff(p).chips[d.result][1] as f64; MAX_LANES],
             }
         }
         let mut biased_probs = [[0f64; MAX_EDGES]; 3];
         for (f, slot) in biased_probs.iter_mut().enumerate() {
             biased(&probs[..k], &kinds[..k], f, &mut slot[..k]);
         }
-        for (lane, o) in out.iter_mut().enumerate() {
-            let w = match lane_bias(lane, player) {
+        for (lane, o) in out[..self.lanes].iter_mut().enumerate() {
+            let w = match lane_bias(self.lanes, lane, player) {
                 Some(f) => &biased_probs[f][..k],
                 None => &probs[..k],
             };
@@ -320,6 +444,8 @@ pub struct BuildConfig {
     pub seed: u64,
     /// Deals generated (in parallel) before the nodes walk them (in parallel).
     pub block: u64,
+    /// [`MODICUM_LANES`] or [`BOTH_LANES`].
+    pub lanes: usize,
 }
 
 impl Default for BuildConfig {
@@ -328,82 +454,213 @@ impl Default for BuildConfig {
             deals: 4_000_000,
             seed: 7,
             block: 1 << 16,
+            lanes: MODICUM_LANES,
         }
     }
 }
 
-/// Builds the tables of `bp` (made from `strategy`, hashed into the header).
-pub fn build<B: Bucketer + Sync>(
+/// One part of a build: the tables of a run of turn starts, and the deals per cell (the
+/// same for every part, since every part walks every deal).
+pub struct Part {
+    /// `[node][lane][big blind bucket][small blind bucket]`, for the part's nodes in order.
+    pub q: Vec<f32>,
+    /// Deals per cell, `[big blind bucket][small blind bucket]`.
+    pub count: Vec<u64>,
+    pub seconds: f64,
+}
+
+/// Cell ranges a block is split into for the walk. Any split gives the same sums: a cell
+/// is in one range only and adds its deals in the stream's order.
+const SLICES: usize = 64;
+
+/// Builds the tables of `nodes` (turn starts of `bp`, in table order) over the deals of
+/// `config`. `stop` is asked between blocks of deals; when it says yes the part is given up
+/// (`None`). `progress` gets the deals done after each block.
+pub fn build_part<B: Bucketer + Sync>(
     bp: &blueprint::play::Blueprint<B>,
-    strategy: &Path,
+    nodes: &[u32],
     config: &BuildConfig,
+    stop: &dyn Fn() -> bool,
     mut progress: impl FnMut(u64),
-) -> io::Result<LeafTables> {
+) -> Option<Part> {
     let start = std::time::Instant::now();
-    let nodes = turn_starts(bp);
     let bucketer = bp.game().bucketer();
     let nb = bucketer.num_buckets(Street::Flop) as usize;
     let cells = nb * nb;
+    let lanes = config.lanes;
+    lane_choices(lanes, 0); // a known layout
     let at: Vec<(f64, f64)> = nodes.iter().map(|&n| committed_and_pot(bp, n)).collect();
-    // sums[node][lane][cell]
-    let mut sums: Vec<Vec<f64>> = vec![vec![0.0; TABLE_LANES * cells]; nodes.len()];
+    // sums[node][cell][lane]: a cell's lanes side by side, so a range of cells is one slice.
+    let mut sums: Vec<Vec<f64>> = vec![vec![0.0; cells * lanes]; nodes.len()];
     let mut count = vec![0u64; cells];
-    let walker = Walker { bp };
+    let walker = Walker { bp, lanes };
+    // The cell ranges of the walk.
+    let bounds: Vec<usize> = (0..=SLICES).map(|i| i * cells / SLICES).collect();
     let mut done = 0u64;
     while done < config.deals {
+        if stop() {
+            return None;
+        }
         let n = config.block.min(config.deals - done);
         let deals: Vec<Deal> = (done..done + n)
             .into_par_iter()
             .map(|i| deal(bucketer, config.seed, i))
             .collect();
-        for d in &deals {
-            let [b_sb, b_bb] = d.buckets[0];
-            assert!(
-                (b_sb as usize) < nb && (b_bb as usize) < nb,
-                "flop bucket out of range"
-            );
-            count[b_bb as usize * nb + b_sb as usize] += 1;
-        }
-        sums.par_iter_mut().enumerate().for_each(|(i, sum)| {
-            let (c, p) = at[i];
-            let mut v = [0f64; TABLE_LANES];
-            for d in &deals {
-                walker.walk(nodes[i], d, &mut v);
+        // The block's deals by cell, and within a cell in the stream's order.
+        let mut order: Vec<(u32, u32)> = deals
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
                 let [b_sb, b_bb] = d.buckets[0];
-                let cell = b_bb as usize * nb + b_sb as usize;
-                for (lane, x) in v.iter().enumerate() {
-                    sum[lane * cells + cell] += (x + c) / p;
+                assert!(
+                    (b_sb as usize) < nb && (b_bb as usize) < nb,
+                    "flop bucket out of range"
+                );
+                ((b_bb as usize * nb + b_sb as usize) as u32, i as u32)
+            })
+            .collect();
+        order.sort_unstable();
+        for &(cell, _) in &order {
+            count[cell as usize] += 1;
+        }
+        // Where each cell range starts in `order`.
+        let firsts: Vec<usize> = bounds
+            .iter()
+            .map(|&c| order.partition_point(|&(cell, _)| (cell as usize) < c))
+            .collect();
+        // One piece of work per node and cell range, each with its own slice of the sums.
+        let mut work = Vec::with_capacity(nodes.len() * SLICES);
+        for (i, sum) in sums.iter_mut().enumerate() {
+            let mut rest = &mut sum[..];
+            for r in 0..SLICES {
+                let width = (bounds[r + 1] - bounds[r]) * lanes;
+                let (piece, tail) = rest.split_at_mut(width);
+                rest = tail;
+                if firsts[r] < firsts[r + 1] {
+                    work.push((i, r, piece));
+                }
+            }
+        }
+        work.into_par_iter().for_each(|(i, r, piece)| {
+            let (c, p) = at[i];
+            let mut v = [0f64; MAX_LANES];
+            for &(cell, k) in &order[firsts[r]..firsts[r + 1]] {
+                walker.walk(nodes[i], &deals[k as usize], &mut v);
+                let at = (cell as usize - bounds[r]) * lanes;
+                for (lane, x) in v[..lanes].iter().enumerate() {
+                    piece[at + lane] += (x + c) / p;
                 }
             }
         });
         done += n;
         progress(done);
     }
-    let mut q = vec![0f32; nodes.len() * TABLE_LANES * cells];
+    let mut q = vec![0f32; nodes.len() * lanes * cells];
+    let mut lane_sum = vec![0f64; cells];
     for (i, sum) in sums.iter().enumerate() {
-        for lane in 0..TABLE_LANES {
-            let s = &sum[lane * cells..(lane + 1) * cells];
-            let out =
-                &mut q[(i * TABLE_LANES + lane) * cells..(i * TABLE_LANES + lane + 1) * cells];
-            shrink(s, &count, nb, out);
+        for lane in 0..lanes {
+            for (cell, s) in lane_sum.iter_mut().enumerate() {
+                *s = sum[cell * lanes + lane];
+            }
+            let out = &mut q[(i * lanes + lane) * cells..(i * lanes + lane + 1) * cells];
+            shrink(&lane_sum, &count, nb, out);
         }
     }
-    let mut sorted = count.clone();
+    Some(Part {
+        q,
+        count,
+        seconds: start.elapsed().as_secs_f64(),
+    })
+}
+
+/// Deals per cell: the fewest, the median and the most.
+pub fn cell_deals(count: &[u64]) -> [u64; 3] {
+    let mut sorted = count.to_vec();
     sorted.sort_unstable();
+    let n = sorted.len();
+    [sorted[0], sorted[n / 2], sorted[n - 1]]
+}
+
+/// Builds the tables of `bp` (made from `strategy`, hashed into the header) in one part,
+/// held in memory. `crate::leaf_job` builds the same tables in parts.
+pub fn build<B: Bucketer + Sync>(
+    bp: &blueprint::play::Blueprint<B>,
+    strategy: &Path,
+    config: &BuildConfig,
+    progress: impl FnMut(u64),
+) -> io::Result<LeafTables> {
+    let nodes = turn_starts(bp);
+    let part = build_part(bp, &nodes, config, &|| false, progress).expect("never stopped");
     let header = Header {
         nodes: nodes.clone(),
-        buckets: nb,
+        buckets: bp.game().bucketer().num_buckets(Street::Flop) as usize,
+        lanes: config.lanes,
         deals: config.deals,
         seed: config.seed,
         bias: BIAS,
         prior_deals: PRIOR_DEALS,
         strategy: strategy.display().to_string(),
         strategy_hash: file_hash(strategy)?,
-        cell_deals: [sorted[0], sorted[cells / 2], sorted[cells - 1]],
-        seconds: start.elapsed().as_secs_f64(),
+        cell_deals: cell_deals(&part.count),
+        seconds: part.seconds,
     };
-    let index = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    Ok(LeafTables { header, index, q })
+    Ok(LeafTables::new(header, part.q))
+}
+
+impl LeafTables {
+    /// Tables from a header and their values (`[node][lane][bb][sb]`, in the header's node
+    /// order).
+    pub fn new(header: Header, q: Vec<f32>) -> LeafTables {
+        let b = header.buckets;
+        assert_eq!(q.len(), header.nodes.len() * header.lanes * b * b);
+        let index = header
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| (n, i))
+            .collect();
+        LeafTables { header, index, q }
+    }
+}
+
+/// The sequential build the parallel one must match bit for bit: every node walks every
+/// deal in the stream's order (the build as it was before parts). For tests.
+#[doc(hidden)]
+pub fn build_reference<B: Bucketer>(
+    bp: &blueprint::play::Blueprint<B>,
+    nodes: &[u32],
+    config: &BuildConfig,
+) -> Vec<f32> {
+    let bucketer = bp.game().bucketer();
+    let nb = bucketer.num_buckets(Street::Flop) as usize;
+    let cells = nb * nb;
+    let lanes = config.lanes;
+    let walker = Walker { bp, lanes };
+    let at: Vec<(f64, f64)> = nodes.iter().map(|&n| committed_and_pot(bp, n)).collect();
+    let mut count = vec![0u64; cells];
+    let mut sums = vec![vec![0.0; lanes * cells]; nodes.len()];
+    for i in 0..config.deals {
+        let d = deal(bucketer, config.seed, i);
+        let [b_sb, b_bb] = d.buckets[0];
+        let cell = b_bb as usize * nb + b_sb as usize;
+        count[cell] += 1;
+        for (k, &node) in nodes.iter().enumerate() {
+            let (c, p) = at[k];
+            let mut v = [0f64; MAX_LANES];
+            walker.walk(node, &d, &mut v);
+            for (lane, x) in v[..lanes].iter().enumerate() {
+                sums[k][lane * cells + cell] += (x + c) / p;
+            }
+        }
+    }
+    let mut q = vec![0f32; nodes.len() * lanes * cells];
+    for (k, sum) in sums.iter().enumerate() {
+        for lane in 0..lanes {
+            let out = &mut q[(k * lanes + lane) * cells..(k * lanes + lane + 1) * cells];
+            shrink(&sum[lane * cells..(lane + 1) * cells], &count, nb, out);
+        }
+    }
+    q
 }
 
 /// Cell means pulled toward the additive fit `row + column - all` by [`PRIOR_DEALS`].
@@ -457,16 +714,41 @@ mod tests {
 
     #[test]
     fn lanes_bias_the_right_player() {
-        assert_eq!(lane_bias(0, 0), None);
-        assert_eq!(lane_bias(0, 1), None);
-        assert_eq!(lane_bias(1, 0), Some(0));
-        assert_eq!(lane_bias(3, 0), Some(2));
-        assert_eq!(lane_bias(3, 1), None);
-        assert_eq!(lane_bias(4, 1), Some(0));
-        assert_eq!(lane_bias(6, 1), Some(2));
-        assert_eq!(lane_bias(6, 0), None);
-        assert_eq!(chooser_lanes(true), [0, 4, 5, 6]);
-        assert_eq!(chooser_lanes(false), [0, 1, 2, 3]);
+        let m = MODICUM_LANES;
+        assert_eq!(lane_bias(m, 0, 0), None);
+        assert_eq!(lane_bias(m, 0, 1), None);
+        assert_eq!(lane_bias(m, 1, 0), Some(0));
+        assert_eq!(lane_bias(m, 3, 0), Some(2));
+        assert_eq!(lane_bias(m, 3, 1), None);
+        assert_eq!(lane_bias(m, 4, 1), Some(0));
+        assert_eq!(lane_bias(m, 6, 1), Some(2));
+        assert_eq!(lane_bias(m, 6, 0), None);
+        // The big blind's three lanes and the small blind's.
+        assert_eq!(
+            [0, 1, 2, 3].map(|c| lane_of(m, 0, c)),
+            [0, 4, 5, 6].map(Some)
+        );
+        assert_eq!(
+            [0, 1, 2, 3].map(|c| lane_of(m, c, 0)),
+            [0, 1, 2, 3].map(Some)
+        );
+        assert_eq!(lane_of(m, 1, 1), None);
+        // Sixteen: every pair, and the seven are among them with the same biases.
+        let b = BOTH_LANES;
+        for lane in 0..b {
+            let [s, g] = lane_choices(b, lane);
+            assert_eq!(lane_of(b, s, g), Some(lane));
+            assert_eq!(lane_bias(b, lane, 0), s.checked_sub(1));
+            assert_eq!(lane_bias(b, lane, 1), g.checked_sub(1));
+        }
+        for lane in 0..m {
+            let [s, g] = lane_choices(m, lane);
+            assert_eq!(lane_of(m, s, g), Some(lane));
+            let both = lane_of(b, s, g).unwrap();
+            for player in 0..2 {
+                assert_eq!(lane_bias(m, lane, player), lane_bias(b, both, player));
+            }
+        }
     }
 
     #[test]

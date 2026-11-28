@@ -6,14 +6,16 @@
 //! - a fold: exactly, with card removal (the same per-card sums as the subgame crate);
 //! - an all-in call: exactly, from the showdown equity of every pair of combos over every
 //!   turn and river (`equity.rs`);
-//! - a leaf, where the flop ends with chips behind (Modicum's depth limit): the player who
-//!   is not searching picks one of four continuation strategies for the rest of the hand
-//!   (the blueprint, and the blueprint biased toward folding, toward checking or calling,
-//!   and toward betting or raising), while the searching player plays the blueprint. A leaf
-//!   is a decision of that player with four actions; each action's value is the share of
-//!   the pot the out-of-position player ends up with under that pair of strategies, looked
-//!   up by the two hands' flop buckets in the leaf table (`leaf.rs`). Where the blueprint
-//!   can't follow the line, the leaf is checked down (the equity table).
+//! - a leaf, where the flop ends with chips behind (the depth limit): a player picks one of
+//!   four continuation strategies for the rest of the hand (the blueprint, and the blueprint
+//!   biased toward folding, toward checking or calling, and toward betting or raising). As
+//!   in Modicum only the player who is not searching picks and the searching player plays
+//!   the blueprint (`choices` 4 and 1); as in Pluribus both pick (4 and 4), neither seeing
+//!   the other's pick. A pick is a decision of that player at the leaf; the value of a pair
+//!   of picks is the share of the pot the out-of-position player ends up with under that
+//!   pair of strategies, looked up by the two hands' flop buckets in the leaf table
+//!   (`leaf.rs`). Where the blueprint can't follow the line, the leaf is checked down (the
+//!   equity table).
 //!
 //! Card removal is exact everywhere: at a leaf, the bucket sums over the whole opposing
 //! range are corrected combo by combo for the opposing combos that share a card.
@@ -27,14 +29,15 @@ use rayon::prelude::*;
 use crate::cards::combo_cards;
 use crate::equity::Equity;
 use crate::street::{Kind, StreetTree};
+pub use subgame::Play;
 
 const ALPHA: f64 = 1.5;
 const BETA: f64 = 0.0;
 const GAMMA: f64 = 2.0;
 
-/// The continuation strategies a leaf offers: the blueprint, then biased toward folding,
-/// toward checking or calling, toward betting or raising.
-pub const LANES: usize = 4;
+/// The continuation strategies a player can pick at a leaf: the blueprint, then biased
+/// toward folding, toward checking or calling, toward betting or raising.
+pub const LANES: usize = crate::leaf::CHOICES;
 
 /// How one end of the flop is valued.
 #[derive(Clone, Debug)]
@@ -43,8 +46,10 @@ pub enum Leaf {
     None,
     /// Checked down: the showdown equity.
     Equity,
-    /// For each of the [`LANES`] continuation strategies, the out-of-position player's share
-    /// of the pot, `[oop bucket][ip bucket]` with the local bucket numbers of [`Problem`].
+    /// For each pair of picks (`c0` of the out-of-position player, `c1` of the in-position
+    /// player, at `c0 * choices[1] + c1`; a player with one choice plays the blueprint), the
+    /// out-of-position player's share of the pot, `[oop bucket][ip bucket]` with the local
+    /// bucket numbers of [`Problem`].
     Table(Vec<Vec<f64>>),
 }
 
@@ -63,9 +68,10 @@ pub struct Problem<'a> {
     /// Each combo's local flop bucket, and the number of local buckets, per player.
     pub buckets: [Vec<u32>; 2],
     pub num_buckets: [usize; 2],
-    /// The player who picks the continuation strategy at the leaves (the opponent of the
-    /// player searching).
-    pub chooser: usize,
+    /// How many continuation strategies each player picks among at the leaves: 1 (it plays
+    /// the blueprint) or [`LANES`]. Modicum: the searcher 1 and its opponent 4; Pluribus:
+    /// both 4.
+    pub choices: [usize; 2],
     /// Fixed strategies by node id (`[combo][action]`).
     pub frozen: Vec<Option<Vec<f64>>>,
 }
@@ -83,9 +89,11 @@ pub struct Solver<'a> {
     same: [Vec<u32>; 2],
     /// For each combo of a player, the other player's combos that share a card with it.
     conflicts: [Vec<Vec<u32>>; 2],
-    /// Regrets and strategy sums for decision nodes (the actor's combos), and for leaves
-    /// (the chooser's combos, [`LANES`] actions).
+    /// Regrets and strategy sums for decision nodes (the actor's combos).
     data: Vec<Data>,
+    /// Each player's picks at the table leaves (its combos, `choices` actions), when it has
+    /// more than one.
+    leaf: [Vec<Data>; 2],
     total: f64,
     pub iterations: u32,
     pub parallel: bool,
@@ -105,6 +113,32 @@ fn regret_match(regret: &[f64], k: usize, out: &mut [f64]) {
             s.fill(even);
         }
     }
+}
+
+/// The current strategy of `d` (`k` actions), or its average where a combo has one.
+fn mixed(d: &Data, k: usize, average: bool) -> Vec<f64> {
+    let mut out = vec![0.0; d.regret.len()];
+    regret_match(&d.regret, k, &mut out);
+    if average {
+        for (s, o) in d.sum.chunks_exact(k).zip(out.chunks_exact_mut(k)) {
+            let t: f64 = s.iter().sum();
+            if t > 0.0 {
+                for (y, x) in o.iter_mut().zip(s) {
+                    *y = x / t;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A strategy of both players: at every decision node (`[combo][action]`, empty elsewhere),
+/// and each player's picks at the table leaves (`[combo][pick]`, empty where it has one
+/// choice).
+#[derive(Clone, Debug)]
+pub struct Sigma {
+    pub node: Vec<Vec<f64>>,
+    pub leaf: [Vec<Vec<f64>>; 2],
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -163,8 +197,7 @@ impl<'a> Solver<'a> {
             .tree
             .nodes
             .iter()
-            .enumerate()
-            .map(|(id, node)| match &node.kind {
+            .map(|node| match &node.kind {
                 Kind::Decision {
                     player, actions, ..
                 } => {
@@ -174,22 +207,46 @@ impl<'a> Solver<'a> {
                         sum: vec![0.0; len],
                     }
                 }
-                Kind::End if matches!(p.leaves[id], Leaf::Table(_)) => {
-                    let len = p.combos[p.chooser].len() * LANES;
-                    Data {
-                        regret: vec![0.0; len],
-                        sum: vec![0.0; len],
-                    }
-                }
                 _ => Data::default(),
             })
             .collect();
+        for &k in &p.choices {
+            assert!(
+                k == 1 || k == LANES,
+                "a player picks among 1 or {LANES} at a leaf"
+            );
+        }
+        for leaf in &p.leaves {
+            if let Leaf::Table(qs) = leaf {
+                assert_eq!(
+                    qs.len(),
+                    p.choices[0] * p.choices[1],
+                    "a table per pair of picks"
+                );
+            }
+        }
+        let leaf = [0, 1].map(|q: usize| {
+            p.leaves
+                .iter()
+                .map(|leaf| match leaf {
+                    Leaf::Table(_) if p.choices[q] > 1 => {
+                        let len = p.combos[q].len() * p.choices[q];
+                        Data {
+                            regret: vec![0.0; len],
+                            sum: vec![0.0; len],
+                        }
+                    }
+                    _ => Data::default(),
+                })
+                .collect::<Vec<_>>()
+        });
         let mut s = Solver {
             p,
             cards,
             same,
             conflicts,
             data,
+            leaf,
             total: 0.0,
             iterations: 0,
             parallel: false,
@@ -343,88 +400,101 @@ impl<'a> Solver<'a> {
         }
     }
 
-    /// A table leaf's values for `player`: the chooser gets each lane's value
-    /// (`[lane][combo]`, written to `lanes_out`); the other player the value under the
-    /// chooser's leaf strategy `sigma` (`[combo][lane]`).
+    /// A table leaf's values for `player`, against the opposing reach `opp` and the
+    /// opponent's picks `opp_picks` (`[combo][pick]`, empty when it has one choice): with
+    /// one choice, `player`'s value goes to `out`; with several, each pick's value goes to
+    /// `picks_out` (`[pick][combo]`).
     fn table_leaf(
         &self,
         id: usize,
         player: usize,
         opp: &[f64],
-        sigma: &[f64],
+        opp_picks: &[f64],
         out: &mut [f64],
-        lanes_out: &mut [f64],
+        picks_out: &mut [f64],
     ) {
         let p = self.p;
         let Leaf::Table(qs) = &p.leaves[id] else {
             unreachable!("a table leaf")
         };
+        let o = 1 - player;
+        let (mine, theirs) = (p.choices[player], p.choices[o]);
         let node = &p.tree.nodes[id];
         let x = node.put[0].min(node.put[1]);
         let n = out.len();
         let mut met = vec![0.0; n];
-        let mut sums = vec![0.0; n];
-        if player == p.chooser {
-            self.meets(player, opp, &mut met);
-            for (l, q) in qs.iter().enumerate() {
-                self.table_sum(player, q, opp, &mut sums);
-                self.shared(player, x, &met, &sums, &mut lanes_out[l * n..(l + 1) * n]);
-            }
-            out.fill(0.0);
+        self.meets(player, opp, &mut met);
+        // The opposing reach split by the opponent's pick.
+        let parts: Vec<Vec<f64>> = if theirs == 1 {
+            vec![opp.to_vec()]
         } else {
-            self.meets(player, opp, &mut met);
-            let mut oop = vec![0.0; n];
-            let mut part = vec![0.0; opp.len()];
-            for (l, q) in qs.iter().enumerate() {
-                for (j, r) in part.iter_mut().enumerate() {
-                    *r = opp[j] * sigma[j * LANES + l];
-                }
-                self.table_sum(player, q, &part, &mut sums);
+            (0..theirs)
+                .map(|j| {
+                    (0..opp.len())
+                        .map(|h| opp[h] * opp_picks[h * theirs + j])
+                        .collect()
+                })
+                .collect()
+        };
+        let mut sums = vec![0.0; n];
+        let mut oop = vec![0.0; n];
+        for i in 0..mine {
+            oop.fill(0.0);
+            for (j, part) in parts.iter().enumerate() {
+                let (c0, c1) = if player == 0 { (i, j) } else { (j, i) };
+                self.table_sum(player, &qs[c0 * p.choices[1] + c1], part, &mut sums);
                 for (a, b) in oop.iter_mut().zip(&sums) {
                     *a += b;
                 }
             }
-            // For the in-position player the share is met - oop over the whole reach.
-            self.shared(player, x, &met, &oop, out);
+            // The out-of-position share over the whole reach; `shared` makes it a value.
+            if mine == 1 {
+                self.shared(player, x, &met, &oop, out);
+            } else {
+                self.shared(player, x, &met, &oop, &mut picks_out[i * n..(i + 1) * n]);
+            }
+        }
+        if mine > 1 {
+            out.fill(0.0);
         }
     }
 
-    /// The current (or average) strategy at every decision node and leaf.
-    fn strategies(&self, average: bool) -> Vec<Vec<f64>> {
+    /// The current (or average) strategy at every decision node, and each player's picks
+    /// at the leaves.
+    fn strategies(&self, average: bool) -> Sigma {
         let p = self.p;
-        p.tree
+        let node = p
+            .tree
             .nodes
             .iter()
             .enumerate()
             .map(|(id, node)| {
-                let k = match &node.kind {
-                    Kind::Decision { actions, .. } => actions.len(),
-                    Kind::End if !self.data[id].regret.is_empty() => LANES,
-                    _ => return Vec::new(),
+                let Kind::Decision { actions, .. } = &node.kind else {
+                    return Vec::new();
                 };
                 if let Some(f) = p.frozen.get(id).and_then(|f| f.as_ref()) {
                     return f.clone();
                 }
-                let d = &self.data[id];
-                let mut out = vec![0.0; d.regret.len()];
-                regret_match(&d.regret, k, &mut out);
-                if average {
-                    for (s, o) in d.sum.chunks_exact(k).zip(out.chunks_exact_mut(k)) {
-                        let t: f64 = s.iter().sum();
-                        if t > 0.0 {
-                            for (y, x) in o.iter_mut().zip(s) {
-                                *y = x / t;
-                            }
-                        }
-                    }
-                }
-                out
+                mixed(&self.data[id], actions.len(), average)
             })
-            .collect()
+            .collect();
+        let leaf = [0, 1].map(|q: usize| {
+            self.leaf[q]
+                .iter()
+                .map(|d| {
+                    if d.regret.is_empty() {
+                        Vec::new()
+                    } else {
+                        mixed(d, p.choices[q], average)
+                    }
+                })
+                .collect()
+        });
+        Sigma { node, leaf }
     }
 
     /// Reach of each player at every node under `sigma`.
-    fn reaches(&self, sigma: &[Vec<f64>]) -> [Vec<Vec<f64>>; 2] {
+    fn reaches(&self, sigma: &Sigma) -> [Vec<Vec<f64>>; 2] {
         let p = self.p;
         let nodes = &p.tree.nodes;
         let mut reach: [Vec<Vec<f64>>; 2] =
@@ -443,7 +513,7 @@ impl<'a> Solver<'a> {
                             reach[q][id]
                                 .iter()
                                 .enumerate()
-                                .map(|(h, r)| r * sigma[id][h * k + a])
+                                .map(|(h, r)| r * sigma.node[id][h * k + a])
                                 .collect()
                         } else {
                             reach[q][id].clone()
@@ -455,12 +525,12 @@ impl<'a> Solver<'a> {
         reach
     }
 
-    /// The values of every terminal node for `player` (and each lane's value at the
-    /// chooser's leaves when `player` is the chooser).
+    /// The values of every terminal node for `player` (and each pick's value at the leaves
+    /// when `player` has picks).
     fn terminal_values(
         &self,
         player: usize,
-        sigma: &[Vec<f64>],
+        sigma: &Sigma,
         reach: &[Vec<Vec<f64>>; 2],
     ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
         let p = self.p;
@@ -502,12 +572,13 @@ impl<'a> Solver<'a> {
                     (v, Vec::new())
                 }
                 _ => {
-                    let mut lv = if player == p.chooser {
-                        vec![0.0; LANES * n]
+                    let mut lv = if p.choices[player] > 1 {
+                        vec![0.0; p.choices[player] * n]
                     } else {
                         Vec::new()
                     };
-                    self.table_leaf(id, player, &reach[o][id], &sigma[id], &mut v, &mut lv);
+                    let opp_picks = &sigma.leaf[o][id];
+                    self.table_leaf(id, player, &reach[o][id], opp_picks, &mut v, &mut lv);
                     (v, lv)
                 }
             }
@@ -526,7 +597,7 @@ impl<'a> Solver<'a> {
 
     /// One walk for `player`: regrets and sums (`Update`), or a best response's values
     /// against `sigma` (`Best`). Returns the root values for every combo of `player`.
-    fn walk(&mut self, player: usize, sigma: &[Vec<f64>], mode: Mode, t: f64) -> Vec<f64> {
+    fn walk(&mut self, player: usize, sigma: &Sigma, mode: Mode, t: f64) -> Vec<f64> {
         let p = self.p;
         let nodes = &p.tree.nodes;
         let reach = self.reaches(sigma);
@@ -544,26 +615,23 @@ impl<'a> Solver<'a> {
             let frozen = p.frozen.get(id).and_then(|f| f.as_ref()).is_some();
             match &nodes[id].kind {
                 Kind::End if !lane_values[id].is_empty() => {
-                    // The chooser's pick of a continuation strategy.
+                    // The player's pick of a continuation strategy.
                     let lv = &lane_values[id];
-                    let s = &sigma[id];
+                    let s = &sigma.leaf[player][id];
+                    let k = p.choices[player];
                     let mut v = vec![0.0; n];
                     for (h, x) in v.iter_mut().enumerate() {
                         *x = match mode {
-                            Mode::Best => {
-                                (0..LANES).map(|l| lv[l * n + h]).fold(f64::MIN, f64::max)
-                            }
-                            Mode::Update => {
-                                (0..LANES).map(|l| s[h * LANES + l] * lv[l * n + h]).sum()
-                            }
+                            Mode::Best => (0..k).map(|l| lv[l * n + h]).fold(f64::MIN, f64::max),
+                            Mode::Update => (0..k).map(|l| s[h * k + l] * lv[l * n + h]).sum(),
                         };
                     }
                     if mode == Mode::Update {
                         let own = &reach[player][id];
-                        let d = &mut self.data[id];
+                        let d = &mut self.leaf[player][id];
                         for h in 0..n {
-                            for l in 0..LANES {
-                                let i = h * LANES + l;
+                            for l in 0..k {
+                                let i = h * k + l;
                                 d.sum[i] += weight * own[h] * s[i];
                                 let r = d.regret[i];
                                 d.regret[i] = r * if r > 0.0 { keep_pos } else { keep_neg }
@@ -581,7 +649,7 @@ impl<'a> Solver<'a> {
                     let k = children.len();
                     let mut v = vec![0.0; n];
                     if *actor == player {
-                        let s = &sigma[id];
+                        let s = &sigma.node[id];
                         for (h, x) in v.iter_mut().enumerate() {
                             *x = match mode {
                                 Mode::Best if !frozen => children
@@ -636,23 +704,28 @@ impl<'a> Solver<'a> {
         }
     }
 
-    /// The average strategy at every decision node and leaf (`[combo][action]`).
-    pub fn average(&self) -> Vec<Vec<f64>> {
+    /// The average strategy at every decision node and each player's picks at the leaves.
+    pub fn average(&self) -> Sigma {
         self.strategies(true)
+    }
+
+    /// The current strategy (the last iteration's regrets, matched).
+    pub fn current(&self) -> Sigma {
+        self.strategies(false)
     }
 
     /// What `player` gets per deal (in chips, the start pot counted as nobody's) against
     /// `sigma`: by best response when `best`, by `sigma` itself otherwise.
-    fn value_against(&mut self, player: usize, sigma: &[Vec<f64>], best: bool) -> f64 {
+    fn value_against(&mut self, player: usize, sigma: &Sigma, best: bool) -> f64 {
         let mode = if best { Mode::Best } else { Mode::Update };
         let root = if best {
             self.walk(player, sigma, mode, 1.0)
         } else {
             // A plain evaluation: walk with updates turned off by a copy of the data.
-            let saved = self.data.clone();
+            let saved = (self.data.clone(), self.leaf.clone());
             let it = self.iterations;
             let v = self.walk(player, sigma, Mode::Update, 0.0);
-            self.data = saved;
+            (self.data, self.leaf) = saved;
             self.iterations = it;
             v
         };
@@ -681,24 +754,47 @@ impl<'a> Solver<'a> {
 
     /// Exploitability of the average strategy as a share of the pot.
     pub fn exploitability(&mut self) -> f64 {
-        let b0 = self.best_response(0);
-        let b1 = self.best_response(1);
+        let sigma = self.average();
+        self.exploitability_of(&sigma)
+    }
+
+    /// Exploitability of `sigma` as a share of the pot.
+    pub fn exploitability_of(&mut self, sigma: &Sigma) -> f64 {
+        let b0 = self.value_against(0, sigma, true);
+        let b1 = self.value_against(1, sigma, true);
         (b0 + b1 - self.p.pot) / 2.0 / self.p.pot
     }
 }
 
 /// A finished flop solve.
 pub struct Solution {
-    /// The average strategy at every decision node and leaf (`[combo][action]`).
+    /// The strategy played (the average, or the last iteration's: [`Play`]) at every
+    /// decision node (`[combo][action]`, empty elsewhere).
     pub strategy: Vec<Vec<f64>>,
+    /// Each player's picks at the leaves under that strategy (`[combo][pick]`).
+    pub picks: [Vec<Vec<f64>>; 2],
     pub iterations: u32,
+    /// Exploitability of the strategy played, as a share of the pot.
     pub exploitability: f64,
     pub elapsed_ms: f64,
 }
 
 /// Solves to `target` (share of the pot, checked at iterations 8, 12, 16, ... as the
-/// subgame crate does) or `max_iterations`, whichever comes first.
+/// subgame crate does) or `max_iterations`, whichever comes first, and plays the average
+/// strategy.
 pub fn solve(problem: &Problem<'_>, target: f64, max_iterations: u32, parallel: bool) -> Solution {
+    solve_as(problem, target, max_iterations, parallel, Play::Average)
+}
+
+/// [`solve`], playing the average strategy or the last iteration's. The stop is the same
+/// either way: the average's exploitability against `target`.
+pub fn solve_as(
+    problem: &Problem<'_>,
+    target: f64,
+    max_iterations: u32,
+    parallel: bool,
+    play: Play,
+) -> Solution {
     let start = std::time::Instant::now();
     let mut s = Solver::new(problem);
     s.parallel = parallel;
@@ -719,12 +815,23 @@ pub fn solve(problem: &Problem<'_>, target: f64, max_iterations: u32, parallel: 
             }
         }
     }
-    let exploitability = match last {
-        Some(e) => e,
-        None => s.exploitability(),
+    let (sigma, exploitability) = match play {
+        Play::Average => {
+            let e = match last {
+                Some(e) => e,
+                None => s.exploitability(),
+            };
+            (s.average(), e)
+        }
+        Play::Final => {
+            let sigma = s.current();
+            let e = s.exploitability_of(&sigma);
+            (sigma, e)
+        }
     };
     Solution {
-        strategy: s.average(),
+        strategy: sigma.node,
+        picks: sigma.leaf,
         iterations: s.iterations,
         exploitability,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
@@ -774,16 +881,23 @@ mod tests {
         }
     }
 
-    fn problem<'a>(s: &'a Setup, table: Option<&dyn Fn(usize) -> Vec<Vec<f64>>>) -> Problem<'a> {
+    /// The table of a pair of picks (`c0` out of position, `c1` in position).
+    type Table<'a> = &'a dyn Fn(usize, usize) -> Vec<f64>;
+
+    /// The setup's flop, each player picking among `choices` at the leaves: valued by
+    /// `table` (one bucket per combo), or checked down.
+    fn problem<'a>(s: &'a Setup, choices: [usize; 2], table: Option<Table<'_>>) -> Problem<'a> {
         let n = [s.combos[0].len(), s.combos[1].len()];
         let leaves = s
             .tree
             .nodes
             .iter()
             .map(|node| match (&node.kind, table) {
-                (Kind::End, Some(f)) => {
-                    Leaf::Table((0..LANES).map(f).collect::<Vec<_>>().concat_lanes())
-                }
+                (Kind::End, Some(f)) => Leaf::Table(
+                    (0..choices[0])
+                        .flat_map(|c0| (0..choices[1]).map(move |c1| f(c0, c1)))
+                        .collect(),
+                ),
                 (Kind::End, None) => Leaf::Equity,
                 _ => Leaf::None,
             })
@@ -797,29 +911,62 @@ mod tests {
             leaves,
             buckets: [(0..n[0] as u32).collect(), (0..n[1] as u32).collect()],
             num_buckets: n,
-            chooser: 0,
+            choices,
             frozen: Vec::new(),
         }
     }
 
-    trait Lanes {
-        fn concat_lanes(self) -> Vec<Vec<f64>>;
-    }
-    impl Lanes for Vec<Vec<Vec<f64>>> {
-        fn concat_lanes(self) -> Vec<Vec<f64>> {
-            self.into_iter().map(|mut v| v.remove(0)).collect()
+    /// The equity, plus `bonus(c0, c1)` to the out-of-position share.
+    fn equity_table<'a>(
+        s: &'a Setup,
+        bonus: impl Fn(usize, usize) -> f64 + 'a,
+    ) -> impl Fn(usize, usize) -> Vec<f64> + 'a {
+        move |c0, c1| {
+            s.equity
+                .w
+                .iter()
+                .map(|&w| w as f64 + bonus(c0, c1))
+                .collect()
         }
     }
 
-    /// Lane `l`'s table: the equity, plus `bonus[l]` to the out-of-position share.
-    fn equity_table(s: &Setup, bonus: [f64; LANES]) -> impl Fn(usize) -> Vec<Vec<f64>> + '_ {
-        move |l| vec![s.equity.w.iter().map(|&w| w as f64 + bonus[l]).collect()]
+    /// Each player's picks at a reached leaf, weighted by how often its combos get there
+    /// (card removal included): `[pick]`, or `None` where nobody gets there.
+    fn pick_shares(
+        solver: &Solver<'_>,
+        sigma: &Sigma,
+        player: usize,
+        id: usize,
+    ) -> Option<Vec<f64>> {
+        let p = solver.p;
+        let k = p.choices[player];
+        let reach = solver.reaches(sigma);
+        let n = p.combos[player].len();
+        let mut met = vec![0.0; n];
+        solver.meets(player, &reach[1 - player][id], &mut met);
+        let weight: Vec<f64> = (0..n).map(|h| reach[player][id][h] * met[h]).collect();
+        let total: f64 = weight.iter().sum();
+        if total < 1e-6 {
+            return None;
+        }
+        let picks = &sigma.leaf[player][id];
+        Some(
+            (0..k)
+                .map(|l| (0..n).map(|h| weight[h] * picks[h * k + l]).sum::<f64>() / total)
+                .collect(),
+        )
+    }
+
+    fn table_leaves(s: &Setup) -> Vec<usize> {
+        (0..s.tree.nodes.len())
+            .filter(|&id| matches!(s.tree.nodes[id].kind, Kind::End))
+            .collect()
     }
 
     #[test]
     fn exploitability_falls_to_the_target() {
         let s = setup();
-        let p = problem(&s, None);
+        let p = problem(&s, [1, 1], None);
         let early = solve(&p, 0.0, 10, false);
         let late = solve(&p, 0.0, 300, false);
         assert!(late.exploitability >= -1e-9);
@@ -836,45 +983,41 @@ mod tests {
 
     #[test]
     fn leaf_tables_of_the_equity_give_the_checked_down_values() {
-        // One bucket per combo and every lane the equity: a leaf is worth exactly what a
-        // check-down is, card removal included, for both players and any reach.
+        // One bucket per combo and every table the equity: a leaf is worth exactly what a
+        // check-down is, card removal included, for both players, any reach, and whoever
+        // picks.
         let s = setup();
-        let plain = problem(&s, None);
-        let f = equity_table(&s, [0.0; LANES]);
-        let tables = problem(&s, Some(&f));
-        let mut a = Solver::new(&plain);
-        let mut b = Solver::new(&tables);
-        for _ in 0..20 {
-            a.iterate();
-            b.iterate();
-        }
-        let sigma = b.strategies(false);
-        let reach = b.reaches(&sigma);
-        for player in 0..2 {
-            let (va, _) = a.terminal_values(player, &sigma, &reach);
-            let (vb, lanes) = b.terminal_values(player, &sigma, &reach);
-            let n = s.combos[player].len();
-            for (id, node) in s.tree.nodes.iter().enumerate() {
-                if !matches!(node.kind, Kind::End) {
-                    continue;
-                }
-                // The chooser's lanes are all the check-down value; the other player's value
-                // under the chooser's strategy is too.
-                let want = &va[id];
-                if player == tables.chooser {
-                    for l in 0..LANES {
-                        for h in 0..n {
-                            let x = lanes[id][l * n + h];
-                            assert!(
-                                (x - want[h]).abs() <= 1e-4 * (1.0 + want[h].abs()),
-                                "{x} {}",
-                                want[h]
-                            );
+        let plain = problem(&s, [1, 1], None);
+        let f = equity_table(&s, |_, _| 0.0);
+        for choices in [[LANES, 1], [1, LANES], [LANES, LANES]] {
+            let tables = problem(&s, choices, Some(&f));
+            let mut a = Solver::new(&plain);
+            let mut b = Solver::new(&tables);
+            for _ in 0..20 {
+                a.iterate();
+                b.iterate();
+            }
+            let sigma = b.strategies(false);
+            let reach = b.reaches(&sigma);
+            for player in 0..2 {
+                let (va, _) = a.terminal_values(player, &sigma, &reach);
+                let (vb, picks) = b.terminal_values(player, &sigma, &reach);
+                let n = s.combos[player].len();
+                for id in table_leaves(&s) {
+                    let want = &va[id];
+                    let close = |x: f64, y: f64| (x - y).abs() <= 1e-4 * (1.0 + y.abs());
+                    if choices[player] > 1 {
+                        // Every pick is worth the check-down.
+                        for l in 0..LANES {
+                            for h in 0..n {
+                                let x = picks[id][l * n + h];
+                                assert!(close(x, want[h]), "{choices:?} {x} {}", want[h]);
+                            }
                         }
-                    }
-                } else {
-                    for (x, y) in vb[id].iter().zip(want) {
-                        assert!((x - y).abs() <= 1e-4 * (1.0 + y.abs()), "{x} {y}");
+                    } else {
+                        for (&x, &y) in vb[id].iter().zip(want) {
+                            assert!(close(x, y), "{choices:?} {x} {y}");
+                        }
                     }
                 }
             }
@@ -882,43 +1025,150 @@ mod tests {
     }
 
     #[test]
-    fn the_chooser_picks_the_lane_that_pays_it_most() {
+    fn a_player_picks_the_continuation_that_pays_it_most() {
         let s = setup();
-        let f = equity_table(&s, [0.0, 0.0, 0.0, 0.05]);
-        let p = problem(&s, Some(&f));
+        // Out of position, the raise-biased continuation pays 5% of the pot more; in
+        // position, the call-biased one (the out-of-position share falls).
+        let f = equity_table(&s, |c0, c1| {
+            (if c0 == 3 { 0.05 } else { 0.0 }) - (if c1 == 2 { 0.05 } else { 0.0 })
+        });
+        for (choices, player, best) in [
+            ([LANES, 1], 0, 3),
+            ([1, LANES], 1, 2),
+            ([LANES, LANES], 0, 3),
+            ([LANES, LANES], 1, 2),
+        ] {
+            let p = problem(&s, choices, Some(&f));
+            let mut solver = Solver::new(&p);
+            for _ in 0..200 {
+                solver.iterate();
+            }
+            let avg = solver.average();
+            let mut leaves = 0;
+            for id in table_leaves(&s) {
+                let Some(shares) = pick_shares(&solver, &avg, player, id) else {
+                    continue; // nobody gets here
+                };
+                leaves += 1;
+                assert!(
+                    shares[best] > 0.95,
+                    "{choices:?} player {player}, leaf {id}: {shares:?}"
+                );
+            }
+            assert!(leaves > 0);
+        }
+    }
+
+    #[test]
+    fn picks_neither_player_sees_are_a_simultaneous_game() {
+        // Rock, paper, scissors on picks 1 to 3, worth 10% of the pot, and pick 0 loses to
+        // all three for whoever makes it: at the equilibrium both players play 1 to 3 a
+        // third of the time each (weighted over their combos), and never 0.
+        let s = setup();
+        let rps = |a: usize, b: usize| -> f64 {
+            match (a, b) {
+                (0, 0) => 0.0,
+                (0, _) => -1.0,
+                (_, 0) => 1.0,
+                _ if a == b => 0.0,
+                _ if (a % 3) + 1 == b => -1.0, // b beats a: 1 < 2 < 3 < 1
+                _ => 1.0,
+            }
+        };
+        assert_eq!(
+            (rps(1, 2), rps(2, 3), rps(3, 1), rps(2, 1)),
+            (-1.0, -1.0, -1.0, 1.0)
+        );
+        let f = equity_table(&s, |c0, c1| 0.1 * rps(c0, c1));
+        let p = problem(&s, [LANES, LANES], Some(&f));
+        let sol = solve(&p, 0.0, 400, false);
+        assert!(sol.exploitability < 0.01, "{}", sol.exploitability);
         let mut solver = Solver::new(&p);
-        for _ in 0..200 {
+        for _ in 0..400 {
             solver.iterate();
         }
         let avg = solver.average();
         let reach = solver.reaches(&avg);
-        let n = s.combos[0].len();
+        // A player's share of its starting reach at `id`.
+        let share = |q: usize, id: usize| {
+            reach[q][id].iter().sum::<f64>() / reach[q][0].iter().sum::<f64>()
+        };
         let mut leaves = 0;
-        for (id, node) in s.tree.nodes.iter().enumerate() {
-            if !matches!(node.kind, Kind::End) {
+        for id in table_leaves(&s) {
+            // Where one player almost never gets, the other's picks hardly matter.
+            if share(0, id) < 0.01 || share(1, id) < 0.01 {
                 continue;
             }
-            let mut met = vec![0.0; n];
-            solver.meets(0, &reach[1][id], &mut met);
-            let weight: Vec<f64> = (0..n).map(|h| reach[0][id][h] * met[h]).collect();
-            let total: f64 = weight.iter().sum();
-            if total < 1e-6 {
-                continue; // nobody gets here
-            }
             leaves += 1;
-            let on_best: f64 = (0..n)
-                .map(|h| weight[h] * avg[id][h * LANES + 3])
-                .sum::<f64>()
-                / total;
-            assert!(on_best > 0.95, "leaf {id}: {on_best}");
+            for player in 0..2 {
+                let shares = pick_shares(&solver, &avg, player, id).expect("reached");
+                assert!(shares[0] < 0.01, "player {player}, leaf {id}: {shares:?}");
+                for &x in &shares[1..] {
+                    assert!(
+                        (x - 1.0 / 3.0).abs() < 0.02,
+                        "player {player}, leaf {id}: {shares:?}"
+                    );
+                }
+            }
         }
-        assert!(leaves > 0);
+        assert!(leaves >= 5, "{leaves}");
+    }
+
+    #[test]
+    fn a_pick_that_changes_nothing_is_the_same_as_no_pick() {
+        // Both pick, but the table only depends on the out-of-position pick: the solve is
+        // the one where only the out-of-position player picks.
+        let s = setup();
+        let f = equity_table(&s, |c0, _| [0.0, -0.02, 0.01, 0.03][c0]);
+        let one = problem(&s, [LANES, 1], Some(&f));
+        let both = problem(&s, [LANES, LANES], Some(&f));
+        let a = solve(&one, 0.0, 60, false);
+        let b = solve(&both, 0.0, 60, false);
+        assert!((a.exploitability - b.exploitability).abs() < 1e-9);
+        for (x, y) in a.strategy.iter().zip(&b.strategy) {
+            for (u, v) in x.iter().zip(y) {
+                assert!((u - v).abs() < 1e-9, "{u} {v}");
+            }
+        }
+        for (x, y) in a.picks[0].iter().zip(&b.picks[0]) {
+            for (u, v) in x.iter().zip(y) {
+                assert!((u - v).abs() < 1e-9, "{u} {v}");
+            }
+        }
+        // The in-position picks stay even: no pick ever has a regret.
+        assert!(a.picks[1].iter().all(|x| x.is_empty()));
+        for x in b.picks[1].iter().filter(|x| !x.is_empty()) {
+            assert!(
+                x.iter().all(|&u| (u - 1.0 / LANES as f64).abs() < 1e-9),
+                "{x:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_solve_can_play_the_last_iteration() {
+        let s = setup();
+        let f = equity_table(&s, |c0, c1| 0.02 * (c0 as f64 - c1 as f64));
+        let p = problem(&s, [LANES, LANES], Some(&f));
+        let average = solve(&p, 0.0, 50, false);
+        let last = solve_as(&p, 0.0, 50, false, Play::Final);
+        assert_eq!(last.iterations, average.iterations);
+        assert_ne!(last.strategy, average.strategy);
+        let mut solver = Solver::new(&p);
+        for _ in 0..50 {
+            solver.iterate();
+        }
+        let current = solver.current();
+        assert_eq!(last.strategy, current.node);
+        assert_eq!(last.picks, current.leaf);
+        assert!((last.exploitability - solver.exploitability_of(&current)).abs() < 1e-12);
+        assert!((average.exploitability - solver.exploitability()).abs() < 1e-12);
     }
 
     #[test]
     fn a_frozen_node_keeps_its_strategy() {
         let s = setup();
-        let mut p = problem(&s, None);
+        let mut p = problem(&s, [1, 1], None);
         let Kind::Decision { actions, .. } = &s.tree.nodes[0].kind else {
             panic!("a decision")
         };

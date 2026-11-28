@@ -96,7 +96,7 @@ The old rule-engine plan and what's shelved are under "Previous roadmap" in
   by +147.7 ± 3.9 bb/100 and B0 by +16.3 ± 4.1. `experiments.md`, Phase 6; `runs/phase6/`.
 - **Next, Phase 7**: depth-limited search on every postflop decision (Modicum) on this blueprint.
   Gate: beat the blueprint by 2.5 SE, a luck-adjusted Slumbot match, the GTO Wizard Benchmark.
-  Groundwork (`search` crate): `experiments.md`, Phase 7 groundwork.
+  Groundwork: `experiments.md`. Plan (pre-registered) and runbook: `runs/phase7/`.
 - Possible goal: a Web Summit demo, May 2027 (`DEMO.md`, not approved).
 
 Sessions: Opus 5.5, never Fable. Effort (Kevin, 28 Nov 2026): xhigh for solver and engine code and

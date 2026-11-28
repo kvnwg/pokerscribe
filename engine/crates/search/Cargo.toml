@@ -9,6 +9,7 @@ publish = false
 abstract_game = { path = "../abstract_game" }
 arena = { path = "../arena" }
 blueprint = { path = "../blueprint" }
+cfr = { path = "../cfr" }
 eval = { path = "../eval" }
 lbr = { path = "../lbr" }
 nlhe = { path = "../nlhe", features = ["eval"] }
@@ -20,6 +21,3 @@ subgame = { path = "../subgame" }
 [[bin]]
 name = "search"
 path = "src/bin/search.rs"
-
-[dev-dependencies]
-cfr = { path = "../cfr" }

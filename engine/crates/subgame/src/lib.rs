@@ -46,7 +46,7 @@ pub mod spot;
 pub mod tree;
 
 pub use cards::Combo;
-pub use cfr::{solve, Solution, SolveConfig, Solver};
+pub use cfr::{solve, solve_as, Play, Solution, SolveConfig, Solver};
 pub use exploit::{exploitability, Exploitability, Policy, Strategy};
 pub use game::Game;
 pub use result::{NodeRecord, ResultFile};
