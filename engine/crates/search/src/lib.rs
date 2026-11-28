@@ -11,6 +11,8 @@
 //! - [`flop`]: the depth-limited flop solver (Discounted CFR, Modicum's leaves).
 //! - [`leaf`]: the leaf tables (what the rest of the hand is worth by flop buckets, for
 //!   the blueprint and its biased versions).
+//! - [`leaf_job`]: the leaf tables built in parts, a job that can stop and go on (the
+//!   `tools/cloud` trainer contract, and `search leaf`).
 //! - [`equity`]: exact flop all-in equity for every pair of combos.
 //! - [`play`]: a `Strategy` seated in the arena.
 
@@ -19,6 +21,7 @@ pub mod cards;
 pub mod equity;
 pub mod flop;
 pub mod leaf;
+pub mod leaf_job;
 pub mod play;
 pub mod real;
 pub mod solve;

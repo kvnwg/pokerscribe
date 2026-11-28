@@ -256,3 +256,141 @@ fn the_same_public_state_gets_the_same_answer() {
     };
     assert_eq!(answer(), answer());
 }
+
+/// The leaf tables built in parts, in parallel, are the sequential build's bit for bit (the
+/// build as it was before parts: every node walks every deal in the stream's order), on any
+/// number of threads, and however the nodes are split.
+#[test]
+fn leaf_tables_in_parts_are_the_sequential_build_bit_for_bit() {
+    use search::leaf::{build_part, build_reference, turn_starts};
+    let bp = blueprint();
+    let nodes = turn_starts(&bp);
+    assert!(nodes.len() > 10, "{} turn starts", nodes.len());
+    // Several blocks, the last one short.
+    let config = BuildConfig {
+        deals: 5_000,
+        seed: 11,
+        block: 1_200,
+    };
+    let reference = build_reference(&bp, &nodes, &config);
+    for threads in [1, 3] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let whole = build_part(&bp, &nodes, &config, &|| false, |_| {}).unwrap();
+            assert!(whole.q == reference, "one part, {threads} thread(s)");
+            assert_eq!(whole.count.iter().sum::<u64>(), config.deals);
+            let mut joined = Vec::new();
+            for chunk in nodes.chunks(7) {
+                let part = build_part(&bp, chunk, &config, &|| false, |_| {}).unwrap();
+                assert_eq!(part.count, whole.count);
+                joined.extend(part.q);
+            }
+            assert!(joined == reference, "parts of 7 nodes, {threads} thread(s)");
+        });
+    }
+    // A stop asked for gives the part up.
+    assert!(build_part(&bp, &nodes[..3], &config, &|| true, |_| {}).is_none());
+}
+
+/// The leaf table job (`search::leaf_job`): it stops between blocks and goes on from the
+/// parts on the disk, refuses a checkpoint that isn't its build's, builds again a part
+/// that is missing or damaged, and ends with the same tables as a build in one piece.
+#[test]
+fn the_leaf_job_stops_goes_on_and_gives_the_one_piece_tables() {
+    use search::leaf_job::{part_name, run, Checkpoint, JobConfig, JobEnd, CHECKPOINT};
+    let bp = blueprint();
+    let dir = std::env::temp_dir().join(format!("search-leaf-job-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let strategy = std::env::current_exe().unwrap(); // any file: only hashed
+    let config = JobConfig {
+        strategy: strategy.clone(),
+        tables: None,
+        deals: 3_000,
+        seed: 3,
+        part_nodes: 9,
+        out: Some("t.leaf".into()),
+    };
+    let parts_on_disk = || {
+        std::fs::read_dir(&dir)
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".leafpart"))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    let mut events = Vec::new();
+    // --resume with nothing to resume is an error.
+    assert!(run(&bp, &config, &dir, true, &|| false, &mut |v| events.push(v)).is_err());
+    // Stopped once two parts are done.
+    let end = run(
+        &bp,
+        &config,
+        &dir,
+        false,
+        &|| parts_on_disk() >= 2,
+        &mut |v| events.push(v),
+    );
+    assert_eq!(end, Ok(JobEnd::Stopped));
+    assert_eq!(events.last().unwrap()["event"], "saved on SIGTERM");
+    let ckpt: Checkpoint =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(CHECKPOINT)).unwrap()).unwrap();
+    assert_eq!(ckpt.done, vec![0, 1]);
+    assert!(ckpt.parts > 3, "{} parts", ckpt.parts);
+    // A checkpoint is there: without --resume, or for another build, it is refused.
+    assert!(run(&bp, &config, &dir, false, &|| false, &mut |_| {}).is_err());
+    let other = JobConfig {
+        seed: 4,
+        ..config.clone()
+    };
+    let err = run(&bp, &other, &dir, true, &|| false, &mut |_| {}).unwrap_err();
+    assert!(err.contains("another build"), "{err}");
+    // Part 0 damaged (one value changed), part 1 gone (an upload cut off): both built again.
+    let p0 = dir.join(part_name(0));
+    let mut bytes = std::fs::read(&p0).unwrap();
+    let n = bytes.len();
+    bytes[n - 3] ^= 0x40;
+    std::fs::write(&p0, bytes).unwrap();
+    std::fs::remove_file(dir.join(part_name(1))).unwrap();
+    events.clear();
+    let end = run(&bp, &config, &dir, true, &|| false, &mut |v| events.push(v)).unwrap();
+    assert_eq!(events[0]["event"], "resumed");
+    assert_eq!(events[0]["parts_done"], 0);
+    assert_eq!(
+        events[0]["parts_listed_but_missing"],
+        serde_json::json!([0, 1])
+    );
+    assert_eq!(events.last().unwrap()["event"], "done");
+    let JobEnd::Done(path) = end else {
+        panic!("not done")
+    };
+    assert_eq!(path, dir.join("t.leaf"));
+    // The same tables as the one-piece build.
+    let job = LeafTables::load(&path).unwrap();
+    let one = build(
+        &bp,
+        &strategy,
+        &BuildConfig {
+            deals: 3_000,
+            seed: 3,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert!(job.values() == one.values());
+    assert_eq!(job.header.nodes, one.header.nodes);
+    assert_eq!(
+        (job.header.buckets, job.header.deals, job.header.seed),
+        (one.header.buckets, one.header.deals, one.header.seed)
+    );
+    assert_eq!(job.header.strategy_hash, one.header.strategy_hash);
+    assert_eq!(job.header.cell_deals, one.header.cell_deals);
+    // A finished job run again is done at once, from the parts.
+    let again = run(&bp, &config, &dir, true, &|| true, &mut |_| {}).unwrap();
+    assert_eq!(again, JobEnd::Done(dir.join("t.leaf")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

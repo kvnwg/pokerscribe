@@ -94,13 +94,18 @@ pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
 /// The agent a name `search:<file>` asks for: depth-limited search (engine/crates/search)
 /// on the blueprint in that strategy file, with the leaf tables `<file>.leaf` when they are
 /// there (`search leaf --strategy <file>` builds them; without them the flop's leaves are
-/// checked down), and the search crate's default settings. `None` for any other name; an
+/// checked down), and the search crate's default settings. `search:<file>?tables=<dir>`
+/// loads the bucket tables from `dir`, as for the blueprint. `None` for any other name; an
 /// error when the file, its bucket tables or its leaf tables can't be loaded. Like the
 /// blueprint, play it at the stacks and blinds it was trained for.
 pub fn search_agent(name: &str) -> Option<Result<Agent, String>> {
-    let path = name.strip_prefix("search:")?;
+    let rest = name.strip_prefix("search:")?;
+    let (path, tables) = match rest.rsplit_once("?tables=") {
+        Some((path, tables)) => (path, Some(Path::new(tables))),
+        None => (rest, None),
+    };
     Some(
-        search::SearchAgent::load(Path::new(path), search::Settings::default())
+        search::SearchAgent::load_with(Path::new(path), tables, search::Settings::default())
             .map(|s| strategy_agent(name, s))
             .map_err(|e| format!("{name}: {e}")),
     )

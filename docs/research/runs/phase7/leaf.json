@@ -1,0 +1,7 @@
+{
+ "strategy": "/opt/pscloud/bundle/files/strategy-512000000.bps",
+ "tables": "/opt/pscloud/bundle/files/k200",
+ "deals": 16000000,
+ "seed": 7,
+ "part_nodes": 256
+}
