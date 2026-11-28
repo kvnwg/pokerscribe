@@ -17,6 +17,7 @@ Nothing in the app uses the arena.
 | A clearly better bot beats a clearly worse one | Pass. tag beats call by 222 bb/100 heads-up (SE 1.4) and by 659 against five of them (SE 6.2). tag beats random by 73 (SE 1.5). |
 | Duplicate plus all-in equity gives a clearly smaller SE than plain play over the same number of hands | Pass for close agents, the case the 2.5 SE rule is about: 2.0 times smaller heads-up and at six-max (tag-loose against tag), as good as 4 times the hands. For agents that differ a lot it is 1.1 to 1.5 times smaller, and in one six-max case duplicate makes it larger. See "Standard errors". |
 | The same seed gives the same result | Pass: the same to the last bit, on any number of threads. |
+| AIVAT (28 Nov 2026) has no bias and narrows the SE | Pass on the checks pre-registered in `docs/research/experiments.md`: identical agents give 0 within 1.2 SE, and over 1,000,000 deals AIVAT agrees with the main figure deal by deal within 1.4 SE. Its SE is 0.61 to 0.64 of the main figure's on blueprint against blueprint at 20bb, as good as 2.5 to 2.7 times the hands. See "AIVAT". |
 
 ## Use
 
@@ -37,16 +38,21 @@ cargo build --release -p arena
 200000 deals x 2 = 400000 hands, duplicate, scored as all-in equity (at most 10000 boards) (695 hands adjusted)
 agent          seats     bb/100       SE       z   plain SE   illegal
 tag                1     -10.79     0.45   -24.1       0.84         0
+  AIVAT                  -10.88     0.40   -26.9   SE x 0.901, minus the above -0.09 +- 0.10
   BTN/SB                  -9.94     0.99
   BB                     -11.64     1.06
 tag-loose          1     +10.79     0.45   +24.1       0.84         0
+  AIVAT                  +10.88     0.40   +26.9   SE x 0.901, minus the above +0.09 +- 0.10
   BTN/SB                 +11.64     1.06
   BB                      +9.94     0.99
-0.19 s, 2148591 hands/s on 4 threads
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: tag 0 of 334628, tag-loose 0 of 298327
+2.39 s, 167199 hands/s on 4 threads
 ```
 
 `z` is the win rate in standard errors, the number the 2.5 rule looks at. `plain SE` is what
-plain play would have given over the same number of hands.
+plain play would have given over the same number of hands. The `AIVAT` lines are the same
+hands scored with AIVAT (see "AIVAT"; `--no-aivat` leaves them out, and the match then runs
+at about 2,900,000 hands a second here).
 
 | Option | Meaning | Default |
 | --- | --- | --- |
@@ -306,9 +312,9 @@ where `v` is a value estimate for each seat. Known chances:
   correction compares its value with the exact average over every deal, worked out without
   dealing (every seat that can win a pot is as likely as any other to hold the best hand).
 - The actions of an agent that reports the chances it drew its action with
-  (`Player::probabilities`): the blueprint (`blueprint:<file>` from Python, `search
-  match`), the search agent (`search:<file>`: the strategy its solve played), any LBR
-  `Strategy` played through the py crate, and the test bot `mixed`.
+  (`Player::probabilities`): the blueprint (`blueprint:<file>` from Python), the search
+  agent (`search:<file>`: the strategy its solve played), any LBR `Strategy` played through
+  the py crate, and the test bot `mixed`.
 - Not the actions of an agent whose chances are unknown: the rule bots (`tag` and the
   others), B0 and any Python agent. Their actions stay as they are; they still get the
   correction for the cards and the deal, which is all a hand tracker could do for them.
@@ -366,7 +372,7 @@ equity already applied), heads-up:
 | 20bb blueprint (64M iterations) against a copy of itself, two seeds | Both | 1,000,000 each | 0.610, 0.611 | 0.318 |
 | 64M against the same run's 16M file | Both | 1,000,000 | 0.618 | 0.331 |
 | 64M against the 4M file | Both | 1,000,000 | 0.635 | 0.349 |
-| SEARCH_ROW |
+| Search on 64M against 64M (the search groundwork's setup) | Both (the search agent doesn't answer) | 500 | 0.610 | 0.295 |
 | 64M against `tag` | The blueprint's | 200,000 | 0.790 | 0.641 |
 | `tag` against `tag`, 20bb | Neither: cards only | 1,000,000 | 0.807 | 0.142 |
 | `mixed` against `mixed`, 100bb | Both | 100,000 | 0.695 | 0.516 |
@@ -376,11 +382,25 @@ equity already applied), heads-up:
 The blueprint rows are the pre-registered checks of `docs/research/experiments.md` ("Phase 7:
 AIVAT in the arena"); the bot rows at 100bb are pilots (seed 3).
 
-The hands needed for a given SE shrink by the square of the ratio. Cards-only AIVAT (agents
-with unknown chances) gains least; it is the agents' own random choices, and the bets valued
-by real answers, that carry most of it.
+The hands needed for a given SE shrink by the square of the ratio. Where only the cards can
+be corrected the ratio is 0.81 to 0.88, and with one side's choices corrected but no answers
+0.79 to 0.89: it is correcting both agents' random choices, with bets valued by real answers,
+that brings it to about 0.6.
 
-**What it costs.** COST_TEXT
+**What it costs.** Measured on this machine (Intel Xeon at 2.1 GHz), idle:
+
+| Match | Hands a second without AIVAT | With AIVAT | AIVAT a hand, one thread |
+| --- | ---: | ---: | ---: |
+| `tag` against `tag-loose`, 1 thread | 653,000 | 40,000 | 23 µs |
+| 20bb blueprint against blueprint, 4 threads | 245,000 | 58,000 | about 50 µs |
+| `mixed` against `mixed-loose`, 4 threads | 444,000 | 81,000 | about 40 µs |
+| `tag-loose` against 5 `tag`, six-max, 1 thread | 317,000 | 5,900 | 165 µs |
+| `mixed-loose` against 5 `mixed`, six-max, 1 thread | 43,000 | 2,900 | 325 µs |
+
+Most of it is the showdowns of every board still to come, worked out once per deal and
+street and shared by the replays; the answers of known strategies cost the rest. Next to the
+search agent (about 1.4 s a hand on 4 threads) it is nothing; for the test bots it is most of
+the time.
 
 **Choices made on pilots, then frozen.** Valuing bets as called, taken back or by the minimum
 defense frequency, and the answers: `docs/research/experiments.md`, "Phase 7: AIVAT in the
@@ -436,8 +456,8 @@ tag by 11 (400,000 hands each). tag is not strong: jam beats it by 10 bb/100 (SE
 ## Tests
 
 ```bash
-cargo test -p arena              # 40 tests, about 2.5 minutes (most of it the AIVAT tests)
-cargo test --release -p arena    # the same in about 15 seconds
+cargo test -p arena              # 40 tests, about 70 seconds (most of it the AIVAT tests)
+cargo test --release -p arena    # the same in 5 seconds
 cargo clippy -p arena --all-targets
 ```
 

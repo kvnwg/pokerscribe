@@ -2992,7 +2992,15 @@ Every run as planned, on the plan's seeds, none stopped or extended. Raw reports
 all-in equity. "Over plain" is AIVAT's SE over `plain_se`, what plain play (real chips, every
 hand on its own) gives over the same hands.
 
-RESULTS_TABLE
+| # | Match (the first named wins) | Deals | Seed | Main bb/100 | AIVAT bb/100 | AIVAT z | AIVAT minus main | Its z | SE ratio, AIVAT over main | Over plain | Its decisions corrected | Hands/s | Read as planned |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1a | 64M against a copy of itself | 1,000,000 | 7501 | +0.06 ± 0.24 | +0.17 ± 0.15 | +1.15 | +0.11 ± 0.19 | +0.60 | 0.610 | 0.318 | 5,344,310 of 5,344,310 | 30,036 | pass |
+| 1b | 64M against a copy of itself | 1,000,000 | 7502 | -0.29 ± 0.24 | -0.02 ± 0.15 | -0.14 | +0.27 ± 0.19 | +1.42 | 0.611 | 0.318 | 5,352,112 of 5,352,112 | 27,984 | pass |
+| 1c | tag against tag | 1,000,000 | 7503 | +0.00 ± 0.02 | -0.01 ± 0.02 | -0.72 | -0.01 ± 0.01 | -1.35 | 0.807 | 0.142 | 0 of 1,404,722 | 81,303 | pass |
+| 2a | 64M against 16M | 1,000,000 | 7511 | +2.22 ± 0.25 | +2.14 ± 0.16 | +13.72 | -0.08 ± 0.20 | -0.39 | 0.618 | 0.331 | 5,193,828 of 5,193,828 | 30,840 | pass |
+| 2b | 64M against 4M | 1,000,000 | 7512 | +6.62 ± 0.27 | +6.69 ± 0.17 | +39.34 | +0.08 ± 0.20 | +0.37 | 0.635 | 0.349 | 4,919,319 of 4,919,319 | 25,804 | pass |
+| 3 | 64M against tag | 200,000 | 7531 | +30.73 ± 0.42 | +31.00 ± 0.33 | +93.17 | +0.28 ± 0.19 | +1.42 | 0.790 | 0.641 | 536,409 of 536,409 | 42,272 | pass |
+| 4 | Search on 64M against 64M | 500 | 7521 | +30.79 ± 11.13 | +19.18 ± 6.79 | +2.83 | -11.61 ± 9.27 | -1.25 | 0.610 | 0.295 | 2,558 of 2,558 | 0.70 | reported |
 
 **The verdict: AIVAT is unbiased as far as these checks can show.** All six checks the verdict
 rests on pass (1a, 1b, 1c, 2a, 2b, 3). Identical agents average 0 with AIVAT (largest |z| 1.15),
@@ -3004,22 +3012,33 @@ of 0.6 bb/100 in 2a or 2b would have shown at 3 SE.
 so the same SE takes 37% to 40% of the deals; against plain play it is 0.32 to 0.35, about a
 tenth of the hands. With one agent whose chances are unknown (`tag`, whose choices can't be
 corrected) 0.79, and with cards only 0.81. The gain is close to the pilots' (0.635 for 16M
-against 4M). SEARCH_GAIN
+against 4M).
+
+**The search groundwork's setup (run 4).** The ratio is 0.610 there too: the search agent's
+own choices are corrected (all 2,558 of its decisions), though it gives no answers, so the
+blueprint's actions against it are valued by the minimum defense frequency. AIVAT minus the
+main figure is -11.61 ± 9.27 (z -1.25), which at this size can only rule out a large bias.
+The result itself is reported, not judged: search won by +30.79 ± 11.13 bb/100 (main) and
++19.18 ± 6.79 (AIVAT), 2.8 SE each, where the groundwork's 3,000 deals gave -2.51 ± 4.56. The
+two used separate trainings of the same spec (the groundwork's file isn't kept here) and their
+own leaf tables, and this run was sized for the SE ratio, not the edge. It is a flag for
+Phase 7, not a finding.
 
 **Speed.** Blueprint against blueprint ran at 26,000 to 31,000 hands a second on 4 threads with
-AIVAT, sharing the machine with a leaf-table build; the same match without AIVAT runs about five
-times faster (`engine/crates/arena/README.md`, "AIVAT", has the costs). For any agent slower
-than a blueprint the cost is lost in the agent's own time.
+AIVAT here, sharing the machine with a leaf-table build. Measured afterwards on the idle
+machine: 58,000 with AIVAT against 245,000 without, about 50 microseconds a hand on one thread
+(`engine/crates/arena/README.md`, "AIVAT", has the other costs). For the search agent, at 1.4
+seconds a hand, the cost is lost in its own time.
 
-**Changed after the plan was committed**, none of it in what these runs use: the check-down
-of three or more players was made faster (each group of players' average share of a pot is
-worked out once per table rather than board by board: the same values, summed in another
-order; every run here is heads-up, which has its own code; the AIVAT tests went from about
-3 minutes to 9 seconds with it), a test was adapted to the new report fields, and the docs were
-written. The plan's commit is dc05265. After it, the Python adapter for strategies was changed
-so that a strategy answers for situations the hand didn't reach only when asked to (the
-blueprint and LBR's chumps are; the search agent isn't, as before): what the runs used is the
-same.
+**Changed after the plan was committed** (dc05265), none of it in what these runs use:
+
+- The check-down of three or more players was made faster: each group of players' average
+  share of a pot is worked out once per table, not board by board. The values are the same,
+  summed in another order. Every run here is heads-up, which has its own code. The AIVAT
+  tests went from about 3 minutes to 9 seconds with it, on the busy machine.
+- The Python adapter for strategies answers for situations the hand didn't reach only when
+  asked to: the blueprint and LBR's chumps are, the search agent isn't, as before.
+- A Python test was adapted to the new report fields, and the docs were written.
 
 **Seeds.** Pull request #51 (Phase 7 at 200 big blinds, open when these ran) also names seed
 7501, for its pilot. The same seed deals the same cards, but the agents, the depth and the

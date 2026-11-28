@@ -39,7 +39,11 @@ def row(rid):
             f"{z:+.2f} | {a['minus_main']:+.2f} ± {a['minus_main_se']:.2f} | {mz:+.2f} | "
             f"{a['se_ratio']:.3f} | {a['se'] / r['plain_se']:.3f} | "
             f"{a['corrected_decisions']:,} of {a['corrected_decisions'] + a['unknown_decisions'] + a['unexplained_decisions']:,} | "
-            f"{d['timing']['hands_per_second']:,.0f} | {verdict} |")
+            f"{speed(d['timing']['hands_per_second'])} | {verdict} |")
+
+
+def speed(x):
+    return f"{x:,.0f}" if x >= 100 else f"{x:.2f}"
 
 
 def main():
