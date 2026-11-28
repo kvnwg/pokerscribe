@@ -42,18 +42,41 @@ is local best response, an exploiter that measures how much a strategy can be be
 | 4 | Rust subgame solver, river then turn, Discounted CFR over all combos with card removal | Matches Phase 2, closed-form results and TexasSolver within 0.5% pot EV; under 0.5% pot exploitability; river p95 under 400 ms |
 | 5 | Abstraction: 169 preflop classes, postflop potential-aware clustering with earth mover's distance, action menu and mapping rule, LBR exploiter | LBR win rate falls as buckets and sizes are added, then flattens (run 27 Nov 2026: fails, 3 of 7 conditions; at 20 big blinds more sizes lower LBR at every bucket count and more buckets don't, on two deal sets and after longer training; `experiments.md`, Phase 5: the gate. The Phase 6 game measures 97M information sets and 6 to 7 GB, so a 128 GB machine is enough. Accepted by Kevin, 27 Nov 2026: the sizes half, which Phase 6 relies on, passes; the buckets half is checked again at 100 big blinds; `experiments.md`, Phase 5: the gate, Decision) |
 | 6 | Heads-up blueprint, Linear Monte Carlo CFR with negative-regret pruning | The last checkpoint beats the first head-to-head by 2.5 SE; beats B0 heads-up by 2.5 SE. LBR (menu bets only, and the 56 sizes) is measured at every checkpoint and reported, not pass or fail (changed by Kevin, 27 Nov 2026, from "LBR falls at every checkpoint; beats B0 heads-up by 2.5 SE": in Phase 5, LBR rose as every run trained; `experiments.md`, Phase 5: the gate, Decision) |
-| 7 | Depth-limited search on every postflop decision (Modicum): opponent picks among blueprint and fold/call/raise-biased versions at the leaf; ranges updated every action; off-tree bets added and re-solved | Beats blueprint by 2.5 SE; luck-adjusted Slumbot match; GTO Wizard Benchmark |
+| 7 | Depth-limited search on every postflop decision (Modicum, with Pluribus's fixes): both players pick among blueprint and fold/call/raise-biased versions at the leaf; ranges updated every action; off-tree bets added and re-solved; preflop search for off-tree raises | Beats blueprint by 2.5 SE; luck-adjusted Slumbot match; GTO Wizard Benchmark. SEs may come from AIVAT once it is shown unbiased on identical agents; the plain figure is reported beside it (28 Nov 2026, "Decisions" below) |
 | 8 | Six-max blueprint and search (Pluribus) | Each checkpoint beats the last by 2.5 SE in six-max duplicate; exploiters win little; beats B0 six-max |
 
 ### Shelved
 
 Not part of the plan unless a later result calls for it.
 
-- Opponent modelling and HandHQ priors, and the `tools/phh` dataset work (old Phase 3).
-- Deep CFR and ReBeL (old Phase 5).
+- HandHQ priors and the `tools/phh` dataset work (old Phase 3).
+- Deep CFR and ReBeL (old Phase 5). (Value networks for re-solving are back in, below.)
 - Tuning B0.
 - Reader work, except bugs already reported.
 - Python in speed-critical loops.
+
+### Decisions, 28 Nov 2026
+
+Kevin's goal: the strongest agent we can build, past Pluribus if possible. He asked the manager
+session to make the decisions it recommended in `STATE_OF_THE_ART.md`; they are recorded here.
+
+- **Pluribus's search fixes are part of Phase 7**: both players choose at leaves, a late-iteration
+  play rule tried against the full average, preflop search for off-tree raises.
+- **AIVAT in the Rust arena**, and gate SEs may come from it once it is shown unbiased (mean about 0
+  on identical agents, and agreeing with the plain figure on a large run). The plain figure is always
+  reported beside it. Rules 1 to 4 are unchanged.
+- **Self-improvement (Libratus)**: off-menu bet sizes that LBR, B0 and Slumbot use may decide which
+  sizes are added to the blueprint's menu. Only the sizes are used (rule 3); GTO Wizard hands are
+  never used.
+- **A finer blueprint** (500 to 1,000 buckets at 200bb) once Phase 7's search works: sized with
+  `blueprint size`, trained if it fits 128 GB, kept only if it beats today's under search.
+- **Value networks for re-solving (DeepStack, Supremus)**, the method behind the best heads-up
+  results, are unshelved: first a small test, a learned turn-start value against the leaf tables,
+  after Phase 7. A full GPU build comes back to Kevin with its cost.
+- **Safe exploitation** of weak opponents, after the equilibrium agent is strong: a layer that
+  departs from equilibrium only on strong evidence (as Libratus did). Tested only on our own bots
+  (rule 4).
+- Money: each cloud run still gets a cap that Kevin sees before launch.
 
 ## Previous roadmap (replaced 26 Nov 2026)
 
