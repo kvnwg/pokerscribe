@@ -2839,7 +2839,7 @@ In short:
 - **Flop, depth-limited.** Discounted CFR over every combo to the end of the flop, to 1% of the
   pot. At a leaf the opponent picks, per hand, one of four continuation strategies (the
   blueprint, and the blueprint with the probability of folding, of checking or calling, or of
-  betting or raising multiplied by 5 and renormalized, as in the Modicum paper); the searcher
+  betting or raising multiplied by 5 and renormalized, as in Pluribus; Modicum used 10); the searcher
   plays the blueprint. The leaf values are precomputed tables: for each abstract turn start and
   each of 7 strategy pairs, the big blind's expected share of the pot by the two hands' flop
   buckets, averaged over 16M random deals walked exactly through the blueprint's turn and river
@@ -2908,6 +2908,156 @@ abstraction leaves more to fix; that is for the gate to show.
   would be 9.7 GB at 200 buckets.
 - **Parallelizing the flop's leaves**: 17% of a flop solve runs on one thread, so the flop gains
   little past 4 threads.
+
+## Phase 7: AIVAT in the arena (28 Nov 2026)
+
+AIVAT (Burch, Schmid, Moravcik, Morrill and Bowling, AAAI 2018) in the Rust arena
+(`engine/crates/arena/src/aivat.rs`), so that head-to-head comparisons need fewer hands. It is
+reported next to the main figure, not used to judge anything, until the checks below show it
+unbiased. How it works and why it is unbiased by construction: `engine/crates/arena/README.md`,
+"AIVAT". Everything here is offline, against our own agents (rule 4).
+
+### Plan (written and committed before the runs)
+
+**The estimator, frozen for these runs**: the arena's defaults as committed with this plan.
+The value of a situation is its check-down value (each seat's share of the chips if nobody bet
+again, averaged over every board still to come, exact after the flop, 2,000 random boards
+before it); a bet still to be answered is called with the minimum defense frequency and folded
+to otherwise; and an action is valued one step further, by the answers of the next player to
+act, when that player can give them (blueprint agents can, the search agent and B0 can't). The
+cards and the deal are corrected for every agent; the actions of an agent that reports the
+chances it played with (blueprints, the search agent) are corrected too; those of agents that
+don't (rule bots, B0) are not.
+
+**Pilots, which chose those settings** (their seeds are not used below):
+
+- Arena bots, seed 3, 100,000 deals at 100bb: the SE of AIVAT over the main figure's SE was
+  0.766 for `mixed` against itself (a test bot with known chances), 0.890 for `tag` against
+  `mixed-loose` and 0.886 for `tag-loose` against `tag` (cards only). Valuing every unanswered
+  bet as called was clearly worse (1.395 on `tag` against `mixed-loose`, more SE than without
+  AIVAT); the minimum defense frequency and taking the bet back did about as well as each other.
+- Blueprints, seed 9001, 20,000 deals: the standard-k200 file at 16M iterations against the one
+  at 4M (this training run, below). SE ratio 0.761 with the minimum defense frequency, 0.732
+  with the bet taken back, 0.929 with it called. With the answers of the next player added: 0.635
+  and 0.638. The paired difference AIVAT minus main was within 1.4 of its SE in every variant.
+- On `mixed` against itself (seed 3) the answers took the ratio from 0.766 to 0.695.
+- The tests in `engine/crates/arena/tests/aivat.rs` use their own seeds; they are tests, not
+  runs.
+
+**The agents.** The 20bb standard-k200 blueprint, retrained here with the Phase 5 gate's spec
+as for the Phase 7 groundwork (standard menu, 200 buckets a street, 20 big blinds, training seed
+1, 4 threads, linear weighting to 20M): the files at 4M, 16M and 64M iterations
+(`/root/bp/standard-k200/strategy-<N>.bps`). The search agent: `search:<64M file>` with leaf
+tables from `search leaf --deals 16000000 --seed 7` and `search::Settings::default()`, as in the
+groundwork. The rule bot `tag`.
+
+**The runs.** All through `pokerscribe_engine.run_match` at 2,000 chips, blinds 50 and 100,
+heads-up, each deal twice with the seats swapped, the main figure with all-in equity (at most
+10,000 boards), AIVAT at its defaults, 4 threads. Scripts and outputs go to
+`docs/research/runs/phase7_aivat/`. No run is stopped early or extended on its result.
+
+| # | Match | Deals | Seed | What it checks |
+| --- | --- | ---: | ---: | --- |
+| 1a | 64M against a second copy of itself | 1,000,000 | 7501 | Identical agents, every action corrected |
+| 1b | The same | 1,000,000 | 7502 | The same on a fresh seed |
+| 1c | `tag` against `tag` | 1,000,000 | 7503 | Identical agents, cards only |
+| 2a | 16M against 64M | 1,000,000 | 7511 | Agreement on a large run, SE ratio |
+| 2b | 4M against 64M | 1,000,000 | 7512 | The same with a larger gap |
+| 3 | `tag` against 64M | 200,000 | 7531 | Agreement when one agent's chances are unknown |
+| 4 | Search on 64M against 64M | 500 | 7521 | SE ratio on the search groundwork's setup |
+
+**How each is read.**
+
+- **Identical agents (1a to 1c)**: pass if AIVAT's bb/100 is within 3 SE of 0, and the paired
+  difference AIVAT minus the main figure (per deal) within 3 of its SE.
+- **Agreement (2a, 2b, 3)**: pass if AIVAT minus the main figure is within 2.5 of its paired SE.
+  This is sharper than comparing the two intervals: the two figures come from the same hands,
+  so most of their noise is shared. Both figures and their SEs are reported too.
+- **SE ratio**: AIVAT's SE over the main figure's SE (duplicate play and all-in equity), and over
+  `plain_se` (what plain play would give over the same hands: real chips, every hand on its
+  own). Reported for 2a, 2b, 3 and 4. The pilots point to about 0.64 on blueprint against
+  blueprint.
+- **The search run (4)**: 500 deals give a rough SE ratio (it is estimated from the same deals
+  for both figures, so it is far more precise than either SE). The agreement check is reported
+  but, at this size, can only catch a large bias.
+- **The verdict**: AIVAT counts as shown unbiased for this use if 1a, 1b, 1c, 2a, 2b and 3 all
+  pass. If one fails, AIVAT stays reported only, the cause is looked for, and no setting is
+  changed and run again on these seeds.
+
+### Results (28 Nov 2026)
+
+Every run as planned, on the plan's seeds, none stopped or extended. Raw reports in
+`runs/phase7_aivat/<id>.json`, the summaries in `log.txt`, the table below in `results.md`
+(from `summarize.py`). Heads-up at 20bb; "main" is the arena's figure with duplicate play and
+all-in equity. "Over plain" is AIVAT's SE over `plain_se`, what plain play (real chips, every
+hand on its own) gives over the same hands.
+
+| # | Match (the first named wins) | Deals | Seed | Main bb/100 | AIVAT bb/100 | AIVAT z | AIVAT minus main | Its z | SE ratio, AIVAT over main | Over plain | Its decisions corrected | Hands/s | Read as planned |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1a | 64M against a copy of itself | 1,000,000 | 7501 | +0.06 ± 0.24 | +0.17 ± 0.15 | +1.15 | +0.11 ± 0.19 | +0.60 | 0.610 | 0.318 | 5,344,310 of 5,344,310 | 30,036 | pass |
+| 1b | 64M against a copy of itself | 1,000,000 | 7502 | -0.29 ± 0.24 | -0.02 ± 0.15 | -0.14 | +0.27 ± 0.19 | +1.42 | 0.611 | 0.318 | 5,352,112 of 5,352,112 | 27,984 | pass |
+| 1c | tag against tag | 1,000,000 | 7503 | +0.00 ± 0.02 | -0.01 ± 0.02 | -0.72 | -0.01 ± 0.01 | -1.35 | 0.807 | 0.142 | 0 of 1,404,722 | 81,303 | pass |
+| 2a | 64M against 16M | 1,000,000 | 7511 | +2.22 ± 0.25 | +2.14 ± 0.16 | +13.72 | -0.08 ± 0.20 | -0.39 | 0.618 | 0.331 | 5,193,828 of 5,193,828 | 30,840 | pass |
+| 2b | 64M against 4M | 1,000,000 | 7512 | +6.62 ± 0.27 | +6.69 ± 0.17 | +39.34 | +0.08 ± 0.20 | +0.37 | 0.635 | 0.349 | 4,919,319 of 4,919,319 | 25,804 | pass |
+| 3 | 64M against tag | 200,000 | 7531 | +30.73 ± 0.42 | +31.00 ± 0.33 | +93.17 | +0.28 ± 0.19 | +1.42 | 0.790 | 0.641 | 536,409 of 536,409 | 42,272 | pass |
+| 4 | Search on 64M against 64M | 500 | 7521 | +30.79 ± 11.13 | +19.18 ± 6.79 | +2.83 | -11.61 ± 9.27 | -1.25 | 0.610 | 0.295 | 2,558 of 2,558 | 0.70 | reported |
+
+**The verdict: AIVAT is unbiased as far as these checks can show.** All six checks the verdict
+rests on pass (1a, 1b, 1c, 2a, 2b, 3). Identical agents average 0 with AIVAT (largest |z| 1.15),
+and on 1,000,000 deals AIVAT and the main figure agree deal by deal to within 0.28 bb/100, at most
+1.42 of the paired SE, with and without an agent whose chances are unknown. For scale: a bias
+of 0.6 bb/100 in 2a or 2b would have shown at 3 SE.
+
+**What it gains.** On blueprint against blueprint the SE is 0.61 to 0.64 of the main figure's,
+so the same SE takes 37% to 40% of the deals; against plain play it is 0.32 to 0.35, about a
+tenth of the hands. With one agent whose chances are unknown (`tag`, whose choices can't be
+corrected) 0.79, and with cards only 0.81. The gain is close to the pilots' (0.635 for 16M
+against 4M).
+
+**The search groundwork's setup (run 4).** The ratio is 0.610 there too: the search agent's
+own choices are corrected (all 2,558 of its decisions), though it gives no answers, so the
+blueprint's actions against it are valued by the minimum defense frequency. AIVAT minus the
+main figure is -11.61 ± 9.27 (z -1.25), which at this size can only rule out a large bias.
+The result itself is reported, not judged: search won by +30.79 ± 11.13 bb/100 (main) and
++19.18 ± 6.79 (AIVAT), 2.8 SE each, where the groundwork's 3,000 deals gave -2.51 ± 4.56. The
+two used separate trainings of the same spec (the groundwork's file isn't kept here) and their
+own leaf tables, and this run was sized for the SE ratio, not the edge. It is a flag for
+Phase 7, not a finding.
+
+**Speed.** Blueprint against blueprint ran at 26,000 to 31,000 hands a second on 4 threads with
+AIVAT here, sharing the machine with a leaf-table build. Measured afterwards on the idle
+machine: 58,000 with AIVAT against 245,000 without, about 50 microseconds a hand on one thread
+(`engine/crates/arena/README.md`, "AIVAT", has the other costs). For the search agent, at 1.4
+seconds a hand, the cost is lost in its own time.
+
+**Changed after the plan was committed** (dc05265), none of it in what these runs use:
+
+- The check-down of three or more players was made faster: each group of players' average
+  share of a pot is worked out once per table, not board by board. The values are the same,
+  summed in another order. Every run here is heads-up, which has its own code. The AIVAT
+  tests went from about 3 minutes to 9 seconds with it, on the busy machine.
+- The Python adapter for strategies answers for situations the hand didn't reach only when
+  asked to: the blueprint and LBR's chumps are, the search agent isn't, as before.
+- A Python test was adapted to the new report fields, and the docs were written.
+
+**Seeds.** Pull request #51 (Phase 7 at 200 big blinds, open when these ran) also names seed
+7501, for its pilot. The same seed deals the same cards, but the agents, the depth and the
+question differ, and neither run chooses anything for the other, so neither is tuned on the
+other's seed. The clash is noted so that no one reads the two as the same run.
+
+### Not done
+
+- **B0 with AIVAT**: B0's choices can't be corrected (its chances are unknown), so it would get
+  what `tag` got in run 3. Not run here.
+- **Six-max**: tested (`tests/aivat.rs`), not measured on blueprints.
+- **A better value estimate**: the check-down value knows nothing of the betting still to
+  come. The paper's large gains (DeepStack) came from a value estimate that does; the blueprint's
+  own expected values, or the search's, would be the next step, and change nothing about the
+  bias argument.
+- **Answers from the search agent**: it reports the chances it played with, so its own choices
+  are corrected, but it doesn't say what it would play at situations the hand didn't reach (a
+  search each), so the blueprint's actions against it are valued by the minimum defense
+  frequency.
 
 ## Research notes (paraphrased, with sources)
 

@@ -1,0 +1,98 @@
+== 1c: tag against tag, 1000000 deals, seed 7503, 25 s
+2 players [tag tag], blinds 50/100, stacks 2000, seed 7503
+1000000 deals x 2 = 2000000 hands, duplicate, scored as all-in equity (at most 10000 boards) (4604 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+tag                1      -0.00     0.02    -0.1       0.11         0
+  AIVAT                   +0.01     0.02    +0.7   SE x 0.807, minus the above +0.01 +- 0.01
+  BTN/SB                 -15.44     0.14
+  BB                     +15.43     0.14
+tag                1      +0.00     0.02    +0.1       0.11         0
+  AIVAT                   -0.01     0.02    -0.7   SE x 0.807, minus the above -0.01 +- 0.01
+  BTN/SB                 -15.43     0.14
+  BB                     +15.44     0.14
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: tag 0 of 1404702, tag 0 of 1404722
+24.60 s, 81303 hands/s on 4 threads
+== 1a: blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200 against blueprint:/root/bp/standard-k200/strategy-64000000.bps, 1000000 deals, seed 7501, 67 s
+2 players [blueprint:/root/bp/standard-k200/strategy-64000000.bps blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200], blinds 50/100, stacks 2000, seed 7501
+1000000 deals x 2 = 2000000 hands, duplicate, scored as all-in equity (at most 10000 boards) (122896 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1      -0.06     0.24    -0.2       0.46         0
+  AIVAT                   -0.17     0.15    -1.2   SE x 0.610, minus the above -0.11 +- 0.19
+  BTN/SB                  +5.18     0.49
+  BB                      -5.30     0.49
+blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200     1      +0.06     0.24    +0.2       0.46         0
+  AIVAT                   +0.17     0.15    +1.2   SE x 0.610, minus the above +0.11 +- 0.19
+  BTN/SB                  +5.30     0.49
+  BB                      -5.18     0.49
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: blueprint:/root/bp/standard-k200/strategy-64000000.bps 5344222 of 5344222, blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200 5344310 of 5344310
+66.59 s, 30036 hands/s on 4 threads
+== 1b: blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200 against blueprint:/root/bp/standard-k200/strategy-64000000.bps, 1000000 deals, seed 7502, 72 s
+2 players [blueprint:/root/bp/standard-k200/strategy-64000000.bps blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200], blinds 50/100, stacks 2000, seed 7502
+1000000 deals x 2 = 2000000 hands, duplicate, scored as all-in equity (at most 10000 boards) (123211 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1      +0.29     0.24    +1.2       0.46         0
+  AIVAT                   +0.02     0.15    +0.1   SE x 0.611, minus the above -0.27 +- 0.19
+  BTN/SB                  +4.87     0.49
+  BB                      -4.29     0.49
+blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200     1      -0.29     0.24    -1.2       0.46         0
+  AIVAT                   -0.02     0.15    -0.1   SE x 0.611, minus the above +0.27 +- 0.19
+  BTN/SB                  +4.29     0.49
+  BB                      -4.87     0.49
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: blueprint:/root/bp/standard-k200/strategy-64000000.bps 5351190 of 5351190, blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200 5352112 of 5352112
+71.47 s, 27984 hands/s on 4 threads
+== 2a: blueprint:/root/bp/standard-k200/strategy-64000000.bps against blueprint:/root/bp/standard-k200/strategy-16000000.bps, 1000000 deals, seed 7511, 65 s
+2 players [blueprint:/root/bp/standard-k200/strategy-16000000.bps blueprint:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7511
+1000000 deals x 2 = 2000000 hands, duplicate, scored as all-in equity (at most 10000 boards) (134039 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+blueprint:/root/bp/standard-k200/strategy-16000000.bps     1      -2.22     0.25    -8.8       0.47         0
+  AIVAT                   -2.14     0.16   -13.7   SE x 0.618, minus the above +0.08 +- 0.20
+  BTN/SB                  +3.09     0.49
+  BB                      -7.53     0.50
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1      +2.22     0.25    +8.8       0.47         0
+  AIVAT                   +2.14     0.16   +13.7   SE x 0.618, minus the above -0.08 +- 0.20
+  BTN/SB                  +7.53     0.50
+  BB                      -3.09     0.49
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: blueprint:/root/bp/standard-k200/strategy-16000000.bps 5160327 of 5160327, blueprint:/root/bp/standard-k200/strategy-64000000.bps 5193828 of 5193828
+64.85 s, 30840 hands/s on 4 threads
+== 2b: blueprint:/root/bp/standard-k200/strategy-64000000.bps against blueprint:/root/bp/standard-k200/strategy-4000000.bps, 1000000 deals, seed 7512, 78 s
+2 players [blueprint:/root/bp/standard-k200/strategy-4000000.bps blueprint:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7512
+1000000 deals x 2 = 2000000 hands, duplicate, scored as all-in equity (at most 10000 boards) (152041 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+blueprint:/root/bp/standard-k200/strategy-4000000.bps     1      -6.62     0.27   -24.7       0.49         0
+  AIVAT                   -6.69     0.17   -39.3   SE x 0.635, minus the above -0.08 +- 0.20
+  BTN/SB                  -1.79     0.49
+  BB                     -11.44     0.51
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1      +6.62     0.27   +24.7       0.49         0
+  AIVAT                   +6.69     0.17   +39.3   SE x 0.635, minus the above +0.08 +- 0.20
+  BTN/SB                 +11.44     0.51
+  BB                      +1.79     0.49
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: blueprint:/root/bp/standard-k200/strategy-4000000.bps 4867935 of 4867935, blueprint:/root/bp/standard-k200/strategy-64000000.bps 4919319 of 4919319
+77.51 s, 25804 hands/s on 4 threads
+== 3: blueprint:/root/bp/standard-k200/strategy-64000000.bps against tag, 200000 deals, seed 7531, 10 s
+2 players [tag blueprint:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7531
+200000 deals x 2 = 400000 hands, duplicate, scored as all-in equity (at most 10000 boards) (4578 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+tag                1     -30.73     0.42   -72.9       0.52         0
+  AIVAT                  -31.00     0.33   -93.2   SE x 0.790, minus the above -0.28 +- 0.19
+  BTN/SB                 -29.91     0.52
+  BB                     -31.54     0.76
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1     +30.73     0.42   +72.9       0.52         0
+  AIVAT                  +31.00     0.33   +93.2   SE x 0.790, minus the above +0.28 +- 0.19
+  BTN/SB                 +31.54     0.76
+  BB                     +29.91     0.52
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: tag 0 of 753931, blueprint:/root/bp/standard-k200/strategy-64000000.bps 536409 of 536409
+9.46 s, 42272 hands/s on 4 threads
+== 4: search:/root/bp/standard-k200/strategy-64000000.bps against blueprint:/root/bp/standard-k200/strategy-64000000.bps, 500 deals, seed 7521, 1438 s
+2 players [blueprint:/root/bp/standard-k200/strategy-64000000.bps search:/root/bp/standard-k200/strategy-64000000.bps], blinds 50/100, stacks 2000, seed 7521
+500 deals x 2 = 1000 hands, duplicate, scored as all-in equity (at most 10000 boards) (91 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+blueprint:/root/bp/standard-k200/strategy-64000000.bps     1     -30.79    11.13    -2.8      22.98         0
+  AIVAT                  -19.18     6.79    -2.8   SE x 0.610, minus the above +11.61 +- 9.27
+  BTN/SB                 -37.94    22.11
+  BB                     -23.64    20.44
+search:/root/bp/standard-k200/strategy-64000000.bps     1     +30.79    11.13    +2.8      22.98         0
+  AIVAT                  +19.18     6.79    +2.8   SE x 0.610, minus the above -11.61 +- 9.27
+  BTN/SB                 +23.64    20.44
+  BB                     +37.94    22.11
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: blueprint:/root/bp/standard-k200/strategy-64000000.bps 2608 of 2608, search:/root/bp/standard-k200/strategy-64000000.bps 2558 of 2558
+1437.18 s, 1 hands/s on 4 threads

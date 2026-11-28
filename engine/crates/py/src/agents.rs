@@ -23,7 +23,7 @@ use lbr::{
 use nlhe::{Action, Card, Deal, State, MAX_PLAYERS};
 
 /// The agents [`rust_agent`] knows, in the order `agents()` lists them.
-pub const RUST_AGENTS: [&str; 13] = [
+pub const RUST_AGENTS: [&str; 15] = [
     // the arena's test bots (engine/crates/arena/src/bots.rs)
     "fold",
     "call",
@@ -33,6 +33,8 @@ pub const RUST_AGENTS: [&str; 13] = [
     "random",
     "tag",
     "tag-loose",
+    "mixed",
+    "mixed-loose",
     // LBR's chumps (engine/crates/lbr/src/chumps.rs), played through their Strategy
     "lbr-fold",
     "lbr-call",
@@ -57,23 +59,23 @@ pub fn rust_agent(name: &str) -> Option<Agent> {
         return made.ok();
     }
     Some(match name {
-        "lbr-fold" => strategy_agent(name, AlwaysFold),
-        "lbr-call" => strategy_agent(name, AlwaysCall),
-        "lbr-jam" => strategy_agent(
+        "lbr-fold" => answering_strategy_agent(name, AlwaysFold),
+        "lbr-call" => answering_strategy_agent(name, AlwaysCall),
+        "lbr-jam" => answering_strategy_agent(
             name,
             AlwaysRaise {
                 size: RaiseSize::AllIn,
             },
         ),
-        "lbr-call-or-raise" => strategy_agent(name, CallOrRaise),
-        "lbr-random" => strategy_agent(name, UniformRandom::Kinds),
+        "lbr-call-or-raise" => answering_strategy_agent(name, CallOrRaise),
+        "lbr-random" => answering_strategy_agent(name, UniformRandom::Kinds),
         _ => return None,
     })
 }
 
 /// The agent a name `blueprint:<file>` asks for: the blueprint in that strategy file
 /// (engine/crates/blueprint), with the bucket tables it was trained with (the directory
-/// the file records), played through [`strategy_agent`]. `blueprint:<file>?tables=<dir>`
+/// the file records), played through [`answering_strategy_agent`]. `blueprint:<file>?tables=<dir>`
 /// loads the tables from `dir` instead, for a file trained on another machine; they must
 /// still be the same tables (the file's checksums are checked). `None` for any other
 /// name; an error when the file or its tables can't be loaded. Play it at the stacks and
@@ -86,7 +88,7 @@ pub fn blueprint_agent(name: &str) -> Option<Result<Agent, String>> {
     };
     Some(
         blueprint::Blueprint::load(Path::new(path), tables)
-            .map(|b| strategy_agent(name, b))
+            .map(|b| answering_strategy_agent(name, b))
             .map_err(|e| format!("{name}: {e}")),
     )
 }
@@ -107,8 +109,29 @@ pub fn search_agent(name: &str) -> Option<Result<Agent, String>> {
 }
 
 /// An agent that plays a [`Strategy`]: at each decision it asks the strategy for its action
-/// probabilities and draws one with [`View::pick`], so a match repeats exactly.
+/// probabilities and draws one with [`View::pick`], so a match repeats exactly. It reports
+/// the probabilities ([`Player::probabilities`]), so AIVAT corrects its choices. It doesn't
+/// say what it would play at situations the hand didn't reach: for the search agent each
+/// answer would be a search.
 pub fn strategy_agent<S>(name: &str, strategy: S) -> Agent
+where
+    S: Strategy + Send + 'static,
+{
+    seat_strategy(name, strategy, false)
+}
+
+/// [`strategy_agent`] that also says what the strategy would play at any situation
+/// ([`Player::chances_at`]), so AIVAT values the other players' actions by its answers. For
+/// a strategy that is cheap to ask and depends only on the public state and the cards, as a
+/// blueprint and LBR's chumps do.
+pub fn answering_strategy_agent<S>(name: &str, strategy: S) -> Agent
+where
+    S: Strategy + Send + 'static,
+{
+    seat_strategy(name, strategy, true)
+}
+
+fn seat_strategy<S>(name: &str, strategy: S, answers: bool) -> Agent
 where
     S: Strategy + Send + 'static,
 {
@@ -118,6 +141,7 @@ where
             strategy: Arc::clone(&strategy),
             probs: ActionProbs::new(),
             weights: Vec::new(),
+            answers,
         })
     })
 }
@@ -127,6 +151,7 @@ pub struct StrategyPlayer<S> {
     strategy: Arc<S>,
     probs: ActionProbs,
     weights: Vec<f64>,
+    answers: bool,
 }
 
 impl<S: Strategy + Send> Player for StrategyPlayer<S> {
@@ -144,6 +169,25 @@ impl<S: Strategy + Send> Player for StrategyPlayer<S> {
             return Action::RaiseTo(0);
         }
         self.probs.as_slice()[view.pick(&self.weights)].0
+    }
+
+    /// The strategy's probabilities: the action was drawn from them with `View::pick`, so
+    /// AIVAT can take the luck of this agent's choices out of its result.
+    fn probabilities(&self) -> Option<&[(Action, f64)]> {
+        Some(self.probs.as_slice())
+    }
+
+    /// What the strategy plays at any view: AIVAT values an action by these answers.
+    fn chances_at(&self, view: &View<'_>, out: &mut Vec<(Action, f64)>) -> bool {
+        if !self.answers {
+            return false;
+        }
+        let state = visible_state(view);
+        let mut probs = ActionProbs::new();
+        self.strategy
+            .action_probs(&PublicState::new(&state), view.hole(), &mut probs);
+        out.extend_from_slice(probs.as_slice());
+        true
     }
 }
 

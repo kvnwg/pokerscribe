@@ -7,7 +7,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use arena::{run_match as arena_match, Agent, MatchConfig, Player, View as ArenaView};
+use arena::{
+    run_match as arena_match, Agent, Aivat, Facing, MatchConfig, Player, View as ArenaView,
+};
 use nlhe::{Action, Card, Chips, State};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -437,11 +439,17 @@ pub fn agents() -> Vec<&'static str> {
 /// first in all the others. lineup: the agent (an index into agents) at each place, for any
 /// other mix. The other settings are the arena's (engine/crates/arena/README.md). threads:
 /// None means one thread when a Python agent plays (they take turns holding the GIL
-/// anyway) and every core otherwise.
+/// anyway) and every core otherwise. aivat: also score the match with AIVAT (each result's
+/// "aivat" entry: bb_per_100, se, minus_main and its SE, se_ratio, decisions corrected);
+/// the Rust strategy agents (blueprint, search, the lbr chumps) report their chances, so
+/// their choices are corrected, a Python agent's are not. aivat_facing: how AIVAT values a
+/// bet still to be answered ("minimum-defense", "called" or "taken-back"); aivat_boards:
+/// the boards it draws before the flop.
 #[pyfunction]
 #[pyo3(signature = (agents, deals, seed=1, *, players=2, lineup=None, stack=10_000, small_blind=50,
                     big_blind=100, ante=0, duplicate=true, all_in_equity=true, max_runouts=Some(10_000),
-                    shared_randomness=false, threads=None))]
+                    shared_randomness=false, threads=None, aivat=true, aivat_facing=None,
+                    aivat_boards=None))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_match(
     py: Python<'_>,
@@ -459,7 +467,22 @@ pub fn run_match(
     max_runouts: Option<u32>,
     shared_randomness: bool,
     threads: Option<usize>,
+    aivat: bool,
+    aivat_facing: Option<String>,
+    aivat_boards: Option<u32>,
 ) -> PyResult<MatchReport> {
+    let mut aivat_settings = Aivat::default();
+    if let Some(name) = aivat_facing {
+        aivat_settings.facing = Facing::parse(&name).ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "aivat_facing: {name:?} is not one of {}",
+                Facing::NAMES.join(", ")
+            ))
+        })?;
+    }
+    if let Some(boards) = aivat_boards {
+        aivat_settings.boards = boards;
+    }
     let failure: Failure = Arc::new(Mutex::new(None));
     let mut list = Vec::with_capacity(agents.len());
     let mut python = false;
@@ -489,6 +512,7 @@ pub fn run_match(
     config.max_runouts = max_runouts;
     config.shared_randomness = shared_randomness;
     config.threads = threads.unwrap_or(if python { 1 } else { 0 });
+    config.aivat = aivat.then_some(aivat_settings);
     let report = py.detach(|| arena_match(&config, &list));
     if let Some(error) = failure.lock().unwrap().take() {
         return Err(error);

@@ -28,6 +28,34 @@ pub trait Player: Send {
     /// The hand is over. `view.net()` is this seat's result and `view.shown(seat)` the
     /// cards turned up at a showdown.
     fn end_hand(&mut self, _view: &View<'_>) {}
+
+    /// The chances the action just returned by [`Player::act`] was drawn with, when this
+    /// player knows them: each action it could have returned, with its weight (weights
+    /// need not add up to 1; those not above 0 are left out). AIVAT
+    /// ([`crate::aivat`]) uses them to take the luck of this player's own random choices
+    /// out of its result.
+    ///
+    /// The action must really have been drawn with these chances, from a random number
+    /// that nothing else in the hand depends on: [`View::pick`] with the same weights does
+    /// exactly that. A player whose action is not among them is not corrected at that
+    /// decision (the report counts it). `None`, the default, says the chances are not
+    /// known: the player's own choices are then left as they are.
+    fn probabilities(&self) -> Option<&[(Action, f64)]> {
+        None
+    }
+
+    /// The chances this player would play with at `view`, which need not be a situation
+    /// the hand reached, written into `out` (empty on arrival) as for
+    /// [`Player::probabilities`]. `false`, the default, when it can't say. AIVAT asks this
+    /// after a hand about the situations each action could have led to, to value an
+    /// action by the answers this player would give to it. The answers only steer how much
+    /// luck AIVAT takes out, never the expected result, so answers that are off cost
+    /// precision, not correctness, on one condition: they depend only on the view, not on
+    /// anything the player saw or did in the hand (a player that learns from its hands
+    /// should say `false`). The view's [`View::seed`] is 0.
+    fn chances_at(&self, _view: &View<'_>, _out: &mut Vec<(Action, f64)>) -> bool {
+        false
+    }
 }
 
 /// A closure is a player: `|view: &View<'_>| view.check_or_call()`.

@@ -17,6 +17,9 @@ pub struct MatchReport {
     pub config: MatchConfig,
     /// The scorer's name: "actual chips", "all-in equity", or a custom one.
     pub scoring: String,
+    /// AIVAT's settings when the match was also scored with it (`null` otherwise).
+    #[serde(default)]
+    pub aivat_scoring: Option<String>,
     /// The agents' names; `config.lineup` holds indexes into this list.
     pub agents: Vec<String>,
     /// The table size.
@@ -58,8 +61,44 @@ pub struct AgentResult {
     pub plain_se: Option<f64>,
     /// Illegal actions it returned (each replaced by a check or a fold).
     pub illegal_actions: u64,
+    /// The same hands scored with AIVAT, when the match was (`null` otherwise).
+    #[serde(default)]
+    pub aivat: Option<AivatResult>,
     /// The result in each seat. The button is always seat 0.
     pub by_seat: Vec<SeatResult>,
+}
+
+/// An agent's result scored with AIVAT ([`crate::aivat`]), on the same hands as the main
+/// figure.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AivatResult {
+    /// The win rate per seat held, in bb/100.
+    pub bb_per_100: f64,
+    /// Its standard error, one sample per deal as for the main figure.
+    pub se: Option<f64>,
+    /// AIVAT minus the main figure (`bb_per_100` of the result), deal by deal. Both have
+    /// no bias, so this is 0 up to `minus_main_se`.
+    pub minus_main: f64,
+    pub minus_main_se: Option<f64>,
+    /// `se` over the main figure's SE: how much AIVAT narrows it (the hands needed for the
+    /// same SE shrink by its square).
+    pub se_ratio: Option<f64>,
+    /// The agent's decisions whose random choice AIVAT corrected (its chances were known).
+    pub corrected_decisions: u64,
+    /// Decisions without known chances: not corrected.
+    pub unknown_decisions: u64,
+    /// Decisions whose reported chances can't be the ones it played with (the action is
+    /// not among them, or one is not legal): not corrected. Above 0 means a bug in the agent.
+    pub unexplained_decisions: u64,
+}
+
+impl AivatResult {
+    /// The AIVAT win rate in its standard errors.
+    pub fn z(&self) -> Option<f64> {
+        self.se
+            .filter(|&se| se > 1e-9)
+            .map(|se| self.bb_per_100 / se)
+    }
 }
 
 impl AgentResult {
@@ -159,6 +198,7 @@ impl MatchReport {
             self.adjusted_hands
         );
         let se = |x: Option<f64>| x.map_or("n/a".to_string(), |v| format!("{v:.2}"));
+        let z = |x: Option<f64>| x.map_or("n/a".to_string(), |z| format!("{z:+.1}"));
         let _ = writeln!(
             out,
             "{:<14} {:>5} {:>10} {:>8} {:>7} {:>10} {:>9}",
@@ -172,10 +212,24 @@ impl MatchReport {
                 r.seats,
                 r.bb_per_100,
                 se(r.se),
-                r.z().map_or("n/a".to_string(), |z| format!("{z:+.1}")),
+                z(r.z()),
                 se(r.plain_se),
                 r.illegal_actions
             );
+            if let Some(a) = &r.aivat {
+                let _ = writeln!(
+                    out,
+                    "  {:<12} {:>5} {:>+10.2} {:>8} {:>7}   SE x {}, minus the above {:+.2} +- {}",
+                    "AIVAT",
+                    "",
+                    a.bb_per_100,
+                    se(a.se),
+                    z(a.z()),
+                    a.se_ratio.map_or("n/a".to_string(), |x| format!("{x:.3}")),
+                    a.minus_main,
+                    se(a.minus_main_se)
+                );
+            }
             for s in &r.by_seat {
                 let _ = writeln!(
                     out,
@@ -186,6 +240,22 @@ impl MatchReport {
                     se(s.se)
                 );
             }
+        }
+        if let Some(name) = &self.aivat_scoring {
+            let counts: Vec<String> = self
+                .results
+                .iter()
+                .filter_map(|r| {
+                    let a = r.aivat.as_ref()?;
+                    let all = a.corrected_decisions + a.unknown_decisions + a.unexplained_decisions;
+                    let mut text = format!("{} {} of {}", r.agent, a.corrected_decisions, all);
+                    if a.unexplained_decisions > 0 {
+                        text += &format!(" ({} unexplained)", a.unexplained_decisions);
+                    }
+                    Some(text)
+                })
+                .collect();
+            let _ = writeln!(out, "{name}; decisions corrected: {}", counts.join(", "));
         }
         let _ = write!(
             out,

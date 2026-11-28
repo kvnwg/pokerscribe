@@ -3,7 +3,9 @@
 // Loops over seat numbers read better than iterator chains over several arrays at once.
 #![allow(clippy::needless_range_loop)]
 
-use arena::{all_in_equity, all_in_runout, AllInEquity, EvalRanker, HandRecord, Pots, Scorer};
+use arena::{
+    all_in_equity, all_in_runout, AllInEquity, Decisions, EvalRanker, HandRecord, Pots, Scorer,
+};
 use nlhe::{
     parse_card, Action, BruteForceRanker, Card, Config, Deal, HandRanker, Rng, State, MAX_PLAYERS,
 };
@@ -366,6 +368,7 @@ fn the_scorer_leaves_other_hands_alone_and_reuses_a_deal() {
             agents: &[0, 1],
             state,
             payouts: &payouts[..2],
+            decisions: &Decisions::new(),
         };
         scorer.score(&record, &mut scores);
         scores

@@ -37,11 +37,14 @@ use nlhe::{Chips, Config, ConfigError, Deal, MAX_PLAYERS};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::hand::play_hand;
+use crate::aivat::Aivat;
+use crate::hand::{play_hand_recorded, Decisions};
 use crate::luck::{ActualChips, AllInEquity, HandRecord, Scorer};
 use crate::mix;
 use crate::player::{Agent, Player};
-use crate::report::{position_name, AgentResult, MatchReport, SeatResult, Timing, FORMAT};
+use crate::report::{
+    position_name, AgentResult, AivatResult, MatchReport, SeatResult, Timing, FORMAT,
+};
 
 /// The default of [`MatchConfig::max_runouts`]. On the test bots it gives the same
 /// standard error as every board, to three digits (see the README).
@@ -76,6 +79,11 @@ pub struct MatchConfig {
     pub shared_randomness: bool,
     /// Worker threads. 0 uses every core.
     pub threads: usize,
+    /// Also score every hand with AIVAT ([`crate::aivat`]) and report it next to the main
+    /// figure (`AgentResult::aivat`). `None`: not done (it costs about 20 to 50
+    /// microseconds a hand heads-up, more at six-max).
+    #[serde(default)]
+    pub aivat: Option<Aivat>,
 }
 
 impl MatchConfig {
@@ -95,7 +103,14 @@ impl MatchConfig {
             max_runouts: Some(DEFAULT_MAX_RUNOUTS),
             shared_randomness: false,
             threads: 0,
+            aivat: None,
         }
+    }
+
+    /// The same match, also scored with AIVAT (the default settings).
+    pub fn with_aivat(mut self) -> MatchConfig {
+        self.aivat = Some(Aivat::default());
+        self
     }
 
     /// Agent 0 against agent 1 heads-up: every deal played twice, seats swapped.
@@ -157,6 +172,9 @@ impl MatchConfig {
         }
         if self.max_runouts == Some(0) {
             return Err(ArenaError::Config("max_runouts must be at least 1".into()));
+        }
+        if self.aivat.is_some_and(|a| a.boards == 0) {
+            return Err(ArenaError::Config("AIVAT needs at least 1 board".into()));
         }
         let stacks = vec![self.stack; n];
         Ok(Config::new(
@@ -259,6 +277,13 @@ struct AgentTally {
     by_seat: [Tally; MAX_PLAYERS],
     seat_hands: [u64; MAX_PLAYERS],
     illegal: u64,
+    /// Per deal: the AIVAT score, and the AIVAT score minus the main one.
+    aivat: Tally,
+    aivat_minus: Tally,
+    /// Decisions: corrected by AIVAT, without known chances, with chances that can't be.
+    corrected: u64,
+    unknown: u64,
+    unexplained: u64,
 }
 
 /// The sums of a block of deals.
@@ -287,6 +312,11 @@ impl Totals {
                 mine.seat_hands[s] += theirs.seat_hands[s];
             }
             mine.illegal += theirs.illegal;
+            mine.aivat.merge(&theirs.aivat);
+            mine.aivat_minus.merge(&theirs.aivat_minus);
+            mine.corrected += theirs.corrected;
+            mine.unknown += theirs.unknown;
+            mine.unexplained += theirs.unexplained;
         }
     }
 }
@@ -295,6 +325,7 @@ impl Totals {
 struct Table {
     players: Vec<Box<dyn Player>>,
     rotation: usize,
+    decisions: Decisions,
 }
 
 impl Table {
@@ -302,6 +333,7 @@ impl Table {
         Table {
             players: lineup.iter().map(|&a| agents[a].player()).collect(),
             rotation: 0,
+            decisions: Decisions::new(),
         }
     }
 
@@ -329,8 +361,8 @@ pub fn run_match(config: &MatchConfig, agents: &[Agent]) -> Result<MatchReport, 
     }
 }
 
-/// Plays the match with a scorer of your own (the hook for AIVAT, see [`crate::luck`]).
-/// `config.all_in_equity` and `config.max_runouts` are not used.
+/// Plays the match with a scorer of your own for the main figure (see [`crate::luck`]).
+/// `config.all_in_equity` and `config.max_runouts` are not used; `config.aivat` is.
 pub fn run_match_scored(
     config: &MatchConfig,
     agents: &[Agent],
@@ -351,6 +383,7 @@ pub fn run_match_scored(
         let mut hand_actual = vec![0.0; agents.len()];
         let mut seat_sum = vec![[0.0; MAX_PLAYERS]; agents.len()];
         let mut seat_count = vec![[0u32; MAX_PLAYERS]; agents.len()];
+        let mut aivat_score = vec![0.0; agents.len()];
         for d in first..(first + BLOCK).min(config.deals) {
             let deal_seed = mix(config.seed, d);
             let deal = Deal::from_seed(deal_seed, n, 0);
@@ -358,6 +391,7 @@ pub fn run_match_scored(
             actual.fill(0.0);
             seat_sum.fill([0.0; MAX_PLAYERS]);
             seat_count.fill([0; MAX_PLAYERS]);
+            aivat_score.fill(0.0);
             for k in 0..replays {
                 let rotation = if config.duplicate {
                     k
@@ -376,23 +410,38 @@ pub fn run_match_scored(
                     seeds[s] = mix(mix(deal_seed, replay_key), 100 + s as u64);
                     agent_at[s] = config.lineup[(s + n - rotation) % n];
                 }
-                let played = play_hand(&table, deal, &mut seats.players, &seeds[..n])
-                    .expect("a seeded deal is valid");
+                let played = play_hand_recorded(
+                    &table,
+                    deal,
+                    &mut seats.players,
+                    &seeds[..n],
+                    &mut seats.decisions,
+                )
+                .expect("a seeded deal is valid");
                 let mut scores = [0.0; MAX_PLAYERS];
                 for s in 0..n {
                     scores[s] = played.payouts[s] as f64;
                 }
-                scorer.score(
-                    &HandRecord {
-                        deal: d,
-                        replay: rotation,
-                        seed: mix(deal_seed, 99),
-                        agents: &agent_at[..n],
-                        state: &played.state,
-                        payouts: &played.payouts[..n],
-                    },
-                    &mut scores[..n],
-                );
+                let record = HandRecord {
+                    deal: d,
+                    replay: rotation,
+                    seed: mix(deal_seed, 99),
+                    agents: &agent_at[..n],
+                    state: &played.state,
+                    payouts: &played.payouts[..n],
+                    decisions: &seats.decisions,
+                };
+                scorer.score(&record, &mut scores[..n]);
+                if let Some(aivat) = &config.aivat {
+                    let scored = aivat.score_hand_with(&record, Some(&seats.players));
+                    for s in 0..n {
+                        let t = &mut totals.agents[agent_at[s]];
+                        aivat_score[agent_at[s]] += scored.scores[s];
+                        t.corrected += scored.corrected[s] as u64;
+                        t.unknown += scored.unknown[s] as u64;
+                        t.unexplained += scored.unexplained[s] as u64;
+                    }
+                }
                 if (0..n).any(|s| scores[s] != played.payouts[s] as f64) {
                     totals.adjusted_hands += 1;
                 }
@@ -423,6 +472,12 @@ pub fn run_match_scored(
                 let hands = (places[a] * replays) as f64;
                 totals.agents[a].score.add(score[a] / hands);
                 totals.agents[a].actual.add(actual[a] / hands);
+                if config.aivat.is_some() {
+                    totals.agents[a].aivat.add(aivat_score[a] / hands);
+                    totals.agents[a]
+                        .aivat_minus
+                        .add((aivat_score[a] - score[a]) / hands);
+                }
                 for s in 0..n {
                     if seat_count[a][s] > 0 {
                         totals.agents[a].by_seat[s].add(seat_sum[a][s] / seat_count[a][s] as f64);
@@ -481,6 +536,23 @@ pub fn run_match_scored(
                 actual_se: t.actual.se().map(|x| x * per_100),
                 plain_se: t.per_hand.se().map(|x| x * per_100),
                 illegal_actions: t.illegal,
+                aivat: config.aivat.map(|_| {
+                    let se = t.aivat.se().map(|x| x * per_100);
+                    let main = t.score.se().map(|x| x * per_100);
+                    AivatResult {
+                        bb_per_100: t.aivat.mean() * per_100,
+                        se,
+                        minus_main: t.aivat_minus.mean() * per_100,
+                        minus_main_se: t.aivat_minus.se().map(|x| x * per_100),
+                        se_ratio: match (se, main) {
+                            (Some(a), Some(m)) if m > 0.0 => Some(a / m),
+                            _ => None,
+                        },
+                        corrected_decisions: t.corrected,
+                        unknown_decisions: t.unknown,
+                        unexplained_decisions: t.unexplained,
+                    }
+                }),
                 by_seat: (0..n)
                     .filter(|&s| t.seat_hands[s] > 0)
                     .map(|s| SeatResult {
@@ -499,6 +571,7 @@ pub fn run_match_scored(
         format: FORMAT.to_string(),
         config: config.clone(),
         scoring: scorer.name(),
+        aivat_scoring: config.aivat.map(|a| a.describe()),
         agents: agents.iter().map(|a| a.name().to_string()).collect(),
         players: n,
         deals: config.deals,
