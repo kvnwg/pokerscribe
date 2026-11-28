@@ -146,7 +146,11 @@ class FakeRunner(be.Runner):
     def h2h(self, a, b, deals, seed, stack_bb):
         self.calls.append(("h2h", os.path.basename(a), os.path.basename(b)))
         assert stack_bb == 200
-        return {"bb_per_100": 3.0, "se": 1.0, "hands": 2 * deals, "deals": deals}
+        out = {"bb_per_100": 3.0, "se": 1.0, "hands": 2 * deals, "deals": deals}
+        if "1000000" not in a:  # an h2h.jsonl line from before AIVAT has no AIVAT fields
+            out.update(aivat_bb_per_100=2.5, aivat_se=0.625, aivat_se_ratio=0.625,
+                       aivat_minus_main=-0.5, aivat_minus_main_se=0.75)
+        return out
 
     def b0(self, path, deals, seed, processes, stack_bb, out_dir, name):
         self.calls.append(("b0", name, processes))
@@ -188,6 +192,9 @@ def test_evaluate_on_fake_measurements(tmp_path):
     assert b0["needed_hands"]["10"] == be.hands_needed(b0["sd_per_deal"], 10)
     md = (out / "summary.md").read_text()
     for want in ("| it4M | 4,000,000 | 0.2000 | strategy-2000000.bps |", "## The gate",
+                 "| it4M | it2M | +3.00 | 1.00 | +3.00 | +2.50 | 0.62 | +4.00 | 0.625 | "
+                 "-0.50 ± 0.75 | 1,000 |",
+                 "| it2M | it1M | +3.00 | 1.00 | +3.00 | | | | | | 1,000 |",
                  "- Head to head, the last file against the first: it4M against it1M, +3.00",
                  "- The gate: passes", "- Reported: LBR fcpa14 from +400.0 to +300.0", "18.0%"):
         assert want in md, want

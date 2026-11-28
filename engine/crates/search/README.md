@@ -132,8 +132,8 @@ At a leaf the player who is not searching (the "chooser") makes one more decisio
 actions, one per continuation strategy, and the searcher plays the blueprint after it. The
 four are the blueprint and three biased versions of it: at every decision of the rest of the hand
 the probability of folding, of checking or calling, or of betting or raising (all sizes
-together) is multiplied by 5 and the strategy renormalized. A factor of 5 is the one the
-Modicum paper uses. The chooser picks per hand, as the CFR iterations make it, so the searcher's
+together) is multiplied by 5 and the strategy renormalized. A factor of 5 is the one
+Pluribus uses; the Modicum paper used 10. The chooser picks per hand, as the CFR iterations make it, so the searcher's
 flop strategy has to hold up against whichever continuation suits each of the opponent's hands
 best.
 

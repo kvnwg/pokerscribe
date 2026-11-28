@@ -441,6 +441,7 @@ def _same_match(a, b):
 
 def test_the_rust_agents_by_name():
     assert pe.agents() == ["fold", "call", "raise", "minraise", "jam", "random", "tag", "tag-loose",
+                           "mixed", "mixed-loose",
                            "lbr-fold", "lbr-call", "lbr-jam", "lbr-call-or-raise", "lbr-random"]
     with pytest.raises(ValueError, match='no Rust agent is called "nobody"'):
         pe.run_match(["tag", "nobody"], 10)

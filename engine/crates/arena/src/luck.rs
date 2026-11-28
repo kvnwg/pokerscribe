@@ -5,22 +5,16 @@
 //! in before the river. A scorer must not change any agent's expected result, only the
 //! luck around it.
 //!
-//! # The hook for AIVAT
-//!
-//! AIVAT (Burch, Schmid, Moravcik, Morrill and Bowling, 2018) goes further: with a
-//! value estimate for every situation and the strategy of the agents being measured, it
-//! also corrects for the luck of the hole cards, of every board card and of the agents'
-//! own random choices. It fits here as one more `Scorer`: build it holding the value
-//! function and the strategies, read the whole hand from [`HandRecord::state`] (every
-//! card, the full history, the starting stacks), and write the corrected scores. Pass
-//! it to [`crate::run_match_scored`]. Nothing else in the arena changes: duplicate play,
-//! the standard errors and the report work on whatever the scorer returns.
+//! [`crate::aivat::Aivat`] is a third scorer: AIVAT, which also takes out the luck of the
+//! hole cards, of every board card and of the random choices of the agents whose chances
+//! are known. A match runs it next to its main scorer when `MatchConfig::aivat` is set.
 
 use std::cell::RefCell;
 
 use nlhe::{Chips, Deal, State, MAX_PLAYERS};
 
 use crate::equity::{all_in_equity, all_in_runout};
+use crate::hand::Decisions;
 
 /// One finished hand of a match, with everything known about it.
 #[derive(Clone, Copy, Debug)]
@@ -37,6 +31,9 @@ pub struct HandRecord<'a> {
     pub state: &'a State,
     /// The real result per seat, in chips.
     pub payouts: &'a [i64],
+    /// The chances each player reported for its actions, one entry per move of
+    /// `state.history()` ([`crate::Player::probabilities`]).
+    pub decisions: &'a Decisions,
 }
 
 /// Scores a finished hand.

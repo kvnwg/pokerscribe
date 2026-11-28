@@ -181,6 +181,8 @@ bit, on any number of threads (`app/tests/test_engine_bindings.py`).
 | `all_in_equity`, `max_runouts` | Score the equity of hands all in before the river, over at most `max_runouts` boards (`None`: every board). | True, 10000 |
 | `shared_randomness` | A seat gets the same random numbers in every replay of a deal. | False |
 | `threads` | Worker threads. `None`: one when a Python agent plays (Python agents take turns holding the GIL anyway), every core otherwise. | None |
+| `aivat` | Also score the same hands with AIVAT (the arena's README, "AIVAT"): each result gets an `aivat` entry with `bb_per_100`, `se`, `minus_main` and `minus_main_se` (AIVAT minus the main figure, deal by deal), `se_ratio` and the decisions corrected. The Rust strategy agents (`blueprint:`, `search:`, the `lbr-` chumps) and `mixed` report their chances, so their own choices are corrected too; a Python agent's are not. | True |
+| `aivat_facing`, `aivat_boards` | How AIVAT values a bet still to be answered (`"minimum-defense"`, `"called"`, `"taken-back"`) and the boards it draws before the flop. | `"minimum-defense"`, 2000 |
 
 The meaning of each is in the arena's README, which also explains the report's fields. A
 `MatchReport` has `to_dict()`, `to_json()`, `summary()` (the arena command's table, also
@@ -233,7 +235,7 @@ same thing:
 
 | Name | Agent |
 | --- | --- |
-| `fold`, `call`, `raise`, `minraise`, `jam`, `random`, `tag`, `tag-loose` | The arena's test bots (`engine/crates/arena/README.md`, "Test bots"), arena `Player`s |
+| `fold`, `call`, `raise`, `minraise`, `jam`, `random`, `tag`, `tag-loose`, `mixed`, `mixed-loose` | The arena's test bots (`engine/crates/arena/README.md`, "Test bots"), arena `Player`s |
 | `lbr-fold`, `lbr-call`, `lbr-jam`, `lbr-call-or-raise`, `lbr-random` | LBR's chumps (`engine/crates/lbr/src/chumps.rs`): always fold, always check or call, always all in, call or raise half and half, and fold, call or raise with equal chances. They are `Strategy`s, played through the adapter below |
 | `blueprint:<file>` | The blueprint in that strategy file (`engine/crates/blueprint`), with the bucket tables it was trained with (the directory the file records). `blueprint:<file>?tables=<dir>` reads the tables from `dir` instead, for a file trained on another machine (they must be the same tables: the file's checksums are checked). A `Strategy`, played through the adapter below. Seat it at the stacks and blinds it was trained for: `blueprint info <file>` shows them. A file that can't be loaded is a `ValueError` naming it. `agents()` doesn't list it, since the name holds a path |
 | `search:<file>` | Depth-limited search on that blueprint (`engine/crates/search`): the blueprint before the flop, a solve of every street after it, with the leaf tables `<file>.leaf` next to it if they are there (`search leaf` builds them; without them the flop's leaves are checked down). Slow: seconds a decision after the flop. A `Strategy`, like the blueprint; a file that can't be loaded is a `ValueError` naming it |

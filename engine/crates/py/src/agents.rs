@@ -23,7 +23,7 @@ use lbr::{
 use nlhe::{Action, Card, Deal, State, MAX_PLAYERS};
 
 /// The agents [`rust_agent`] knows, in the order `agents()` lists them.
-pub const RUST_AGENTS: [&str; 13] = [
+pub const RUST_AGENTS: [&str; 15] = [
     // the arena's test bots (engine/crates/arena/src/bots.rs)
     "fold",
     "call",
@@ -33,6 +33,8 @@ pub const RUST_AGENTS: [&str; 13] = [
     "random",
     "tag",
     "tag-loose",
+    "mixed",
+    "mixed-loose",
     // LBR's chumps (engine/crates/lbr/src/chumps.rs), played through their Strategy
     "lbr-fold",
     "lbr-call",
@@ -101,14 +103,29 @@ pub fn search_agent(name: &str) -> Option<Result<Agent, String>> {
     let path = name.strip_prefix("search:")?;
     Some(
         search::SearchAgent::load(Path::new(path), search::Settings::default())
-            .map(|s| strategy_agent(name, s))
+            // It reports the chances it played with, but answering for situations the
+            // hand didn't reach would mean a search for each one (seconds): AIVAT asks
+            // only the chances it played with.
+            .map(|s| strategy_agent_with(name, s, false))
             .map_err(|e| format!("{name}: {e}")),
     )
 }
 
 /// An agent that plays a [`Strategy`]: at each decision it asks the strategy for its action
-/// probabilities and draws one with [`View::pick`], so a match repeats exactly.
+/// probabilities and draws one with [`View::pick`], so a match repeats exactly. It reports
+/// the probabilities ([`Player::probabilities`]), so AIVAT corrects its choices, and says
+/// what the strategy would play at any other situation ([`Player::chances_at`]), so AIVAT
+/// values the other players' actions by its answers. For a strategy that is cheap to ask
+/// and depends only on the public state and the cards, as a blueprint does.
 pub fn strategy_agent<S>(name: &str, strategy: S) -> Agent
+where
+    S: Strategy + Send + 'static,
+{
+    strategy_agent_with(name, strategy, true)
+}
+
+/// [`strategy_agent`], answering for other situations only when `answers` is true.
+pub fn strategy_agent_with<S>(name: &str, strategy: S, answers: bool) -> Agent
 where
     S: Strategy + Send + 'static,
 {
@@ -118,6 +135,7 @@ where
             strategy: Arc::clone(&strategy),
             probs: ActionProbs::new(),
             weights: Vec::new(),
+            answers,
         })
     })
 }
@@ -127,6 +145,7 @@ pub struct StrategyPlayer<S> {
     strategy: Arc<S>,
     probs: ActionProbs,
     weights: Vec<f64>,
+    answers: bool,
 }
 
 impl<S: Strategy + Send> Player for StrategyPlayer<S> {
@@ -144,6 +163,25 @@ impl<S: Strategy + Send> Player for StrategyPlayer<S> {
             return Action::RaiseTo(0);
         }
         self.probs.as_slice()[view.pick(&self.weights)].0
+    }
+
+    /// The strategy's probabilities: the action was drawn from them with `View::pick`, so
+    /// AIVAT can take the luck of this agent's choices out of its result.
+    fn probabilities(&self) -> Option<&[(Action, f64)]> {
+        Some(self.probs.as_slice())
+    }
+
+    /// What the strategy plays at any view: AIVAT values an action by these answers.
+    fn chances_at(&self, view: &View<'_>, out: &mut Vec<(Action, f64)>) -> bool {
+        if !self.answers {
+            return false;
+        }
+        let state = visible_state(view);
+        let mut probs = ActionProbs::new();
+        self.strategy
+            .action_probs(&PublicState::new(&state), view.hole(), &mut probs);
+        out.extend_from_slice(probs.as_slice());
+        true
     }
 }
 
