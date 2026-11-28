@@ -23,6 +23,7 @@ agents (rule 4).
 | `phase7.json` | The plan as the job's `--config`: the leaf build, the gate agent, the bench and its bounds, the pilot, the size rule, the gate, the two variants, LBR and the repeat |
 | `cloud.env.example` | The `tools/cloud` settings for the run, without a project or bucket |
 | `gate.py` | Reads the downloaded results, checks the job's bound check, N, pooling and pass against the plan, and writes `summary.md` and `summary.json` |
+| `LAUNCH.md` | The brief Kevin pastes into a local Claude Code session to launch, watch, finish and report the run ($30 cap, never raised) |
 | `plan_rehearsal.py` | The dress rehearsal of the whole job under the real `tools/cloud` supervisor, run here ("The dress rehearsal") |
 
 ## The run, step by step
