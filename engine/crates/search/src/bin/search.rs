@@ -354,8 +354,16 @@ fn head_to_head(opts: &HashMap<String, String>) {
     };
     let t0 = Instant::now();
     let report = runs::head_to_head(
-        ("search", Arc::new(searcher)),
-        (&against, other),
+        runs::Side {
+            name: "search",
+            strategy: Arc::new(searcher),
+            answers: false,
+        },
+        runs::Side {
+            name: &against,
+            strategy: other,
+            answers: against == "blueprint",
+        },
         stack,
         deals,
         seed,

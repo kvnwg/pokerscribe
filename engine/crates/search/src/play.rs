@@ -2,7 +2,9 @@
 //! probabilities at the public state the seat sees, and the action is drawn with
 //! `View::pick`, so a match repeats exactly (the same as the py crate's `strategy_agent`).
 //! It reports those probabilities (`Player::probabilities`), so the arena's AIVAT can take
-//! the luck of its choices out of the result.
+//! the luck of its choices out of the result. Seated with [`answering_strategy_agent`], it
+//! also says what it would play at situations the hand didn't reach
+//! (`Player::chances_at`), and AIVAT values the other player's actions by those answers.
 
 use std::sync::Arc;
 
@@ -12,7 +14,27 @@ use nlhe::Action;
 
 use crate::real::rebuild;
 
+/// `strategy` seated in the arena as `name`. It gives AIVAT no answers: for the search
+/// agent each would be a search.
 pub fn strategy_agent<S>(name: &str, strategy: Arc<S>) -> Agent
+where
+    S: Strategy + Send + Sync + 'static,
+{
+    seat(name, strategy, false)
+}
+
+/// [`strategy_agent`] that also answers AIVAT: what the strategy would play at any
+/// situation. Only for a strategy that is cheap to ask and depends on nothing but the
+/// situation and its cards, as the blueprint does (the py crate's
+/// `answering_strategy_agent`, as in the AIVAT checks of experiments.md).
+pub fn answering_strategy_agent<S>(name: &str, strategy: Arc<S>) -> Agent
+where
+    S: Strategy + Send + Sync + 'static,
+{
+    seat(name, strategy, true)
+}
+
+fn seat<S>(name: &str, strategy: Arc<S>, answers: bool) -> Agent
 where
     S: Strategy + Send + Sync + 'static,
 {
@@ -20,6 +42,7 @@ where
         Box::new(Seated {
             strategy: Arc::clone(&strategy),
             probs: ActionProbs::new(),
+            answers,
         })
     })
 }
@@ -27,6 +50,7 @@ where
 struct Seated<S> {
     strategy: Arc<S>,
     probs: ActionProbs,
+    answers: bool,
 }
 
 impl<S: Strategy + Send + Sync> Player for Seated<S> {
@@ -50,5 +74,18 @@ impl<S: Strategy + Send + Sync> Player for Seated<S> {
     /// The probabilities the action was drawn from, for AIVAT.
     fn probabilities(&self) -> Option<&[(Action, f64)]> {
         Some(self.probs.as_slice())
+    }
+
+    /// What the strategy would play at `view`, when this seat answers.
+    fn chances_at(&self, view: &View<'_>, out: &mut Vec<(Action, f64)>) -> bool {
+        if !self.answers {
+            return false;
+        }
+        let state = rebuild(&view.config(), view.history(), view.board());
+        let mut probs = ActionProbs::new();
+        self.strategy
+            .action_probs(&PublicState::new(&state), view.hole(), &mut probs);
+        out.extend_from_slice(probs.as_slice());
+        true
     }
 }

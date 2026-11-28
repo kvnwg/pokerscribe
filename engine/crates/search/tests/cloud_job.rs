@@ -238,7 +238,7 @@ fn the_plan_job_keeps_the_cloud_trainer_contract() {
                       "bound_ms": {"flop": 600000, "turn": 600000, "river": 600000}},
             "pilot": {"deals": 16, "seed": 501},
             "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 16, "min": 32, "max": 32},
-            "gate": {"chunk": 16, "seed": 600, "pass_z": 2.5},
+            "gate": {"chunk": 16, "seed": 600, "pass_z": 2.5, "measure": "aivat"},
             "variants": [{"name": "final", "agent": agent("final"), "chunks": 1, "seed": 900}],
             "lbr": {"hands": 4, "chunks": 1, "settings": [{"name": "fcpa14", "seed": 560}]},
             "repeat": {"seed": 700}

@@ -83,7 +83,12 @@ print(report.summary())
 ```
 
 From Rust, `SearchAgent` is an `lbr::Strategy`, so LBR (`blueprint::lbr_match`) and the arena
-(`play::strategy_agent`) take it as they take the blueprint.
+(`play::strategy_agent`) take it as they take the blueprint. Seated in the arena, a strategy
+reports the chances it drew its action with, so the arena's AIVAT corrects its choices;
+`play::answering_strategy_agent` also says what it would play at situations the hand didn't
+reach, which AIVAT uses to value the other player's actions (the blueprint does, the search
+agent doesn't: each answer would be a search). `search match` and the plan job score every
+match with AIVAT beside the main figure, the blueprint answering (`runs::head_to_head`).
 
 ## How it works
 
@@ -222,6 +227,13 @@ it, the job ends there), the pilot match, N by the size rule, the gate match in 
 variants (other agent settings, reported), LBR against the blueprint and the gate agent on the
 same seeds, and the repeat only after the gate passes. The runs themselves are `runs.rs`, shared
 with the `match`, `lbr`, `compare` and `bench` commands.
+
+- **The measure** (`gate.measure`): `aivat`, as registered, sizes N from the pilot's AIVAT sd
+  and reads the gate and the repeat on the pooled AIVAT figure; `plain` uses the main figure
+  (duplicate deals, all-in equity). AIVAT falls back to the plain figure, with the reason, when
+  a result has no AIVAT figure or an agent has an unexplained decision (chances it reported
+  that can't be the ones it played with). Both figures are pooled and written either way
+  (`pool`, `decides`; `size.json`, `gate.json`, `repeat.json`, the variants).
 
 - **The contract**: one checkpoint, `plan.ckpt` (the plan's fingerprint: the config and the
   strategy file's hash; and the step). The artifacts are the parts and the results (`*.json`,

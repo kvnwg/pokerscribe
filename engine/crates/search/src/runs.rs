@@ -14,7 +14,7 @@ use nlhe::{Card, Config, Deal, State, Street};
 use serde_json::{json, Map, Value};
 
 use crate::cards::mix;
-use crate::play::strategy_agent;
+use crate::play::{answering_strategy_agent, strategy_agent};
 use crate::SearchAgent;
 
 /// A shared strategy, as the arena and LBR take one.
@@ -35,22 +35,37 @@ impl Strategy for Dyn {
     }
 }
 
+/// One side of a match: its name, its strategy, and whether it answers AIVAT (what it would
+/// play at situations the hand didn't reach, [`answering_strategy_agent`]). The blueprint
+/// does; the search agent doesn't, as each answer would be a search.
+pub struct Side<'a> {
+    pub name: &'a str,
+    pub strategy: Arc<dyn Strategy + Send + Sync>,
+    pub answers: bool,
+}
+
 /// `deals` duplicate deals (each played twice, the seats swapped) scored by all-in equity,
-/// between `a` and `b` under their names, at `stack` chips (blinds 50 and 100). `threads`
-/// 0 plays on every thread of the current pool.
+/// and by AIVAT at the arena's defaults beside it (each result's `aivat`), between `a` and
+/// `b` under their names, at `stack` chips (blinds 50 and 100). `threads` 0 plays on every
+/// thread of the current pool.
 pub fn head_to_head(
-    a: (&str, Arc<dyn Strategy + Send + Sync>),
-    b: (&str, Arc<dyn Strategy + Send + Sync>),
+    a: Side<'_>,
+    b: Side<'_>,
     stack: u32,
     deals: u64,
     seed: u64,
     threads: usize,
 ) -> Result<MatchReport, String> {
-    let agents = [
-        strategy_agent(a.0, Arc::new(Dyn(a.1))),
-        strategy_agent(b.0, Arc::new(Dyn(b.1))),
-    ];
-    let mut config = MatchConfig::heads_up(deals, seed);
+    let seat = |s: Side<'_>| {
+        let strategy = Arc::new(Dyn(s.strategy));
+        if s.answers {
+            answering_strategy_agent(s.name, strategy)
+        } else {
+            strategy_agent(s.name, strategy)
+        }
+    };
+    let agents = [seat(a), seat(b)];
+    let mut config = MatchConfig::heads_up(deals, seed).with_aivat();
     config.stack = stack;
     config.threads = threads;
     run_match(&config, &agents).map_err(|e| e.to_string())
