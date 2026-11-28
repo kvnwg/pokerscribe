@@ -4,6 +4,8 @@ Principles in our own words, with the status of each in the engine. "Rule" means
 advice code; "setting" means it is a switch in the tuning table that stays off until paired tests
 justify it (see `experiments.md`); "planned" means a phase of the research roadmap.
 
+What Libratus, Modicum, Pluribus and later agents did, compared with this repo and the gaps ranked: `STATE_OF_THE_ART.md`.
+
 ## The Mathematics of Poker (Chen and Ankenman)
 
 | Principle | Status |
