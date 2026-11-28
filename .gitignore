@@ -11,10 +11,10 @@ uoftcprg/
 
 # per-hand data from experiment runs (rebuilt exactly by the scripts in docs/research/runs)
 docs/research/runs/*/*.json
-# ...but the Phase 6 trainer config and the Phase 7 leaf build's config are the runs
+# ...but the Phase 6 trainer config and the Phase 7 plan are the runs
 # themselves, not data from one
 !docs/research/runs/phase6/trainer.json
-!docs/research/runs/phase7/leaf.json
+!docs/research/runs/phase7/phase7.json
 
 # TexasSolver (AGPL) and its raw output stay outside the repo (data/answer_keys/README.md)
 console_solver

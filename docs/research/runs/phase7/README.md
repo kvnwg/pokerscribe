@@ -1,8 +1,8 @@
-# Phase 7: search against the blueprint at 200 big blinds, ready to run
+# Phase 7: search against the blueprint at 200 big blinds, ready to launch
 
 Phase 7 of the roadmap (`docs/research/README.md`): depth-limited search on every postflop
-decision (Modicum), on the Phase 6 blueprint (it512M: `strategy-512000000.bps`, 200 big blinds,
-the `rich` menu, 200 buckets). The search crate is `engine/crates/search`; its groundwork at 20
+decision, on the Phase 6 blueprint (it512M: `strategy-512000000.bps`, 200 big blinds, the
+`rich` menu, 200 buckets). The search crate is `engine/crates/search`; its groundwork at 20
 big blinds is in `experiments.md`, "Phase 7 groundwork".
 
 The gate (Kevin, 27 Nov 2026) has three conditions: the search beats the blueprint head to head
@@ -10,267 +10,317 @@ by 2.5 SE, a luck-adjusted Slumbot match, and the GTO Wizard Benchmark. This fol
 first: the head-to-head match, with LBR and decision time reported beside it. **Slumbot and the
 GTO Wizard Benchmark are left for later**, with their own plan, once this condition is read.
 
-Nothing here has been run on it512M and nothing has been launched or rented. The plan is
-pre-registered in `docs/research/experiments.md`, "Phase 7: the plan at 200 big blinds (28 Nov
-2026)", and is binding as written there; this README is the runbook. Everything is offline and
-against our own agents (rule 4).
+**Everything runs on one rented machine, as one `tools/cloud` job.** Kevin's MacBook Air (M3,
+8 GB) can't hold the leaf tables (22.2 GB), so the Mac only launches the run, watches it,
+downloads the results and summarizes them. Nothing has been run on it512M and nothing has been
+launched or rented. The plan is pre-registered in `docs/research/experiments.md`, "Phase 7: the
+plan at 200 big blinds (28 Nov 2026)", and is binding as written there; `phase7.json` carries
+its seeds and sizes, and this README is the runbook. Everything is offline and against our own
+agents (rule 4).
 
 | File | What it is |
 | --- | --- |
-| `run.sh` | Every run on Kevin's Mac, one step at a time, resumable, with the pre-registered seeds and sizes |
-| `gate.py` | The decision-time check, the match size from the pilot, and the reading (`summary.md`) |
-| `leaf.json` | The leaf table build as a `tools/cloud` job: strategy file, bucket tables, 16M deals, seed 7, 256 turn starts a part |
-| `cloud.env.example` | The `tools/cloud` settings for that build, without a project or bucket |
-| `leaf_rehearsal.py` | The dress rehearsal of the build under the real `tools/cloud` supervisor, run here |
+| `phase7.json` | The plan as the job's `--config`: the leaf build, the gate agent, the bench and its bounds, the pilot, the size rule, the gate, the two variants, LBR and the repeat |
+| `cloud.env.example` | The `tools/cloud` settings for the run, without a project or bucket |
+| `gate.py` | Reads the downloaded results, checks the job's bound check, N, pooling and pass against the plan, and writes `summary.md` and `summary.json` |
+| `plan_rehearsal.py` | The dress rehearsal of the whole job under the real `tools/cloud` supervisor, run here ("The dress rehearsal") |
 
 ## The run, step by step
 
-On Kevin's Mac, from the repo root. Steps 1 to 3 once; then `run.sh` step by step. Every
-`run.sh` step can be stopped (Ctrl-C, a crash, the lid closed) and run again: it skips what is
-done and plays a cut-off chunk again from its start, with the same seed and the same result.
+On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
 
-1. **The code and the files:**
+1. **The files** (Phase 6's): `git pull`, then
+   `ls -l ~/phase6/run1/strategy-512000000.bps ~/abstraction/k200`. If they are elsewhere,
+   change `TRAINER_FILES` in step 2.
 
-   ```
-   git pull
-   (cd engine && cargo build --release --locked -p search)
-   sysctl -n hw.memsize                                    # 17179869184 or more (16 GB)
-   ls -l ~/phase6/run1/strategy-512000000.bps ~/abstraction/k200
-   ```
-
-   The search agent holds the 9.7 GB leaf tables in memory: about 11 GB in all (measured here).
-   With 16 GB, close the other big programs while it plays; under 16 GB it can't run as planned
-   (stop and tell the manager session). If the files are elsewhere, set `S` (the strategy file)
-   and `T` (the bucket tables) in the environment for every command below.
-
-2. **The cloud settings** (only for the cloud build, 3a):
-   `cp docs/research/runs/phase7/cloud.env.example ~/.config/pokerscribe/cloud-leaf.env`, then
+2. **The settings:**
+   `cp docs/research/runs/phase7/cloud.env.example ~/.config/pokerscribe/cloud-phase7.env`, then
    fill in `PROJECT`, `BUCKET` and `SERVICE_ACCOUNT` (Phase 6's), and read the current Spot
-   price of c4a-highcpu-64 in us-central1 into `SPOT_PRICE_PER_HOUR` ($1.445888 on 27 Nov 2026).
-   It is a separate file so Phase 6's `cloud.env` stays as it was; every command below names it.
+   price of c4a-highcpu-64 in us-central1 into `SPOT_PRICE_PER_HOUR` ($1.445888 on 27 Nov
+   2026). It is a separate file so Phase 6's `cloud.env` stays as it was; every command below
+   names it through `P`.
 
-3. **The leaf tables**, `~/phase6/run1/strategy-512000000.bps.leaf` (9.7 GB), once. Either way
-   gives the same tables ("The leaf tables" has the hours and dollars).
-
-   **3a. On a rented machine (recommended): about 1.3 to 3.3 hours, $1.9 to $4.9, capped at $8.**
+3. **Check and launch** (about 5 to 10 hours, capped at $20; "Sizes and costs"):
 
    ```
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env check       # "all checks passed"
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env launch --dry-run
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env launch
-   caffeinate -i python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env recover   # second terminal, leave it running
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env watch --every 60
+   P="--settings $HOME/.config/pokerscribe/cloud-phase7.env"
+   python -m tools.cloud $P check                    # ends with "all checks passed"
+   python -m tools.cloud $P launch --dry-run
+   python -m tools.cloud $P launch
+   caffeinate -i python -m tools.cloud $P recover    # second terminal, leave it running
+   python -m tools.cloud $P watch --every 60
    ```
 
-   `watch` counts the progress in deals (`iterations`): 34 parts of 16,000,000, so 544,000,000
-   at the end. When the run is done (`recover` exits, `watch` says done):
+   The job plays the steps of "The plan" in order. `watch` shows the progress of the step being
+   played: the leaf build in deals (34 parts of 16,000,000, so 544,000,000 at the end), then
+   each match in deals and LBR in runs; the time left it shows is the step's. The trainer's
+   own lines (`logs/<session>-trainer.log` in the run's folder of the bucket) name each step
+   and its result as it ends. A Spot preemption costs at most the run being played (a part of
+   the build, about 3 minutes; a chunk of 2,000 deals, about 8; an LBR run against the search,
+   about 17): the next machine gets the parts and the results back and goes on from them.
+
+4. **If it stops early:**
+   - `end.json` says "a street is over its bound: no match was played": the job ended after the
+     bench, by the plan. Download (step 5) and tell the manager session; don't change the bound.
+   - The $20 cap stops it ("budget"): raise `BUDGET_USD` and `python -m tools.cloud $P resume`.
+     The parts and the results done are kept.
+
+5. **The results**, when `recover` exits and `watch` says done:
 
    ```
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env artifacts --download ~/phase7/leaf --only 'strategy-512000000.bps.leaf'
-   mv ~/phase7/leaf/strategy-512000000.bps.leaf ~/phase6/run1/
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env cleanup
-   python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env leftovers   # only the bucket
+   python -m tools.cloud $P artifacts --download ~/phase7/run --only '*.json'
+   python -m tools.cloud $P artifacts --download ~/phase7/run --only '*.deals'
+   python3 docs/research/runs/phase7/gate.py ~/phase7/run
    ```
 
-   The parts and the table file stay in the bucket (19.4 GB, about $0.39 a month) until the run's
-   folder is deleted: `gcloud storage rm -r gs://<BUCKET>/runs/hu-leaf-512m`, once step 4 has
-   loaded the file. If the $8 cap stops the run first, raise `BUDGET_USD` and
-   `python -m tools.cloud --settings ~/.config/pokerscribe/cloud-leaf.env resume`: the parts done
-   are kept. A Spot preemption costs at most the part being built (about 2 to 4 minutes).
+   About a megabyte; the parts stay in the bucket. `gate.py` recomputes the bound check, N, the
+   gate's pooled result and its pass from `phase7.json` and the downloaded files, says so (and
+   exits 1) if any differ from the job's, and writes `~/phase7/run/summary.md`. The gate's
+   head-to-head condition is read there, by the rule in "The plan".
 
-   **3b. On the Mac: about 8 to 16 hours, $0.**
+6. **Clean up:** `python -m tools.cloud $P cleanup`, then `python -m tools.cloud $P leftovers`
+   (only the bucket). The 34 parts (22.2 GB) stay in the bucket at about $0.44 a month: a later
+   run on the same tables (Slumbot, the GTO Wizard Benchmark) gets them back instead of building
+   them again. Delete them once nothing needs them:
+   `gcloud storage rm -r gs://<BUCKET>/runs/hu-phase7-512m`.
 
-   ```
-   caffeinate -i engine/target/release/search leaf --strategy ~/phase6/run1/strategy-512000000.bps \
-       --tables ~/abstraction/k200 --deals 16000000 --seed 7
-   ```
-
-   It writes its parts in `~/phase6/run1/strategy-512000000.bps.leaf-parts` (about 1.5 GB of
-   memory, up to 19.4 GB of disk while it puts the file together), then the table file next to
-   the strategy file, and deletes the parts. Stopped, the same command goes on from the parts
-   done.
-
-4. **Check** (a minute or two; not a result):
-
-   ```
-   caffeinate -i docs/research/runs/phase7/run.sh check
-   ```
-
-   It loads the strategy file with `T`'s tables and the leaf tables (refused if they were built
-   for another strategy file), plays 10 hands and prints the peak memory ("maximum resident set
-   size", in bytes; about 11 GB expected).
-
-5. **Decision time** (a few minutes): `caffeinate -i docs/research/runs/phase7/run.sh bench`.
-   It ends with `"bounded": true`, or names the streets over their bound ("Decision time"). If a
-   street is over, stop and tell the manager session before the match.
-
-6. **The pilot** (about 40 to 70 minutes): `caffeinate -i docs/research/runs/phase7/run.sh pilot`.
-   2,000 deals, seed 7501: only for the match's size, never pooled into the gate.
-
-7. **The match's size**: `docs/research/runs/phase7/run.sh size`. Prints N (4,000 to 40,000
-   deals), the chunks and the hours it projects.
-
-8. **The gate match** (N / 1,000 chunks, about 1.2 to 2 seconds a deal: from 1.4 to 23 hours):
-   `caffeinate -i docs/research/runs/phase7/run.sh match`. It can run over several sessions.
-
-9. **The reading**: `docs/research/runs/phase7/run.sh read`, then `~/phase7/runs/summary.md`.
-   The gate's head-to-head condition is read there, by the rule in "The plan".
-
-10. **LBR** (reported, not judged; about 6 to 10 hours):
-    `caffeinate -i docs/research/runs/phase7/run.sh lbr`, then `run.sh read` again.
-
-11. **Only if the gate match passed: the repeat on fresh seeds** (as long as the match):
-    `caffeinate -i docs/research/runs/phase7/run.sh repeat`, then `run.sh read`.
-
-12. **The results** go to the manager session: `~/phase7/runs` without the `*.deals` files
-    (`summary.md`, `summary.json`, `size.json`, `bench.json`, `pilot.json`, the match, repeat,
-    LBR and compare JSON files, `log.txt`), copied into `docs/research/runs/phase7/results/` for
-    the write-up in `experiments.md`.
+7. **To the manager session:** `~/phase7/run` without the `*.deals` files, copied into
+   `docs/research/runs/phase7/results/` for the write-up in `experiments.md`.
 
 ## The plan
 
-Pre-registered in `experiments.md`, "Phase 7: the plan at 200 big blinds (28 Nov 2026)", written
-before any run on it512M. In short:
+Pre-registered in `experiments.md`, "Phase 7: the plan at 200 big blinds (28 Nov 2026)",
+written before any run on it512M; `phase7.json` is its machine form. In short:
 
-| Run | Size | Seeds | What it gives |
+| Step | Size | Seeds | What it gives |
 | --- | --- | --- | --- |
-| `check` | 10 hands | 9601 | the files load, the memory; not a result |
-| `bench` | 200 hands against the blueprint, 4 threads | 7581 | decision time per street; the bound check |
-| Pilot | 2,000 deals | 7501 | the sd a deal, for N; not pooled |
-| Gate match | N deals in chunks of 1,000 | 7601, 7602, ... | **the gate's head-to-head condition** |
-| LBR `fcpa14` | 2,000 hands against each agent, 2 chunks | 7561, 7562 | reported |
-| LBR `b56_14` | 2,000 hands against each agent, 2 chunks | 7571, 7572 | reported |
-| Repeat (only after a pass) | N deals in chunks of 1,000 | 7701, 7702, ... | for promotion (CLAUDE.md ground rules) |
+| 1. Leaf tables | 16M deals, 16 lanes, 34 parts of 256 turn starts | 7 | the values at the flop's leaves |
+| 2. Bench | 200 hands against the blueprint, 4 threads, one decision at a time | 7581 | decision time per street; **the bound check**: over it, the job ends here |
+| 3. Pilot | 2,000 deals | 7501 | the sd a deal, for N; never pooled |
+| 4. Size | | | N by the rule below, the chunks and their seeds (`size.json`) |
+| 5. **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
+| 6. Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported: only the opponent chooses at the leaves |
+| 6. Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported: the gate agent playing the last iteration |
+| 7. LBR `fcpa14` | 2 runs of 1,000 hands against each agent | 7561, 7562 | reported |
+| 7. LBR `b56_14` | 2 runs of 1,000 hands against each agent | 7571, 7572 | reported |
+| 8. Repeat (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion (CLAUDE.md ground rules) |
 
-- **The match**: `search match`, the search agent (`Settings::default()`, the leaf tables of
-  step 3) against the blueprint it searches on, it512M itself. Duplicate deals: each deal is
-  played twice with the seats swapped. All-in equity: a hand that is all in before the river is
-  scored by its equity over the cards to come. bb/100 with its SE over deals. 200 big blinds,
-  the arena's heads-up rules. Each chunk of 1,000 deals is a match with its own seed; the gate
-  pools them (mean weighted by deals, SE from the chunks' SEs).
-- **N** = (2.5 x sd / 10)^2 deals, with sd the pilot's sd a deal (in bb/100): the deals that
-  see an edge of 10 bb/100 at 2.5 SE. Rounded up to a multiple of 1,000, at least 4,000, at most
-  40,000 (`gate.py size`). At sd 400 that is 10,000 deals; at sd 801 (B0 against the blueprint
-  in Phase 6) it would be 41,000 after rounding and the cap holds it to 40,000. Above sd 800 the
-  cap binds, and the edge seen at 2.5 SE is 2.5 x sd / 200 bb/100 (12.5 at sd 1,000).
+- **The gate agent**: the search agent at the plan's commit with `Settings::default()`'s caps
+  (flop 1% of the pot or 400 iterations, turn 2% or 300, river 0.5% or 1,000; combos under
+  0.1% of the largest weight left out), **both players choosing at the flop's leaves**
+  ("Both players choose at the leaves") and playing the **average** strategy of its solves, on
+  it512M with the leaf tables of step 1. Its opponent is it512M itself, played as the blueprint.
+- **Every match**: duplicate deals (each deal played twice with the seats swapped), the all-in
+  equity adjustment (a hand all in before the river is scored by its equity over the cards to
+  come), bb/100 with its SE over deals, 200 big blinds, the arena's heads-up rules, on the
+  machine's 64 threads. Each chunk of 2,000 deals is a match with its own seed; chunks pool by
+  deals (mean weighted by deals, SE = sqrt(sum((n x se)^2)) / sum(n)).
+- **N** = (2.5 x sd / 10)^2 deals, with sd the pilot's sd a deal (bb/100): the deals that see
+  an edge of 10 bb/100 at 2.5 SE. Rounded up to a multiple of 2,000, at least 4,000, at most
+  40,000. At sd 400 that is 10,000 deals; at sd 800 or more the cap holds it to 40,000, and the
+  edge seen at 2.5 SE is 2.5 x sd / 200 bb/100 (12.5 at sd 1,000). The 2M blueprint's matches
+  here had sd 946 and 1,377, so the cap is the likely case.
 - **The pass rule**: the gate's head-to-head condition passes when the pooled gate match is at
   z = bb/100 / SE >= 2.5, read on that match alone. Anything below is "does not pass": no extra
-  deals, no second try on other seeds, no pooling with the pilot.
-- **For promotion**, beyond the gate (CLAUDE.md, ground rules): the repeat on fresh seeds (seeds
-  7701 on, the same N) also at z >= 2.5, and LBR winning less against search than against the
-  blueprint. Run only after the gate match passes.
+  deals, no second try on other seeds, no pooling with the pilot, the variants or the repeat.
+- **For promotion**, beyond the gate (CLAUDE.md, ground rules): the repeat on fresh seeds (7701
+  on, the same N) also at z >= 2.5, read alone, and LBR winning less against the search than
+  against the blueprint. The job plays the repeat only after the gate match passes.
+- **The variants**, reported, not judged: the same matches and chunk size against the
+  blueprint, on their own seeds. Each is compared with the gate agent unpaired (SE =
+  sqrt(se1^2 + se2^2)); at sd 800 that is about ±10 bb/100, so only a difference above about
+  25 bb/100 shows at 2.5 SE.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes),
-  against both agents on the same deals (`search compare`, paired). At 2,000 hands each it is
-  about ±110 bb/100 for each agent and about ±130 for the difference (Phase 6's spread at 200
-  big blinds), so only a fall of more than about 300 bb/100 shows at 2.5 SE; it is far slower against
-  search than against the blueprint (about 13 s a hand here, about 0.001 s for the blueprint).
-- **Decision time**: `search bench` on 4 threads, p50, p95 and the slowest decision per street,
-  checked against the bound below. The match and LBR solve times are reported beside it.
-- **Hardware**: Kevin's MacBook Air, `--threads 4`, plugged in, under `caffeinate -i`. The match,
-  LBR and the bench all run there; only the leaf tables may be built elsewhere.
+  against the gate agent and the blueprint on the same seeds, so each run is paired deal by deal
+  (`compare-SETTING-K.json`). At Phase 6's spread, 2,000 hands give about ±110 bb/100 for each
+  agent and ±130 for the difference: only a fall of more than about 300 bb/100 shows at 2.5 SE.
+- **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, checked
+  against the bound ("Decision time"). The match's and LBR's solve times are reported beside
+  it, not checked.
+- **Hardware**: one c4a-highcpu-64 (64 Arm Axion cores, 128 GB), Spot, through `tools/cloud`.
+- **Later, not in this plan**: preflop search of off-menu raises, and AIVAT in the Rust arena
+  (the roadmap's decisions of 28 Nov 2026; `experiments.md`, the plan's "Options and later
+  work"). This plan's measure is the plain head-to-head; AIVAT would be reported beside it only
+  if it exists by the time of the run.
 
-## The leaf tables
+## Both players choose at the leaves
 
-8,669 turn starts in the 200 big blind `rich` game, 7 lanes (the blueprint and six biased
-continuations), 200 x 200 cells of flop buckets: 9,709,339,447 bytes. Built with 16M deals,
-seed 7 (about 400 deals a cell on average; smoothing as in the groundwork: bias 5, a
-pseudo-count of 3 deals). The work is 8,669 x 16M = 1.39e11 walks (a turn start and a deal).
+At each of the flop's leaves (a turn start) the search values the rest of the hand from the
+leaf tables: for each pair of flop buckets, what each player wins if both play on in a given way.
+Modicum lets only the opponent choose among four continuations there (the blueprint, or the
+blueprint biased toward folds, calls or raises), so the tables hold 7 lanes: the blueprint for
+both, and the three biased ones for each player. Pluribus lets both players choose: 16 lanes,
+one for each pair of choices (`sb x 4 + bb`), and at each leaf of the flop solve both players
+pick a continuation without seeing the other's pick (a small simultaneous game, solved with the
+rest of the tree). The 16 lanes contain the 7 bit for bit (the pairs where one player plays the
+blueprint; tested), so one build serves both, and the `modicum` variant plays on the same tables.
 
-Measured here (4 vCPU, Intel Xeon at 2.1 GHz, 15 GB) on a 200 big blind `rich` k200 blueprint
-trained for 2M iterations, all 8,669 turn starts at 65,536 deals, 34 parts: 1.60M walks a second
-(399,000 a thread), parts of 5.5 to 17.7 s, 397 s for the job, peak memory 1.54 GB (a build in
-one piece would need about 29 GB). At 16M deals that is about 96 thread-hours here.
-
-| | Cloud: c4a-highcpu-64, Spot, through `tools/cloud` | Kevin's MacBook Air |
+| | 7 lanes (Modicum) | 16 lanes (both choose, the plan) |
 | --- | --- | --- |
-| Speed assumed | an Arm thread about 1.2 times one here (Phase 6's 183,096 iterations a second on 64 threads at the projection's 1,134 states an iteration, against 2.7M states a second a thread here), 0.6 to 1.5 times | 4 performance cores at 1.5 to 2.5 times a thread here, the efficiency cores at 0.4 to 0.7 times, less when the fanless case throttles |
-| The build | about 1.3 hours (1.0 to 2.5) | about 9 hours (8 to 16) |
-| On top | about 15 minutes to start and build the code, 5 minutes to put the file together and upload it | none |
-| In all | **1.3 to 3.3 hours** | **8 to 16 hours**, and the Mac is busy for them |
-| Dollars | **$1.9 to $4.9** (central $2.4) at $1.4714 an hour, capped at $8 (5.4 hours); plus about $1.2 to download 9.7 GB and $0.39 a month in the bucket until deleted | **$0** |
-| Memory | about 2 GB of 128 GB | about 1.5 GB |
-| Disk | 80 GB (as Phase 6) | 19.4 GB at the end of the build, 9.7 GB after |
+| Table file | 9,709,280,000 bytes of values (9.7 GB) | 22,192,640,000 (22.2 GB) |
+| Build time, measured here (the same four parts) | 1 | 1.35 times (1.29 to 1.40 a part) |
+| The build's peak memory | 1.54 GB | 2.65 GB |
+| Flop solve, one spot, 400 iterations | 1,056 ms | 3,546 ms (3.36 times) |
+| A deal of a match | 1 | about 1.42 times (the flop is about 18% of the solve time in the bench) |
 
-**The recommendation is the cloud**: about $3 to $6 in all saves 8 to 16 hours of the Mac before
-the match, which itself needs the Mac for many hours. If Kevin prefers to spend nothing, 3b
-overnight gives the same tables. The cloud's speed is the guess here (no Arm machine in this
-container); the build's own lines in `watch` show the real speed within minutes of the start,
-and the cap holds the cost whatever it turns out to be.
-
-The same tables on any number of threads, block size or parts, bit for bit (tested). Whether an
-Arm machine gives the same last bits as an x86 one isn't tested; either build is valid, and the
-table file records the strategy file's hash, so it can only be used with it512M.
-
-### The build as a cloud job
-
-`search --config leaf.json --checkpoint-dir DIR [--resume]` keeps the `tools/cloud` trainer
-contract (`tools/cloud/README.md`, "The trainer"; `engine/crates/search/README.md`, "Building
-the leaf tables in parts"): its checkpoint is `leaf.ckpt` (a list of the parts done and the
-build's fingerprint), the parts and the table file are artifacts uploaded as they are written
-and put back on a new machine, SIGTERM gives up the part being built and exits 75, and it exits
-0 when the table file is written. `tools/cloud` itself is unchanged: the settings file does it
-all.
-
-**The dress rehearsal** passed here (`leaf_rehearsal.py --deals 3000000 --part-nodes 1 --threads
-2` on a 10 big blind blueprint with 11 turn starts, k200, 96 s): the real supervisor with a
-local folder as the bucket; SIGTERM to every process once 2 parts were in the bucket, the job
-stopped 0.2 s later with exit code 75 and the supervisor uploaded the checkpoint and the parts; a
-new machine with an empty disk got them back and the job resumed 0.5 s after start with those
-parts done, built the other 9 and wrote the table file; the run ended "done" with every part
-and the table file in the bucket and both sessions counted; and the table file's values were
-`search leaf`'s (on this computer, without the supervisor) bit for bit. The binary's contract is
-also tested in `engine/crates/search/tests/cloud_job.rs` (nightly).
+The flop's leaf values are read lane by lane, so both players choosing costs 3.4 times on the
+flop. Laying the table out with a cell's 16 lanes side by side would cut that; it is later work,
+not needed for this plan.
 
 ## Decision time
 
 There is no time limit: every decision runs at most one solve of its street, to a target or an
-iteration cap (`Settings::default()`: flop 1% of the pot or 400 iterations, turn 2% or 300,
-river 0.5% or 1,000), and a decision that reuses its street's solve takes under a millisecond.
-A street's tree is the blueprint's menu plus the real off-menu actions on it. So the slowest
+iteration cap, and a decision that reuses its street's solve takes under a millisecond. A
+street's tree is the blueprint's menu plus the real off-menu actions on it. So the slowest
 decision is bounded by the largest tree at the cap:
 
 - cost = solver nodes x combos (both ranges) x iterations x the cost of one, measured in the
   groundwork: 0.0105 microseconds on the turn (3.2 times faster on 4 threads; the river taken as
   the same), 0.19 on the flop (2.5 times faster on 4 threads);
 - turn: 13,857 nodes (the largest tree in the pilots here) x 2,256 combos x 300 = 31 s on 4
-  threads; flop: 81 nodes x 2,352 x 400 = 5.8 s; river: 81 nodes x 2,162 x 1,000 = 0.6 s;
+  threads; river: 81 nodes x 2,162 x 1,000 = 0.6 s; flop: 81 nodes x 2,352 x 400 = 5.8 s with
+  one player choosing, times 3.4 with both: 20 s;
 - a re-solve after an off-menu bet adds that bet's subtree: taken as at most twice the tree.
 
-**The bound**: twice the worst case at the caps on this container, rounded up: **flop 12 s,
-turn 65 s, river 2 s**, for the slowest decision of each street in `bench` (4 threads, one
-decision at a time). The Mac's cores are faster than these, so it is a loose bound there: what it
-catches is a solve whose tree or iterations are not bounded, not a slow machine.
+**The bound**: twice the worst case at the caps on this container's CPU, rounded up: **flop
+40 s, turn 65 s, river 2 s**, for the slowest decision of each street in the bench (4 threads,
+one decision at a time, on the rented machine). An Axion core is a little faster than a thread
+here, so it is a loose bound: it catches a solve whose tree or iterations are not bounded, not a
+slow machine.
 
-Measured here on the 2M-iteration blueprint (nearly random, so its ranges are wide and its
-solves at the large end; 4 threads):
+Measured here on the 2M-iteration blueprint with 7 lanes, only the opponent choosing (nearly
+random, so its ranges are wide and its solves at the large end; 4 threads):
 
-| `search bench`, 200 hands, seed 9501 | Decisions | p50 | p95 | Max | Solver nodes (mean) |
+| Bench, 200 hands, seed 9501 | Decisions | p50 | p95 | Slowest | Solver nodes (mean) |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Flop | 45 | 745 ms | 1,303 ms | 1,442 ms | 79 |
 | Turn | 28 | 4,956 ms | 18,346 ms | 21,322 ms | 13,051 |
 | River | 14 | 107 ms | 268 ms | 583 ms | 80 |
 
-184 s for the 200 hands, all within the bound.
+184 s for the 200 hands, all within the bound (both choosing, the flop's slowest would be about
+4.9 s). The 22 GB tables of the both-choose agent at 200 big blinds don't fit in this
+container's 15 GB, so the bench on it512M (step 2) is the first one of that agent at this
+depth; the flop solver's tests and the both-choose agent's test cover it at small sizes.
 
-In a match the turn is solved on one thread with 4 deals in parallel, so a match decision on
-the turn can take up to about 3 times as long as in `bench`. Against LBR `b56_14` (40 hands, seed
-9503) the search re-solved 157 of 302 flop solves, 106 of 205 turn solves and 58 of 60 river
-solves; turn p50 6.2 s and p95 18.0 s with the hands in parallel.
+In a match the turn is solved on one thread, with the other deals in parallel, so a match
+decision on the turn can take several times as long as in the bench. Against LBR `b56_14` (40
+hands, seed 9503) the search re-solved 157 of 302 flop solves, 106 of 205 turn solves and 58 of
+60 river solves.
+
+## The job
+
+`search --config phase7.json --checkpoint-dir DIR [--resume]` keeps the `tools/cloud` trainer
+contract (`tools/cloud/README.md`, "The trainer"; `engine/crates/search/README.md`, "The Phase 7
+plan as a cloud job"). A config with a `gate` is a plan; one without is the leaf build alone, as
+before.
+
+- **The checkpoint** is `plan.ckpt`: the plan's fingerprint (the config and the strategy file's
+  hash) and the step. A checkpoint from another plan is refused.
+- **The artifacts**, uploaded as they are written and put back on a new machine before the job
+  starts: the leaf table parts (`*.leafpart`, 0.65 GB each) and every result (`*.json`,
+  `*.deals`). The table file itself (22.2 GB) is not uploaded: a new machine puts it together
+  from the parts again (a few minutes) and builds no part.
+- **A stop**: every run (loading the tables, the bench, a chunk, an LBR run) plays on a worker
+  thread while the job watches for SIGTERM; on it the job gives up that run and exits 75 within
+  a second (the build gives up its part). Results are written whole and then renamed, and a step
+  skips the results already there, so nothing done is played again and a run cut off is played
+  again from its start, with the same seed and the same result.
+- **The end**: exit 0 after `end.json`, either "every step is played" or "a street is over its
+  bound: no match was played".
+
+| File | What it holds |
+| --- | --- |
+| `part-NNNNN.leafpart` | the leaf table parts (34) |
+| `bench.json`, `bounds.json` | decision time per street; the bound check |
+| `pilot.json`, `size.json` | the pilot's match report; N, the chunks, their seeds and the projected hours |
+| `match-NN.json`, `gate.json` | the gate's chunks; the pooled result, with `pass_z` and `passes` |
+| `variant-NAME-NN.json`, `variant-NAME.json` | the variants' chunks; pooled, with the agent and the difference from the gate agent |
+| `lbr-WHO-SETTING-K.json`, `lbr-WHO-SETTING-K.deals` | each LBR run (WHO `blueprint` or `search`): the summary, with the search's solves by street, and the deals |
+| `compare-SETTING-K.json` | LBR against the search minus against the blueprint, paired |
+| `repeat-NN.json`, `repeat.json` | the repeat, after a pass |
+| `end.json` | how the job ended, with every pooled result |
+
+### The dress rehearsal
+
+`plan_rehearsal.py` runs the real supervisor (`tools/cloud/supervisor.py`) with a local folder
+as the bucket, the settings of `cloud.env.example` and the plan of `phase7.json` with its sizes
+cut down (leaf 20,000 deals in 6 parts of 2 turn starts, 16 lanes; caps of 40, 16 and 60
+iterations; bench 4 hands; pilot 32 deals; N 64 deals in chunks of 32; variants 1 chunk; LBR 8
+hands), on a 10 big blind blueprint (11 turn starts) with k200 and 4 threads. It passed here in
+228 s:
+
+| Step | What happened |
+| --- | --- |
+| Machine 1 | Fresh start: the 6 parts, the bench, the bounds, the pilot, N and the gate's first chunk, each uploaded as written |
+| SIGTERM to every process, as Google sends on a preemption | The job gave up the second chunk and exited 75; the supervisor was done 0.2 s after the signal, with the checkpoint and 11 results in the bucket |
+| Machine 2, empty disk | The checkpoint, the parts and the results came back; the job resumed 0.5 s after the start, put the table file together from the parts (no part built), skipped the bench, the pilot and the first chunk, and played the rest |
+| The end | "every step is played"; 28 results in the bucket, the first chunk unchanged, no table file; both sessions counted; the trainer's peak 0.65 GB |
+
+`gate.py`, run on the rehearsal's results with its plan, found no difference from the job's
+bound check, N, pooling and pass, and wrote the summary.
+
+The binary's contract at 16 lanes (SIGTERM after the size step: exit 75 within 5 s, last line
+"saved on SIGTERM"; resumed: first line "resumed", last "done") is also tested in
+`engine/crates/search/tests/cloud_job.rs` (nightly), and the job in process, with a stop, the
+refusals, the resume and the table file equal to a build in one piece, in `tests/agent.rs`.
 
 ## Sizes and costs
 
-On the Mac, at this container's speeds on the 2M-iteration blueprint divided by 1.5 to 2.5
-(it512M's narrower ranges should make it faster still; the pilot measures it):
-
-| Step | Here (4 vCPU) | On the Mac (projected) |
+| | Size | Cost |
 | --- | --- | --- |
-| `check`, 10 hands | | a minute or two (loading 9.7 GB of leaf tables) |
-| `bench`, 200 hands | 184 s | 1 to 3 minutes |
-| Pilot, 2,000 deals | 3.07 s a deal (60 deals) | 40 to 70 minutes |
-| Gate match, N deals | | 1.2 to 2 s a deal: 1.4 to 2.3 hours at 4,000, 7 to 11 at 20,000, 14 to 23 at 40,000 |
-| LBR against the blueprint | about 0.001 s a hand, plus 3.8 minutes of LBR's preflop tables a run | 10 to 15 minutes for the 4 runs |
-| LBR against search | 12.8 s a hand (40 hands, 752 s with the tables) | 5 to 9 s a hand: 6 to 10 hours for 4,000 hands |
-| Memory | 10.7 to 10.9 GB (bench, LBR) | about 11 GB |
+| Machine | c4a-highcpu-64: 64 Arm (Axion) cores, 128 GB | $1.445888 an hour Spot |
+| Memory | about 45 GB in a match: the 16-lane tables (22.2 GB, one copy for every deal), the blueprint (0.5 GB) and up to 63 blocks of deals in play at about 0.33 GB each (0.23 measured here with 6 blocks in play, plus up to 0.1 for the flop's leaf values with both choosing). 70 GB if every block's solve were as large as the bench's single one | 128 GB is 2.8 times the 45 GB |
+| Disk | 120 GB Hyperdisk Balanced, 400 MiB/s: the parts (22.2 GB), the table file (22.2 GB), the bundle (0.64 GB) and 30 GB for the system and the Rust build | $0.0132 an hour for the GB and $0.0142 for the throughput |
+| External IP | | $0.0025 an hour |
+| In all | | **about $1.476 an hour** |
+| Bucket | the parts (22.2 GB) and the results | about $0.44 a month until deleted |
+| Downloads | the results, about a megabyte | nothing to speak of |
 
-All of it on the Mac costs nothing. The only spending in Phase 7 so far is the leaf build if it
-runs in the cloud (3a): at most $8 plus about $1.2 to download.
+**The speed assumed**: this container's (4 vCPU, Intel Xeon at 2.1 GHz) on the 2M-iteration
+blueprint, which is an upper bound for it512M (its narrower ranges make smaller solves); an
+Axion core taken as 1.15 of a thread here (1.1 to 1.2, from Phase 6's training speed on it
+against this container's); 64 threads. Measured here: the leaf build 96 thread-hours at 7
+lanes (1.60M walks a second on 4 threads), a match 12.3 thread-seconds a deal (3.07 s a deal on
+4 threads, 60 deals), LBR against the search about 52 thread-seconds a hand. The arena plays a
+chunk's 2,000 deals in blocks of 32 on its threads, so a chunk is one round of 63 blocks, 32
+deals one after the other on each thread, and it lasts as long as its slowest block. A 192-deal
+match here with every core busy (6 blocks in play) took 7.7 core-seconds a deal; the table keeps
+the 60-deal match's 12.3 (cores partly idle), which leaves about 1.6 times for that tail. At 7.7
+the plan with the repeat at N = 40,000 would be 7.5 hours, $11.0.
+
+| Step | 16 lanes, both choose (the plan) | 7 lanes, Modicum |
+| --- | ---: | ---: |
+| Start: the machine, the Rust build | 0.25 h | 0.25 h |
+| The leaf build | 1.76 h | 1.30 h |
+| The table file put together and loaded | 0.05 h | 0.05 h |
+| **The build** | **2.1 h, $3.0** | **1.6 h, $2.4** |
+| Bench and pilot | 0.22 h | 0.16 h |
+| A chunk of 2,000 deals | about 8 minutes | about 6 minutes |
+| Gate match, N from 4,000 to 40,000 | 0.27 to 2.70 h | 0.19 to 1.90 h |
+| Variants, 8,000 deals each | 0.92 h (both) | 0.38 h (`final` only) |
+| LBR, 2 settings x 2,000 hands against each agent | 1.21 h | 0.89 h |
+| Upload at the end | 0.08 h | 0.08 h |
+| **The matches and LBR** | **2.7 to 5.1 h, $4.0 to $7.6** | **1.7 to 3.4 h, $2.5 to $5.0** |
+| **In all, without the repeat** | **4.8 to 7.2 h, $7.0 to $10.6** | **3.3 to 5.0 h, $4.9 to $7.4** |
+| The repeat, only after a pass | 0.27 to 2.70 h | 0.19 to 1.90 h |
+| **In all, with the repeat** | **5.0 to 9.9 h, $7.4 to $14.6** | **3.5 to 6.9 h, $5.2 to $10.2** |
+| **Cap (`BUDGET_USD`)** | **$20** | $15 |
+
+The ranges are N, from the rule's floor to its cap; the cap is the likely case (sd 946 and 1,377
+here). Both players choosing costs about 40% more than Modicum: $3.2 more at N = 40,000 without the
+repeat, $4.4 with it. The plan is the 16-lane one: it is the only one that can play the
+both-choose gate agent, and it plays Modicum too, as a variant. The 7-lane plan would be a change
+to `phase7.json` (`lanes` 7, the gate agent `opponent`, the `final` variant only) and to the
+pre-registration, made before the launch.
+
+$20 buys about 13.3 hours at $1.476 an hour after the 15-minute margin: 1.35 times the
+projection with the repeat. The projection's speeds are the uncertain part; the pilot's
+`size.json` gives the real hours of the gate match before it starts, and if the cap stops the
+run the results so far are kept and it goes on after `resume`.
+
+**f16 and mmap**, options only, not needed at 128 GB. The tables in 16-bit floats would halve
+them to 11.1 GB, so a 64 GB machine (c4a-highcpu-32, half the threads) would hold them; the leaf
+values are smoothed averages over about 400 deals a cell, so f16's 3 significant digits would
+likely do, but that would need its own check. Mapping the file instead of reading it would let
+the job start without reading 22 GB first and let the system page the tables in and out as
+memory allows (slowly, if it is short).

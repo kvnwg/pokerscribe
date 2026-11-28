@@ -38,8 +38,8 @@ cargo build --release -p search
 S=/path/to/strategy.bps
 
 # the leaf tables, once per strategy file (written next to it as $S.leaf); stopped, the same
-# command goes on from the parts done
-target/release/search leaf --strategy $S --deals 16000000 --seed 7
+# command goes on from the parts done. --lanes 16 for both players choosing at the leaves
+target/release/search leaf --strategy $S --deals 16000000 --seed 7 [--lanes 16]
 
 # search against the blueprint: duplicate deals, all-in equity, bb/100 with its SE
 target/release/search match --strategy $S --deals 3000 --seed 7101 --threads 4 --out h2h.json
@@ -54,11 +54,15 @@ target/release/search bench  --strategy $S --hands 150 --seed 7104 --threads 4 -
 target/release/search trees  --stack-bb 200
 target/release/search scale  --strategy $S --hands 40 --seed 7105 --spots 6 --out scale.json
 target/release/search ranges --strategy $S --hands 300 --seed 7106 --out ranges.json
+
+# the Phase 7 plan (or a leaf build alone) as a tools/cloud job
+target/release/search --config docs/research/runs/phase7/phase7.json --checkpoint-dir DIR [--resume]
 ```
 
 Every command takes the settings as options (`--flop-target`, `--flop-iterations`,
 `--turn-target`, `--turn-iterations`, `--river-target`, `--river-iterations`, `--prune`,
-`--turn-river-menu allin|075|standard`); without them it uses `Settings::default()`. Every
+`--turn-river-menu allin|075|standard`, `--leaf-choice opponent|both`, `--play
+average|final`); without them it uses `Settings::default()`. Every
 command that loads a strategy file takes `--tables DIR`, the bucket tables it was trained with,
 for a file trained on another machine (by default the folder the file names; the checksums are
 checked either way).
@@ -142,10 +146,15 @@ Pluribus uses; the Modicum paper used 10. The chooser picks per hand, as the CFR
 flop strategy has to hold up against whichever continuation suits each of the opponent's hands
 best.
 
+With `Settings::leaf_choice` `both` (Pluribus's way) both players choose at each leaf, four
+continuations each, without seeing the other's pick: the leaf is a small simultaneous game,
+solved by the same CFR as the rest of the tree, and the solve holds one table per pair of picks
+(`flop::Problem::choices`, 1 or 4 per player). It needs the 16-lane tables (below) and costs
+about 3.4 times as much on the flop (one spot at 400 iterations: 3,546 ms against 1,056).
+
 The value of each continuation comes from the leaf tables. A leaf of the flop is a start of the
 turn; the blueprint reads it as one of its abstract turn-start nodes `d` (133 of them in the 20
-big blind standard game). For each `d` and each of seven lanes (both blueprint; the small blind
-biased three ways; the big blind biased three ways) the table holds, by the two hands' flop
+big blind standard game). For each `d` and each lane the table holds, by the two hands' flop
 buckets (the blueprint's own 200), the big blind's expected share of the pot at `d`: `(net + C)
 / P`, with `net` what it wins over the rest of the hand, `C` what it had put in and `P` the pot.
 A share scales with the pot, so a real flop whose pot is not the abstract line's (an off-menu
@@ -158,18 +167,24 @@ buckets, and card removal is exact: the bucket sums over the opposing range are 
 by combo for the opposing combos that share a card. Where the blueprint can't place the leaf at
 one of its nodes, the leaf is checked down (the equity table).
 
+The lanes are pairs of continuations (`leaf::lane_of`). Modicum's 7 (`--lanes 7`, the default)
+are the blueprint for both, the small blind biased three ways and the big blind biased three
+ways; the 16 for both choosing (`--lanes 16`) are every pair, lane `sb x 4 + bb`. The 16 lanes
+hold the 7 bit for bit (tested), so 16-lane tables also serve `opponent`; `both` refuses 7-lane
+tables when the agent loads them.
+
 The tables are built once per strategy file (`search leaf`) and saved next to it as `<file>.leaf`
 with a hash of the strategy file, so a table built for another blueprint is refused.
 
 ### Building the leaf tables in parts (`leaf.rs`, `leaf_job.rs`)
 
-The 200 big blind game's tables are 9.7 GB (8,669 turn starts, 7 lanes, 200 x 200 cells,
-`f32`), and a build in one piece would hold about 29 GB of sums. So a build goes in parts of
-256 turn starts (34 parts): each part plays all the deals for its turn starts, is written to
+The 200 big blind game's tables are 9.7 GB at 7 lanes (8,669 turn starts, 200 x 200 cells,
+`f32`) and 22.2 GB at 16, and a build in one piece would hold about 29 GB of sums (67 GB at 16
+lanes). So a build goes in parts of 256 turn starts (34 parts): each part plays all the deals for its turn starts, is written to
 its own file (`part-NNNNN.leafpart`, with a checksum) and its memory freed; the table file is
 then put together from the parts without loading them all, each part's checksum checked again
 on the way (a table file longer than its header says is refused on load). A build at 200 big blinds peaks at
-about 1.5 GB.
+about 1.5 GB (2.65 GB at 16 lanes, which take 1.35 times as long).
 
 - **The same tables, bit for bit, whatever the threads, block size or parts.** Within a block
   of deals, the deals are sorted by cell (the two hands' flop buckets) and, within a cell, by
@@ -184,16 +199,45 @@ about 1.5 GB.
 - **As a cloud job.** `search --config FILE --checkpoint-dir DIR [--resume] [--threads T]` is the
   same job under the `tools/cloud` trainer contract (`tools/cloud/README.md`, "The trainer"):
   the config is a `leaf_job::JobConfig` in JSON (strategy file, bucket tables, deals, seed,
-  part size), the parts and the table file go in the checkpoint directory (artifacts
+  lanes, part size), the parts and the table file go in the checkpoint directory (artifacts
   `*.leafpart`, `*.leaf`), JSON lines on stdout (started or resumed, progress, each part with
   its speed and memory, done), SIGTERM saves and exits 75, and it exits 0 when the table file is
-  written. The Phase 7 settings and runbook: `docs/research/runs/phase7/`.
+  written. A config with a `gate` is a plan instead (below).
 
 Measured here (4 vCPU, Intel Xeon at 2.1 GHz) on a 2M-iteration 200 big blind `rich` k200
 blueprint, every turn start at 65,536 deals: 1.6M walks (a turn start and a deal) a second on 4
 threads, 34 parts of 5.5 to 17.7 s, peak memory 1.54 GB, a 9,709,339,447 byte file. At 16M deals
-that is about 96 thread-hours here, about 1.3 hours on a c4a-highcpu-64 at Phase 6's speed per
-Arm thread (`docs/research/runs/phase7/README.md`, "The leaf tables").
+that is about 96 thread-hours here: about 1.3 hours on a c4a-highcpu-64 (an Axion core taken as
+1.15 threads here), 1.76 hours at 16 lanes (`docs/research/runs/phase7/README.md`, "Sizes and
+costs").
+
+### The Phase 7 plan as a cloud job (`plan_job.rs`, `runs.rs`)
+
+`search --config phase7.json --checkpoint-dir DIR [--resume]` with a plan
+(`plan_job::PlanConfig`, `docs/research/runs/phase7/phase7.json`) plays the whole of Phase 7's
+head-to-head plan on one machine, in order: the leaf build (the job above, its record
+`leaf.state`), the decision-time bench on its own pool of 4 threads with the bound check (over
+it, the job ends there), the pilot match, N by the size rule, the gate match in chunks, the
+variants (other agent settings, reported), LBR against the blueprint and the gate agent on the
+same seeds, and the repeat only after the gate passes. The runs themselves are `runs.rs`, shared
+with the `match`, `lbr`, `compare` and `bench` commands.
+
+- **The contract**: one checkpoint, `plan.ckpt` (the plan's fingerprint: the config and the
+  strategy file's hash; and the step). The artifacts are the parts and the results (`*.json`,
+  `*.deals`); the table file is put together again from the parts on a new machine. Every run
+  (loading the tables, the bench, a chunk, an LBR run) plays on a worker thread while the job
+  watches for SIGTERM: on it the run is given up and the job exits 75 within a second. Results
+  are written whole and renamed, and a step skips the results already there, so a stopped job
+  plays nothing again but the run it gave up, with the same seed and the same result.
+- **What it refuses**: a plan that can't be played as written (lanes too few for an agent's leaf
+  choice, a step that isn't a multiple of the chunk, seed ranges that overlap, an unknown LBR
+  setting or field), a checkpoint of another plan, a fresh start over a checkpoint and
+  `--resume` with none.
+- **Its lines** on stdout: started or resumed, the build's lines (with `"step": "leaf"`), each
+  step's result, the progress of each match in deals (`iterations`, `target_iterations`, with
+  the peak memory), "saved on SIGTERM" with the step, and "done" with how it ended (`end.json`).
+
+`docs/research/runs/phase7/README.md` has the runbook and the files it writes.
 
 ### Re-solving (`agent.rs`)
 
@@ -232,7 +276,10 @@ cached by the public betting and a match or an LBR run repeats exactly.
 
 Combos under 0.1% of the largest weight are left out. In a match each solve runs on one thread
 for the turn (`turn_threads`, matches run deals in parallel) and the flop uses the global thread
-pool.
+pool. `leaf_choice` is `opponent` (Modicum: only the opponent chooses at the flop's leaves) or
+`both` (Pluribus, on 16-lane tables); `play` is `average` (each solve's average strategy, as
+CFR's guarantee is for) or `final` (its last iteration, `subgame::Play::Final`, the
+exploitability then measured for that strategy).
 
 ## Results (Phase 7 groundwork, 20 big blinds)
 
@@ -293,8 +340,14 @@ method.
 - `src/street.rs`: a raise within the tolerance reads as the menu size, an off-menu one is added
   as an extra action; the river conversion solves; the turn's tree deals every river card (48).
 - `src/flop.rs`: exploitability falls to the target (one thread and many give the same answer);
-  leaf tables made from the equity give the checked-down values; the chooser picks the lane that
-  pays it most; a frozen node keeps its strategy.
+  leaf tables made from the equity give the checked-down values, with either player or both
+  picking; a player picks the continuation that pays it most; picks neither player sees play
+  as a simultaneous game (rock, paper, scissors at the leaves: a third each where both reach);
+  a pick that changes nothing is the same as no pick; the last iteration can be played; a
+  frozen node keeps its strategy.
+- `src/plan_job.rs`: the registered plan (`phase7.json`) reads, with the seeds and caps of the
+  pre-registration; the size rule rounds up within its limits; chunks pool by deals; a plan that
+  can't be played is refused; the bound check names the streets over.
 - `src/leaf.rs`, `src/equity.rs`: the table layout and the exact equity.
 - `src/leaf_job.rs`: a part damaged on the disk after it was written stops the table file (and
   leaves no half-written file); a table file with a byte too many is refused.
@@ -302,7 +355,11 @@ method.
   and 3 threads; built in parts, on any threads and block size, they are the sequential build's
   bit for bit, and a stop gives up its part; the leaf job stops after some parts, refuses a fresh
   start over a checkpoint, a resume with none and another build's checkpoint, builds again a
-  damaged and a missing part, and gives the one-piece build's tables; the agent only plays legal
+  damaged and a missing part, and gives the one-piece build's tables; 16-lane tables hold the 7
+  lanes bit for bit, and both players pick on them (playing the average or the last iteration),
+  while 7-lane tables are refused; the plan job plays every step, stops on request and goes on
+  (nothing done is played again, no part built again, the table file the one-piece build's), and
+  plays no match when a street is over its bound; the agent only plays legal
   actions and its real hand stays in its own range; an off-tree bet is added and the street is
   solved again with the searcher's check frozen, and an on-menu bet reuses the solve; the same
   public state gives the same answer.
@@ -311,10 +368,13 @@ method.
   folder is gone (so every load needs `--tables`): `--resume` with nothing to resume and an
   unknown option fail, SIGTERM after a part exits 75, the resume goes on from the parts saved
   and finishes, the tables are the one-piece build's; `search leaf` gives the same and deletes
-  its parts; the agent and `search bench` load with `--tables`.
-- `docs/research/runs/phase7/leaf_rehearsal.py`: the real `tools/cloud` supervisor runs the job
-  with a local folder as the bucket, a SIGTERM after two parts, a new machine that resumes from
-  the bucket, and the table file compared with `search leaf`'s bit for bit.
+  its parts; the agent and `search bench` load with `--tables`. The plan job the same way at 16
+  lanes: SIGTERM after the size step exits 75 within 5 s, and the resume plays the rest.
+- `docs/research/runs/phase7/plan_rehearsal.py`: the real `tools/cloud` supervisor runs the plan
+  with a local folder as the bucket, a SIGTERM during the gate match, and a new machine with an
+  empty disk that resumes from the bucket without building a part or playing a result again.
+- `../subgame/tests/closed_form.rs`: a solve can hand back its last iteration (its strategy,
+  exploitability and values recomputed for it).
 - `../subgame/tests/search_hooks.rs`, `../blueprint/tests/play.rs`: the hooks above.
 - `app/tests/test_engine_bindings.py`: `search:<file>` (and `search:<file>?tables=<dir>`) is
   named in the arena's errors when the file is missing or damaged.
@@ -327,6 +387,9 @@ method.
 - `src/flop.rs`: the depth-limited flop solver.
 - `src/leaf.rs`: the leaf tables (build, a build's part, save, load).
 - `src/leaf_job.rs`: the build in parts, resumable, and as a `tools/cloud` job.
+- `src/plan_job.rs`: the Phase 7 plan as one `tools/cloud` job.
+- `src/runs.rs`: a match, an LBR run, a paired comparison and the bench, for the commands and
+  the plan job.
 - `src/equity.rs`: exact flop all-in equity.
 - `src/real.rs`, `src/cards.rs`: real states from public information; card and combo numbering.
 - `src/play.rs`: a `Strategy` seated in the arena.

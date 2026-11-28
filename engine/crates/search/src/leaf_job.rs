@@ -179,8 +179,9 @@ pub fn part_name(k: usize) -> String {
     format!("part-{k:05}.leafpart")
 }
 
-/// Writes `bytes` to `dir/name` whole: to a hidden temporary name, then renamed.
-fn write_atomic(
+/// Writes `dir/name` whole: to a hidden temporary name (which `tools/cloud` never uploads),
+/// synced, then renamed. On an error the temporary file is removed.
+pub fn write_atomic(
     dir: &Path,
     name: &str,
     write: impl FnOnce(&mut BufWriter<fs::File>) -> io::Result<()>,
@@ -297,6 +298,21 @@ pub fn run<B: Bucketer + Sync>(
     stop: &dyn Fn() -> bool,
     say: &mut dyn FnMut(serde_json::Value),
 ) -> Result<JobEnd, String> {
+    run_with_state(bp, config, dir, CHECKPOINT, resume, stop, say)
+}
+
+/// [`run`], with the record of the parts done in `dir/<state>` rather than `leaf.ckpt`: the
+/// plan job ([`crate::plan_job`]) keeps one checkpoint of its own, so the leaf job's record
+/// must not look like one to `tools/cloud`.
+pub fn run_with_state<B: Bucketer + Sync>(
+    bp: &blueprint::play::Blueprint<B>,
+    config: &JobConfig,
+    dir: &Path,
+    state: &str,
+    resume: bool,
+    stop: &dyn Fn() -> bool,
+    say: &mut dyn FnMut(serde_json::Value),
+) -> Result<JobEnd, String> {
     config.check()?;
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let started = Instant::now();
@@ -314,7 +330,7 @@ pub fn run<B: Bucketer + Sync>(
         let first = k * config.part_nodes;
         (first, (first + config.part_nodes).min(nodes.len()))
     };
-    let ckpt_path = dir.join(CHECKPOINT);
+    let ckpt_path = dir.join(state);
     let listed: Vec<usize> = if ckpt_path.exists() {
         if !resume {
             return Err(format!(
@@ -322,12 +338,11 @@ pub fn run<B: Bucketer + Sync>(
                 ckpt_path.display()
             ));
         }
-        let text = fs::read_to_string(&ckpt_path).map_err(|e| format!("{CHECKPOINT}: {e}"))?;
-        let c: Checkpoint =
-            serde_json::from_str(&text).map_err(|e| format!("{CHECKPOINT}: {e}"))?;
+        let text = fs::read_to_string(&ckpt_path).map_err(|e| format!("{state}: {e}"))?;
+        let c: Checkpoint = serde_json::from_str(&text).map_err(|e| format!("{state}: {e}"))?;
         if c.fingerprint != fp {
             return Err(format!(
-                "{CHECKPOINT} is for another build (fingerprint {}, this one {fp}): another \
+                "{state} is for another build (fingerprint {}, this one {fp}): another \
                  strategy file, other deals, seed, lanes or part size",
                 c.fingerprint
             ));
@@ -365,8 +380,7 @@ pub fn run<B: Bucketer + Sync>(
             strategy_hash: strategy_hash.clone(),
         };
         let text = serde_json::to_vec_pretty(&c).map_err(|e| e.to_string())?;
-        write_atomic(dir, CHECKPOINT, |f| f.write_all(&text))
-            .map_err(|e| format!("{CHECKPOINT}: {e}"))
+        write_atomic(dir, state, |f| f.write_all(&text)).map_err(|e| format!("{state}: {e}"))
     };
     save_checkpoint(&done)?;
     let target = parts as u64 * config.deals;

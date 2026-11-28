@@ -512,3 +512,194 @@ fn the_leaf_job_stops_goes_on_and_gives_the_one_piece_tables() {
     assert_eq!(again, JobEnd::Done(dir.join("t.leaf")));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A small plan for the test blueprint: 16-lane tables, both players picking, every step
+/// in a few deals (the gate passes by construction, so the repeat is played).
+fn small_plan(strategy: &std::path::Path, flop_bound_ms: f64) -> search::plan_job::PlanConfig {
+    let agent = |leaf_choice: &str, play: &str| {
+        serde_json::json!({"leaf_choice": leaf_choice, "play": play, "flop_iterations": 40,
+                           "turn_iterations": 16, "river_iterations": 60, "prune": 0.02})
+    };
+    let text = serde_json::json!({
+        "strategy": strategy,
+        "leaf": {"deals": 2000, "seed": 3, "lanes": 16, "part_nodes": 9},
+        "agent": agent("both", "average"),
+        "bench": {"hands": 2, "seed": 581, "threads": 2,
+                  "bound_ms": {"flop": flop_bound_ms, "turn": 600000, "river": 600000}},
+        "pilot": {"deals": 8, "seed": 501},
+        "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 8, "min": 8, "max": 16},
+        "gate": {"chunk": 8, "seed": 600, "pass_z": -1e9},
+        "variants": [{"name": "final", "agent": agent("both", "final"), "chunks": 1, "seed": 900},
+                     {"name": "modicum", "agent": agent("opponent", "average"), "chunks": 1, "seed": 950}],
+        "lbr": {"hands": 4, "chunks": 1, "settings": [{"name": "fcpa14", "seed": 560}]},
+        "repeat": {"seed": 700}
+    })
+    .to_string();
+    search::plan_job::PlanConfig::from_json(&text).unwrap()
+}
+
+/// The plan job (`search::plan_job`): it refuses a missing or another plan's checkpoint,
+/// stops between runs and goes on from the results on the disk without playing them
+/// again, writes every step's results, and its leaf tables are the one-piece build's.
+#[test]
+fn the_plan_job_plays_every_step_stops_and_goes_on() {
+    use search::plan_job::{run, MatchPlan, PlanConfig, PlanEnd};
+    let bp = Arc::new(blueprint());
+    let dir = std::env::temp_dir().join(format!("search-plan-job-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let strategy = std::env::current_exe().unwrap(); // any file: only hashed
+    let config = small_plan(&strategy, 600_000.0);
+    let read = |name: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(dir.join(name)).unwrap()).unwrap()
+    };
+    // --resume with nothing to resume is an error.
+    assert!(run(Arc::clone(&bp), &config, &dir, true, &|| false, &mut |_| {}).is_err());
+    // Stopped once the pilot is written: the gate's first chunk is given up.
+    let pilot = dir.join("pilot.json");
+    let mut events = Vec::new();
+    let end = run(
+        Arc::clone(&bp),
+        &config,
+        &dir,
+        false,
+        &|| pilot.exists(),
+        &mut |v| events.push(v),
+    )
+    .unwrap();
+    assert_eq!(end, PlanEnd::Stopped);
+    assert_eq!(events.last().unwrap()["event"], "saved on SIGTERM");
+    assert_eq!(events.last().unwrap()["step"], "gate");
+    // The build's own lines carry its step; the plan's start is the only "started".
+    let named = |e: &serde_json::Value, name: &str| e["event"] == name;
+    assert!(named(&events[0], "started") && events[0].get("step").is_none());
+    assert!(!events[1..]
+        .iter()
+        .any(|e| named(e, "started") || named(e, "resumed") || named(e, "done")));
+    let built: Vec<_> = (0..events.len())
+        .filter(|&i| named(&events[i], "leaf tables built"))
+        .collect();
+    assert_eq!(built.len(), 1);
+    assert!(named(&events[1], "leaf build started"));
+    assert!(events[1..=built[0]].iter().all(|e| e["step"] == "leaf"));
+    for f in ["bench.json", "bounds.json", "pilot.json", "size.json"] {
+        assert!(dir.join(f).exists(), "{f}");
+    }
+    assert!(!dir.join("match-01.json").exists());
+    let bench = std::fs::read(dir.join("bench.json")).unwrap();
+    // A checkpoint is there: without --resume, or for another plan, it is refused.
+    assert!(run(
+        Arc::clone(&bp),
+        &config,
+        &dir,
+        false,
+        &|| false,
+        &mut |_| {}
+    )
+    .is_err());
+    let other = PlanConfig {
+        pilot: MatchPlan {
+            deals: 8,
+            seed: 502,
+        },
+        ..config.clone()
+    };
+    let err = run(Arc::clone(&bp), &other, &dir, true, &|| false, &mut |_| {}).unwrap_err();
+    assert!(err.contains("another plan"), "{err}");
+    // Resumed: every step is played, and nothing done is played again.
+    events.clear();
+    let end = run(Arc::clone(&bp), &config, &dir, true, &|| false, &mut |v| {
+        events.push(v)
+    })
+    .unwrap();
+    let PlanEnd::Done(summary) = end else {
+        panic!("not done")
+    };
+    assert_eq!(summary["end"], "every step is played");
+    assert_eq!(std::fs::read(dir.join("bench.json")).unwrap(), bench);
+    assert!(
+        !events.iter().any(|e| e.get("parts_done").is_some()),
+        "the leaf tables were built again"
+    );
+    let size = read("size.json");
+    let chunks = size["chunks"].as_u64().unwrap();
+    assert!((1..=2).contains(&chunks) && size["deals"] == chunks * 8);
+    for k in 1..=chunks {
+        for prefix in ["match", "repeat"] {
+            let r = read(&format!("{prefix}-{k:02}.json"));
+            let seed = if prefix == "match" { 600 } else { 700 } + k;
+            assert_eq!(r["config"]["seed"], seed);
+            assert_eq!(r["deals"], 8);
+        }
+    }
+    let gate = read("gate.json");
+    assert_eq!(gate["deals"], chunks * 8);
+    assert_eq!(gate["passes"], true);
+    assert_eq!(gate["illegal_actions"], 0);
+    assert_eq!(read("repeat.json")["deals"], chunks * 8);
+    for v in ["final", "modicum"] {
+        let r = read(&format!("variant-{v}.json"));
+        assert_eq!(r["deals"], 8);
+        assert!(r["minus_gate_agent"]["se"].as_f64().unwrap() > 0.0);
+    }
+    let lbr = read("lbr-search-fcpa14-1.json");
+    assert_eq!(lbr["hands"], 4);
+    assert!(lbr["solves"]["flop"]["solves"].as_u64().is_some());
+    assert!(read("compare-fcpa14-1.json")["se"].as_f64().is_some());
+    assert!(dir.join("lbr-blueprint-fcpa14-1.deals").exists());
+    // The tables in the folder are the one-piece build's, bit for bit.
+    let name = search::leaf_job::JobConfig {
+        strategy: strategy.clone(),
+        tables: None,
+        deals: 2000,
+        seed: 3,
+        lanes: BOTH_LANES,
+        part_nodes: 9,
+        out: None,
+    }
+    .out_name();
+    let job = LeafTables::load(&dir.join(name)).unwrap();
+    let one = build(
+        &bp,
+        &strategy,
+        &BuildConfig {
+            deals: 2000,
+            seed: 3,
+            lanes: BOTH_LANES,
+            ..Default::default()
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert!(job.values() == one.values());
+    // A finished plan run again is done at once.
+    let again = run(Arc::clone(&bp), &config, &dir, true, &|| true, &mut |_| {}).unwrap();
+    assert!(matches!(again, PlanEnd::Done(_)));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A street over its bound in the bench ends the plan before any match.
+#[test]
+fn the_plan_job_plays_no_match_over_the_bound() {
+    use search::plan_job::{run, PlanEnd};
+    let bp = Arc::new(blueprint());
+    let dir = std::env::temp_dir().join(format!("search-plan-bound-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let strategy = std::env::current_exe().unwrap();
+    let config = small_plan(&strategy, 1e-6);
+    let end = run(
+        Arc::clone(&bp),
+        &config,
+        &dir,
+        false,
+        &|| false,
+        &mut |_| {},
+    )
+    .unwrap();
+    let PlanEnd::Done(v) = end else {
+        panic!("not done")
+    };
+    assert!(v["end"].as_str().unwrap().contains("over its bound"), "{v}");
+    assert_eq!(v["bounds"]["over"], serde_json::json!(["flop"]));
+    assert!(!dir.join("pilot.json").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -2912,9 +2912,14 @@ abstraction leaves more to fix; that is for the gate to show.
 ## Phase 7: the plan at 200 big blinds (28 Nov 2026)
 
 Pre-registered: written and committed before any run on the Phase 6 blueprint (it512M,
-`strategy-512000000.bps`). The runbook, with the exact commands, is
-`runs/phase7/README.md`; `runs/phase7/run.sh` and `runs/phase7/gate.py` carry the seeds, sizes
-and rules below. The pilots in "What was measured here" were on another blueprint (2M
+`strategy-512000000.bps`). Revised the same day, still before any run, on the manager session's
+instructions: Kevin's MacBook Air (M3, 8 GB) can't hold the leaf tables, so every run moves to
+one rented machine as one `tools/cloud` job; and the gate agent lets both players choose at the
+leaves (as Pluribus), with Modicum's choice by the opponent alone and the last iteration's play
+reported beside it. The runbook is `runs/phase7/README.md`. `runs/phase7/phase7.json` is this
+plan as the job reads it (`engine/crates/search/src/plan_job.rs`; a test checks its seeds and
+caps against this entry), and `runs/phase7/gate.py` checks the job's arithmetic from the
+downloaded results. The measurements in "What was measured here" were on another blueprint (2M
 iterations of the same game), only to size the steps. Everything is offline and against our own
 agents (rule 4).
 
@@ -2925,115 +2930,171 @@ pre-registration, after this condition is read.
 
 ### What is compared
 
-- **The search agent**: `engine/crates/search` at this entry's commit, `Settings::default()`
-  (flop 1% of the pot or 400 iterations, turn 2% or 300, river 0.5% or 1,000; combos under 0.1%
-  of the largest weight left out), on it512M, with leaf tables built from it512M with 16M deals,
-  seed 7 (`search leaf`, or the same job in the cloud: `runs/phase7/leaf.json`).
+- **The gate agent**: `engine/crates/search` at this entry's commit, with `Settings::default()`'s
+  caps (flop 1% of the pot or 400 iterations, turn 2% or 300, river 0.5% or 1,000; combos under
+  0.1% of the largest weight left out), **both players choosing at the flop's leaves**
+  (`leaf_choice: both`) and each solve's **average** strategy (`play: average`), on it512M, with
+  leaf tables built from it512M: 16M deals, seed 7, 16 lanes, parts of 256 turn starts.
 - **The opponent**: it512M itself, played as the blueprint.
-- 200 big blinds, heads-up, the Rust arena (`search match`).
+- **Two variants, reported, not judged**: `modicum` (only the opponent chooses at the leaves, on
+  the same tables, whose 16 lanes hold Modicum's 7 bit for bit) and `final` (the gate agent
+  playing each solve's last iteration).
+- 200 big blinds, heads-up, the Rust arena.
 
-Nothing in the search is changed or tuned after the pilot starts. If the search crate has to
-change (a bug), the pilot and the match are run again from the start with the same seeds, and
-both versions are logged here.
+Nothing in the search is changed or tuned after the job starts. If the search crate has to
+change (a bug), the plan is played again from the bench with the same seeds (the leaf tables
+kept unless the bug is in their build), and both versions are logged here.
 
-### The runs, in order (Kevin's Mac)
+### The runs, in order (one job, one machine)
 
 | Run | Size | Seeds | Use |
 | --- | --- | --- | --- |
-| Check | 10 hands | 9601 | the files load, the memory; not a result |
-| Decision time (`search bench`, against the blueprint, 4 threads) | 200 hands | 7581 | per street p50, p95, slowest; the bound check |
+| Leaf tables | 16M deals, 16 lanes, 34 parts | 7 | the values at the flop's leaves |
+| Decision time (the bench: against the blueprint, 4 threads, one decision at a time) | 200 hands | 7581 | per street p50, p95, slowest; the bound check |
 | Pilot match | 2,000 deals | 7501 | the sd a deal for N; never pooled |
-| **Gate match** | N deals, chunks of 1,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
-| LBR `fcpa14`, against each agent | 2,000 hands, chunks of 1,000 | 7561, 7562 | reported |
-| LBR `b56_14`, against each agent | 2,000 hands, chunks of 1,000 | 7571, 7572 | reported |
-| Repeat on fresh seeds (only after a pass) | N deals, chunks of 1,000 | 7701, 7702, ... | for promotion |
+| **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
+| Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported |
+| Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported |
+| LBR `fcpa14`, against the gate agent and the blueprint | 2,000 hands each, 2 runs of 1,000 | 7561, 7562 | reported |
+| LBR `b56_14`, against the gate agent and the blueprint | 2,000 hands each, 2 runs of 1,000 | 7571, 7572 | reported |
+| Repeat on fresh seeds (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion |
 
 - **Every match**: duplicate deals (each deal played twice with the seats swapped) and the
   all-in equity adjustment (a hand all in before the river is scored by its equity over the
-  cards to come), bb/100 with its SE over deals, 4 threads. Chunks are pooled with the mean
-  weighted by deals and SE = sqrt(sum((n x se)^2)) / sum(n).
+  cards to come), bb/100 with its SE over deals, on the machine's 64 threads. Chunks are pooled
+  with the mean weighted by deals and SE = sqrt(sum((n x se)^2)) / sum(n).
 - **N** = (2.5 x sd / 10)^2 deals, sd the pilot's sd a deal in bb/100 (its SE times the square
   root of its deals): the deals that see an edge of 10 bb/100 at 2.5 SE. Rounded up to a
-  multiple of 1,000, at least 4,000, at most 40,000. Above sd 800 the cap binds and the edge seen
-  at 2.5 SE is 2.5 x sd / 200 bb/100. `gate.py size` writes N and the seeds before the match.
+  multiple of 2,000 (the chunk), at least 4,000, at most 40,000. Above sd 800 the cap binds and
+  the edge seen at 2.5 SE is 2.5 x sd / 200 bb/100. The job writes N and the seeds
+  (`size.json`) before the gate match.
 - **The pass rule**: the head-to-head condition passes when the pooled gate match has z =
   bb/100 / SE >= 2.5, read on the gate match alone. Anything below does not pass: no extra
-  deals, no other seeds, no pooling with the pilot or the repeat.
+  deals, no other seeds, no pooling with the pilot, the variants or the repeat.
 - **For promotion** (CLAUDE.md, ground rules, beyond the gate): the repeat on fresh seeds also
-  at z >= 2.5, and LBR winning less against the search than against the blueprint. Run only
-  after the gate match passes. The repeat is read alone, not pooled with the gate match.
+  at z >= 2.5, and LBR winning less against the search than against the blueprint. The job plays
+  the repeat only after the gate match passes. The repeat is read alone, not pooled with the
+  gate match.
+- **The variants**, reported, not judged: each against the blueprint, compared with the gate
+  agent unpaired (SE = sqrt(se1^2 + se2^2), about ±10 bb/100 at sd 800, so only a difference
+  above about 25 bb/100 shows at 2.5 SE). A variant that looks better is not swapped in within
+  this plan: it would be a new agent version with its own plan.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes)
-  against both agents, the same seeds for both, so each chunk is paired (`search compare`); the
-  difference is pooled over the chunks with equal weights. At Phase 6's spread (about 50 big
+  against both agents, the same seeds for both, so each run is paired deal by deal; the
+  difference is pooled over the runs with equal weights. At Phase 6's spread (about 50 big
   blinds a hand; the paired difference no tighter) 2,000 hands give about ±110 bb/100 for each
   agent and ±130 for the difference: only a fall of more than about 300 bb/100 would show at
-  2.5 SE. LBR against the search is slow (13 s a hand here), so more hands, if wanted, are a
-  later run on seeds 7563 on and 7573 on.
-- **Decision time**: `search bench`, p50, p95 and the slowest decision per street on 4 threads,
-  with the iterations, solver nodes and exploitability. **Bounded** means the slowest decision of
-  each street is within flop 12 s, turn 65 s, river 2 s: twice the worst case at the iteration
-  caps on this container's CPU (`runs/phase7/README.md`, "Decision time"), so a loose bound on
-  the Mac. If a street is over, the match is not started until the cause is known. The match's
-  and LBR's solve times are reported beside it, not checked (there the turn is solved on one
-  thread with other hands in parallel).
-- **Hardware**: Kevin's MacBook Air, 4 threads, plugged in, under `caffeinate -i`. The search
-  agent needs about 11 GB (the 9.7 GB leaf tables in memory), so at least 16 GB of memory. The
-  leaf tables can be built in the cloud or on the Mac; that doesn't change the plan.
+  2.5 SE. More hands, if wanted, are a later run on seeds 7563 on and 7573 on.
+- **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, with the
+  iterations, solver nodes and exploitability. **Bounded** means the slowest decision of each
+  street is within flop 40 s, turn 65 s, river 2 s: twice the worst case at the iteration caps
+  on this container's CPU, the flop's times 3.4 for both players choosing
+  (`runs/phase7/README.md`, "Decision time"). If a street is over, the job ends after the bench
+  and plays no match, and the cause is found before anything else is run. The match's and LBR's
+  solve times are reported beside it, not checked (there the turn is solved on one thread with
+  other deals in parallel).
+- **Hardware**: one c4a-highcpu-64 (64 Arm Axion cores, 128 GB), Spot, through `tools/cloud`:
+  the build, the bench (on a pool of 4 of its threads), the matches and LBR (on all 64). The Mac
+  only downloads the results and runs `gate.py`.
+- **The cost** (`runs/phase7/README.md`, "Sizes and costs"): about $3.0 for the build (2.1
+  hours) and $4.0 to $7.6 for the matches and LBR (2.7 to 5.1 hours), so $7.0 to $10.6 in all
+  and $7.4 to $14.6 with the repeat, capped at $20. With 7 lanes and Modicum's agent it would be
+  $4.9 to $7.4 ($5.2 to $10.2 with the repeat). An Axion core is taken as 1.1 to 1.2 of this
+  container's Xeon threads (1.15 in the figures), and the costs a deal are the 2M blueprint's,
+  an upper bound. The cap stops the run without changing the plan: the results so far are kept
+  and it goes on after a resume.
 
-### The leaf tables: where to build them
+### Options and later work (noted, not in this plan)
 
-Measured here (4 vCPU, Intel Xeon at 2.1 GHz) on the 2M-iteration blueprint: 1.60M walks (a turn
-start and a deal) a second on 4 threads, peak memory 1.54 GB. At 16M deals the build is 1.39e11
-walks, about 96 thread-hours here.
+The roadmap's decisions of 28 Nov 2026 (`README.md`, "Decisions") put Pluribus's search fixes in
+Phase 7. This plan has two of them (both players choosing at the leaves, and the last iteration
+tried against the average); the third, and AIVAT, come later:
 
-| | c4a-highcpu-64, Spot, `tools/cloud` | Kevin's MacBook Air |
-| --- | --- | --- |
-| Hours in all | 1.3 to 3.3 (build about 1.3 at Phase 6's speed per Arm thread, plus about 20 minutes to start and finish) | 8 to 16 |
-| Dollars | $1.9 to $4.9 at $1.4714 an hour, capped at $8; about $1.2 to download 9.7 GB; $0.39 a month in the bucket until deleted | $0 |
-
-Recommended: the cloud, which frees 8 to 16 hours of the Mac before the match. The Arm speed is
-the uncertain part; the cap holds the cost.
+- **f16 and mmap**: 16-bit leaf values (11.1 GB) would let a 64 GB machine hold the tables, and
+  a mapped table file would let the system page them in as memory allows; not needed at 128 GB,
+  and f16 would need its own check.
+- **A table layout with a cell's 16 lanes side by side**, to cut the flop's 3.4 times with both
+  choosing.
+- **Preflop search of off-menu raises** (Phase 7, later): before the flop the agent plays the
+  blueprint, which reads an off-menu raise as a menu size (the pseudo-harmonic mapping);
+  Pluribus searched in the first round when a bet was far enough off its menu.
+- **AIVAT in the Rust arena**, a lower-variance measure. The roadmap lets gate SEs come from it
+  once it is shown unbiased on identical agents; it isn't built, so this plan's measure is the
+  plain head-to-head (duplicate deals, all-in equity), and AIVAT would be reported beside it
+  only if it exists by the time of the run. Not built here.
+- **Slumbot and the GTO Wizard Benchmark**: the gate's other two conditions, with their own
+  plan.
 
 ### What was built for it
 
 - **The leaf build in parts** (`engine/crates/search`, `leaf.rs`, `leaf_job.rs`): a build in one
-  piece at 200 big blinds would hold about 29 GB of sums; in parts of 256 turn starts it peaks at
-  1.5 GB. Each part is written with a checksum and the table file put together from them. The
-  deals within a block are sorted by cell and by their place in the stream, so the tables are
-  the same bit for bit on any threads, block size or parts (tested against the old sequential
-  build). It stops and goes on from the parts done; a checkpoint from another build is refused
-  and a damaged or missing part is built again.
-- **The build as a `tools/cloud` job**: `search --config F --checkpoint-dir D [--resume]`, with
-  SIGTERM exiting 75. `tools/cloud` is unchanged; `runs/phase7/leaf.json` and
-  `runs/phase7/cloud.env.example` set it up. The dress rehearsal (`runs/phase7/leaf_rehearsal.py`)
-  passed here under the real supervisor: a SIGTERM after 2 parts, a new machine resuming from
-  the bucket with them, the run "done", and the table file equal to `search leaf`'s bit for bit.
+  piece at 200 big blinds would hold about 29 GB of sums (67 GB at 16 lanes); in parts of 256
+  turn starts it peaks at 1.5 GB (2.65 GB at 16 lanes). Each part is written with a checksum and
+  the table file put together from them. The deals within a block are sorted by cell and by
+  their place in the stream, so the tables are the same bit for bit on any threads, block size
+  or parts (tested against the old sequential build). It stops and goes on from the parts done;
+  a checkpoint from another build is refused and a damaged or missing part is built again.
+- **Both players choosing at the leaves** (`flop.rs`, `leaf.rs`, `solve.rs`): 16-lane tables
+  (every pair of the four continuations), a flop solve with a pick for each player at each leaf
+  that neither sees, `Settings::leaf_choice` (`opponent` or `both`), and the lanes checked when
+  the agent loads its tables (`both` refuses 7-lane tables). The 16 lanes hold the 7 bit for bit.
+- **The last iteration** (`subgame::Play`, `Settings::play`): a solve hands back its average
+  strategy (the default) or its last iteration, its exploitability then measured for that
+  strategy.
+- **The plan as one cloud job** (`plan_job.rs`, `runs.rs`): `search --config phase7.json
+  --checkpoint-dir D [--resume]` plays the steps above in order under the `tools/cloud` trainer
+  contract: one checkpoint (`plan.ckpt`), the parts and the results as artifacts (the table file
+  is put together again on a new machine), SIGTERM exits 75 within a second at any step, and a
+  step skips the results already there. `tools/cloud` is unchanged;
+  `runs/phase7/cloud.env.example` sets it up. The dress rehearsal
+  (`runs/phase7/plan_rehearsal.py`) passed here under the real supervisor: SIGTERM during the
+  gate match, the supervisor done 0.2 s after it; a new machine with an empty disk resumed from
+  the bucket in 0.5 s, built no part, played nothing again, and the run ended "done" with every
+  result in the bucket.
 - **`--tables DIR`** on every `search` command and `search:<file>?tables=<dir>` in
   `pokerscribe_engine`: it512M was trained in the cloud, so the folder it names isn't on the
-  Mac.
-- The match and LBR share one loaded blueprint between the two agents; LBR reports the slowest
-  solve per street.
-- Tests: two in `tests/agent.rs` (bit for bit in parts; stop, refusals, damaged parts, resume),
-  one in `src/leaf_job.rs` (a part damaged after it was written stops the table file; a table
-  file longer than its header is refused), `tests/cloud_job.rs` (the binary's contract,
-  nightly), and one in `app/tests/test_engine_bindings.py`.
+  machine that plays it.
+- The match and LBR share one loaded blueprint between the two agents; LBR reports the search's
+  solves per street.
+- Tests: in `src/flop.rs` (either player or both picking; picks neither sees as a simultaneous
+  game; the last iteration), `src/plan_job.rs` (the registered plan reads with this entry's
+  seeds and caps; the size rule; pooling; refusals; the bound check), `tests/agent.rs` (bit for
+  bit in parts; the 16 lanes hold the 7; both players pick on 16-lane tables and 7-lane ones are
+  refused; the plan job stops and goes on with nothing played twice, and plays no match over the
+  bound), `../subgame/tests/closed_form.rs` (the last iteration), `tests/cloud_job.rs` (the
+  binary's contract for the build and the plan, nightly), and one in
+  `app/tests/test_engine_bindings.py`.
 
 ### What was measured here (sizing only)
 
 On the 2M-iteration blueprint of the Phase 6 game (nearly random, so wide ranges and large
-solves: costs here are an upper bound), 4 vCPU:
+solves: costs here are an upper bound), 4 vCPU, Intel Xeon at 2.1 GHz:
 
-- **Decision time**, `search bench`, 200 hands, seed 9501: flop p50 745 ms, p95 1,303, slowest
-  1,442; turn 4,956, 18,346 and 21,322 ms (13,051 solver nodes on average); river 107, 268 and
-  583 ms. All within the bound.
-- **A match**, 60 deals, seed 9502: 3.07 s a deal (12.3 thread-seconds), no illegal action. Its
-  sd (946 a deal) is not the it512M match's; the pilot measures that.
+- **The leaf build**: 1.60M walks (a turn start and a deal) a second on 4 threads at 7 lanes,
+  peak 1.54 GB; at 16M deals about 96 thread-hours. 16 lanes take 1.35 times as long (1.29 to
+  1.40 on the same four parts), peak 2.65 GB.
+- **Decision time**, the bench at 7 lanes with the opponent choosing, 200 hands, seed 9501: flop
+  p50 745 ms, p95 1,303, slowest 1,442; turn 4,956, 18,346 and 21,322 ms (13,051 solver nodes
+  on average); river 107, 268 and 583 ms. All within the bound. The flop is about 18% of the
+  solve time.
+- **Both players choosing**, one flop spot at 400 iterations: 3,546 ms against 1,056 ms with
+  the opponent choosing (3.36 times), so a deal about 1.42 times. The 22 GB tables don't fit in
+  this container's 15 GB, so the both-choose agent isn't benched at this depth here.
+- **A match**, 60 deals, seed 9502: 3.07 s a deal (12.3 thread-seconds, cores partly idle with
+  2 blocks of 32 deals in play), no illegal action. 192 deals, seed 9504, 6 threads (6 blocks
+  in play, every core busy): 1.93 s a deal (7.7 core-seconds), no illegal action. Their sd (946
+  and 1,377 a deal) is not the it512M match's; the pilot measures that.
 - **LBR `b56_14` against the search**, 40 hands, seed 9503: 752 s with LBR's preflop tables
-  (about 13 s a hand); the search re-solved 157 of its 302 flop solves, 106 of 205 on the turn
-  and 58 of 60 on the river.
-- **Memory**: the search agent with the 9.7 GB leaf tables peaks at 10.7 to 10.9 GB.
-- Projected on the Mac (1.5 to 2.5 times faster a thread): the pilot 40 to 70 minutes, the gate
-  match 1.2 to 2 s a deal (1.4 hours at 4,000 deals to 23 hours at 40,000), LBR 6 to 10 hours.
+  (about 13 s a hand, 52 thread-seconds); the search re-solved 157 of its 302 flop solves, 106
+  of 205 on the turn and 58 of 60 on the river.
+- **Memory**: the search agent with the 9.7 GB leaf tables peaks at 10.7 to 10.9 GB in the
+  bench and LBR, and at 11.58 GB in the 192-deal match with 6 blocks in play: about 0.23 GB a
+  block over the tables and the blueprint. On the rented machine (16-lane tables, 63 blocks in
+  play, up to 0.1 GB more a block for the flop's leaf values with both choosing): about 45 GB.
+- Projected on the rented machine (64 threads, an Axion core 1.15 threads here, 12.3
+  core-seconds a deal so that a chunk's slowest block is allowed for): the build 1.76 hours, a
+  chunk of 2,000 deals about 8 minutes (the gate match 0.27 hours at 4,000 deals to 2.7 at
+  40,000), LBR about 1.2 hours.
 
 ## Phase 7: AIVAT in the arena (28 Nov 2026)
 
