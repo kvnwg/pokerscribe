@@ -9,7 +9,8 @@ use cfr::{Mccfr, MccfrConfig, Sampling, Solver};
 use lbr::{ActionProbs, PublicState, Strategy};
 use nlhe::{Action, Config, Deal, State};
 use search::cards::{combo_index, mix};
-use search::leaf::{build, BuildConfig, LeafTables, TABLE_LANES};
+use search::leaf::{build, lane_of, BuildConfig, LeafTables, BOTH_LANES, MODICUM_LANES};
+use search::solve::{LeafChoice, Play};
 use search::{SearchAgent, Settings};
 
 /// The 169 starting hands, then the category of the best hand (9 buckets a street).
@@ -47,11 +48,16 @@ fn blueprint() -> Arc<Blueprint<Category>> {
 }
 
 fn tables(bp: &Blueprint<Category>, deals: u64) -> LeafTables {
+    tables_with(bp, deals, MODICUM_LANES)
+}
+
+fn tables_with(bp: &Blueprint<Category>, deals: u64, lanes: usize) -> LeafTables {
     let strategy = std::env::current_exe().unwrap(); // any file: only hashed
     let config = BuildConfig {
         deals,
         seed: 3,
         block: 4096,
+        lanes,
     };
     build(bp, &strategy, &config, |_| {}).unwrap()
 }
@@ -104,7 +110,7 @@ fn leaf_tables_are_the_same_on_any_number_of_threads_and_in_range() {
     assert_eq!(a.header.nodes, b.header.nodes);
     assert!(!a.header.nodes.is_empty());
     for &node in &a.header.nodes {
-        for lane in 0..TABLE_LANES {
+        for lane in 0..MODICUM_LANES {
             let (x, y) = (a.table(node, lane).unwrap(), b.table(node, lane).unwrap());
             assert_eq!(x, y);
             // A share of the pot at the node: within what the stacks allow.
@@ -116,7 +122,7 @@ fn leaf_tables_are_the_same_on_any_number_of_threads_and_in_range() {
     // The biased lanes are other strategies: somewhere they change the value.
     let node = a.header.nodes[0];
     let base = a.table(node, 0).unwrap();
-    for lane in 1..TABLE_LANES {
+    for lane in 1..MODICUM_LANES {
         let t = a.table(node, lane).unwrap();
         assert!(
             t.iter().zip(base).any(|(x, y)| (x - y).abs() > 1e-3),
@@ -266,33 +272,138 @@ fn leaf_tables_in_parts_are_the_sequential_build_bit_for_bit() {
     let bp = blueprint();
     let nodes = turn_starts(&bp);
     assert!(nodes.len() > 10, "{} turn starts", nodes.len());
-    // Several blocks, the last one short.
-    let config = BuildConfig {
-        deals: 5_000,
-        seed: 11,
-        block: 1_200,
-    };
-    let reference = build_reference(&bp, &nodes, &config);
-    for threads in [1, 3] {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
-        pool.install(|| {
-            let whole = build_part(&bp, &nodes, &config, &|| false, |_| {}).unwrap();
-            assert!(whole.q == reference, "one part, {threads} thread(s)");
-            assert_eq!(whole.count.iter().sum::<u64>(), config.deals);
-            let mut joined = Vec::new();
-            for chunk in nodes.chunks(7) {
-                let part = build_part(&bp, chunk, &config, &|| false, |_| {}).unwrap();
-                assert_eq!(part.count, whole.count);
-                joined.extend(part.q);
-            }
-            assert!(joined == reference, "parts of 7 nodes, {threads} thread(s)");
-        });
+    for lanes in [MODICUM_LANES, BOTH_LANES] {
+        // Several blocks, the last one short.
+        let config = BuildConfig {
+            deals: 5_000,
+            seed: 11,
+            block: 1_200,
+            lanes,
+        };
+        let reference = build_reference(&bp, &nodes, &config);
+        assert_eq!(reference.len(), nodes.len() * lanes * 81);
+        for threads in [1, 3] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                let whole = build_part(&bp, &nodes, &config, &|| false, |_| {}).unwrap();
+                assert!(whole.q == reference, "one part, {threads} thread(s)");
+                assert_eq!(whole.count.iter().sum::<u64>(), config.deals);
+                let mut joined = Vec::new();
+                for chunk in nodes.chunks(7) {
+                    let part = build_part(&bp, chunk, &config, &|| false, |_| {}).unwrap();
+                    assert_eq!(part.count, whole.count);
+                    joined.extend(part.q);
+                }
+                assert!(joined == reference, "parts of 7 nodes, {threads} thread(s)");
+            });
+        }
+        // A stop asked for gives the part up.
+        assert!(build_part(&bp, &nodes[..3], &config, &|| true, |_| {}).is_none());
     }
-    // A stop asked for gives the part up.
-    assert!(build_part(&bp, &nodes[..3], &config, &|| true, |_| {}).is_none());
+}
+
+/// Every lane is walked on its own, so the 16 lanes of both players' picks hold the 7 of
+/// Modicum's (one player biased at a time) bit for bit.
+#[test]
+fn sixteen_lanes_hold_the_seven_bit_for_bit() {
+    use search::leaf::lane_choices;
+    let bp = blueprint();
+    let seven = tables_with(&bp, 20_000, MODICUM_LANES);
+    let sixteen = tables_with(&bp, 20_000, BOTH_LANES);
+    assert_eq!((seven.header.lanes, sixteen.header.lanes), (7, 16));
+    assert_eq!(seven.header.nodes, sixteen.header.nodes);
+    assert_eq!(seven.header.cell_deals, sixteen.header.cell_deals);
+    for &node in &seven.header.nodes {
+        for lane in 0..MODICUM_LANES {
+            let [sb, bb] = lane_choices(MODICUM_LANES, lane);
+            assert_eq!(lane_of(MODICUM_LANES, sb, bb), Some(lane));
+            let both = lane_of(BOTH_LANES, sb, bb).unwrap();
+            assert_eq!(
+                seven.table(node, lane),
+                sixteen.table(node, both),
+                "lane {lane}"
+            );
+        }
+    }
+    // Both biased at once is new: somewhere it is neither one alone.
+    let node = seven.header.nodes[0];
+    let both = sixteen
+        .table(node, lane_of(BOTH_LANES, 3, 3).unwrap())
+        .unwrap();
+    let sb = seven
+        .table(node, lane_of(MODICUM_LANES, 3, 0).unwrap())
+        .unwrap();
+    let bb = seven
+        .table(node, lane_of(MODICUM_LANES, 0, 3).unwrap())
+        .unwrap();
+    assert!(both
+        .iter()
+        .zip(sb.iter().zip(bb))
+        .any(|(x, (y, z))| (x - y).abs() > 1e-3 && (x - z).abs() > 1e-3));
+    // And a 7-lane table has no pair of biased players.
+    assert_eq!(lane_of(MODICUM_LANES, 1, 2), None);
+}
+
+/// With both players picking at the leaves (16 lanes) the agent plays legal actions, and
+/// either way of playing a solve works; on 7-lane tables that setting is refused.
+#[test]
+fn both_players_pick_on_sixteen_lane_tables() {
+    let bp = blueprint();
+    let both = Settings {
+        leaf_choice: LeafChoice::Both,
+        ..fast()
+    };
+    let seven = Arc::new(tables(&bp, 5_000));
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        SearchAgent::new(Arc::clone(&bp), Some(Arc::clone(&seven)), both.clone())
+    }));
+    let message = refused
+        .err()
+        .and_then(|e| e.downcast_ref::<String>().cloned());
+    assert!(
+        message.as_deref().is_some_and(|m| m.contains("needs 16")),
+        "{message:?}"
+    );
+    let sixteen = Arc::new(tables_with(&bp, 5_000, BOTH_LANES));
+    for play in [Play::Average, Play::Final] {
+        let settings = Settings {
+            play,
+            ..both.clone()
+        };
+        let agent = SearchAgent::new(Arc::clone(&bp), Some(Arc::clone(&sixteen)), settings);
+        let mut flops = 0;
+        for h in 0..4u64 {
+            // A limped pot: every hand gets to the flop.
+            let mut state = hand(mix(h + 500), &[Action::Call, Action::Check]);
+            let mut step = 0;
+            while !state.is_terminal() {
+                let seat = state.current_player().unwrap();
+                let public = PublicState::new(&state);
+                let hole = state.hole_cards(seat);
+                let mut probs = ActionProbs::new();
+                if seat == (h % 2) as usize {
+                    agent.action_probs(&public, hole, &mut probs);
+                    let legal = state.legal_actions();
+                    assert!(probs.as_slice().iter().all(|&(a, _)| legal.allows(a)));
+                    assert!((probs.total() - 1.0).abs() < 1e-6);
+                    if state.street() == nlhe::Street::Flop {
+                        let plan = agent.plan(&public).expect("a flop solve");
+                        assert!(plan.solve.table_leaves > 0, "no leaf from the tables");
+                        flops += 1;
+                    }
+                } else {
+                    bp.action_probs(&public, hole, &mut probs);
+                }
+                step += 1;
+                let u = (mix(h * 1000 + step) >> 11) as f64 / (1u64 << 53) as f64;
+                state.apply(probs.sample(u).unwrap()).unwrap();
+            }
+        }
+        assert!(flops > 0, "{play:?}: no flop solve");
+    }
 }
 
 /// The leaf table job (`search::leaf_job`): it stops between blocks and goes on from the
@@ -311,6 +422,7 @@ fn the_leaf_job_stops_goes_on_and_gives_the_one_piece_tables() {
         deals: 3_000,
         seed: 3,
         part_nodes: 9,
+        lanes: MODICUM_LANES,
         out: Some("t.leaf".into()),
     };
     let parts_on_disk = || {
@@ -344,6 +456,12 @@ fn the_leaf_job_stops_goes_on_and_gives_the_one_piece_tables() {
     assert!(run(&bp, &config, &dir, false, &|| false, &mut |_| {}).is_err());
     let other = JobConfig {
         seed: 4,
+        ..config.clone()
+    };
+    let err = run(&bp, &other, &dir, true, &|| false, &mut |_| {}).unwrap_err();
+    assert!(err.contains("another build"), "{err}");
+    let other = JobConfig {
+        lanes: BOTH_LANES,
         ..config.clone()
     };
     let err = run(&bp, &other, &dir, true, &|| false, &mut |_| {}).unwrap_err();

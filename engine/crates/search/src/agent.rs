@@ -139,8 +139,15 @@ impl SearchAgent<Arc<Buckets>> {
     ) -> std::io::Result<SearchAgent> {
         let leaf_path = leaf_path(strategy);
         let leaf = if leaf_path.exists() {
-            // The header first: a table for another file is refused before 9.7 GB load.
+            // The header first: a table for another file, or with too few lanes, is refused
+            // before gigabytes load.
             let header = LeafTables::read_header(&leaf_path)?;
+            crate::solve::check_lanes(header.lanes, settings.leaf_choice).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}: {e}", leaf_path.display()),
+                )
+            })?;
             let hash = crate::leaf::file_hash(strategy)?;
             if header.strategy_hash != hash {
                 return Err(std::io::Error::new(
@@ -165,6 +172,11 @@ impl<B: Bucketer + Sync + Send> SearchAgent<B> {
         leaf: Option<Arc<LeafTables>>,
         settings: Settings,
     ) -> SearchAgent<B> {
+        if let Some(tables) = &leaf {
+            if let Err(e) = crate::solve::check_lanes(tables.header.lanes, settings.leaf_choice) {
+                panic!("{e}");
+            }
+        }
         let menus = bp.game().config().menus.clone();
         SearchAgent {
             bp,

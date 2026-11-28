@@ -492,6 +492,30 @@ impl<'a> Solver<'a> {
         Strategy { probs }
     }
 
+    /// The current strategy at every decision node: the last iteration's regrets, matched
+    /// (frozen nodes keep their fixed strategy).
+    pub fn current(&self) -> Strategy {
+        let probs = self
+            .game
+            .tree
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(id, node)| match node.player() {
+                Some(_) => {
+                    let mut out = vec![0.0; self.data[id].regret.len()];
+                    match self.game.frozen_at(id) {
+                        Some(fixed) => out.copy_from_slice(fixed),
+                        None => regret_match(&self.data[id].regret, node.actions().len(), &mut out),
+                    }
+                    out
+                }
+                None => Vec::new(),
+            })
+            .collect();
+        Strategy { probs }
+    }
+
     /// Exploitability of the average strategy, as a share of the pot.
     pub fn exploitability(&self) -> f64 {
         exploitability_share(self.game, self, self.parallel)
@@ -527,6 +551,15 @@ impl Policy for Solver<'_> {
             }
         }
     }
+}
+
+/// Which strategy a solve hands back: the average over the iterations (the one CFR's
+/// guarantees are about), or the last iteration's current strategy (as Pluribus plays).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Play {
+    #[default]
+    Average,
+    Final,
 }
 
 /// When to stop. The first of the three that is reached ends the solve; at least one
@@ -585,6 +618,13 @@ fn next_check_after(iteration: u32) -> u32 {
 ///
 /// Panics when the config sets no limit at all: the solve would never end.
 pub fn solve(game: &Game, config: &SolveConfig) -> Solution {
+    solve_as(game, config, Play::Average)
+}
+
+/// [`solve`], handing back the average strategy or the last iteration's. The stop is the
+/// same either way (the average's exploitability against the target); the exploitability,
+/// values and trace's last entry are those of the strategy handed back.
+pub fn solve_as(game: &Game, config: &SolveConfig, play: Play) -> Solution {
     assert!(
         config.target_exploitability > 0.0
             || config.max_iterations.is_some()
@@ -596,13 +636,13 @@ pub fn solve(game: &Game, config: &SolveConfig) -> Solution {
             .num_threads(config.threads)
             .build()
         {
-            return pool.install(|| solve_here(game, config, true));
+            return pool.install(|| solve_here(game, config, true, play));
         }
     }
-    solve_here(game, config, false)
+    solve_here(game, config, false, play)
 }
 
-fn solve_here(game: &Game, config: &SolveConfig, parallel: bool) -> Solution {
+fn solve_here(game: &Game, config: &SolveConfig, parallel: bool, play: Play) -> Solution {
     let start = Instant::now();
     let ms = |since: Instant| since.elapsed().as_secs_f64() * 1000.0;
     let mut solver = Solver::new(game);
@@ -638,6 +678,21 @@ fn solve_here(game: &Game, config: &SolveConfig, parallel: bool) -> Solution {
                 break;
             }
         }
+    }
+    if play == Play::Final {
+        let strategy = solver.current();
+        let exploitability = exploitability_share(game, &strategy, parallel);
+        trace.push((solver.iterations, 100.0 * exploitability));
+        let oop = strategy_value(game, &strategy, OOP, parallel);
+        return Solution {
+            strategy,
+            iterations: solver.iterations,
+            elapsed_ms: ms(start),
+            exploitability,
+            trace,
+            converged: target > 0.0 && exploitability <= target,
+            values: [oop, game.spot.pot - oop],
+        };
     }
     let exploitability = last.unwrap_or_else(|| {
         let e = solver.exploitability();

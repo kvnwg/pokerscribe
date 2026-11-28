@@ -12,7 +12,7 @@
 //! - the bettor wins `(3 / 19) * (P + sP / (1 + s))` a hand.
 
 use subgame::exploit::exploitability;
-use subgame::{solve, Game, SolveConfig, Spot, Strategy, IP, OOP};
+use subgame::{solve, solve_as, Game, Play, SolveConfig, Spot, Strategy, IP, OOP};
 
 const POT: f64 = 100.0;
 const VALUE: f64 = 3.0;
@@ -162,4 +162,36 @@ fn the_solver_finds_the_closed_form_answer() {
         );
         assert!((solution.values[OOP] - (POT - value)).abs() <= tolerance);
     }
+}
+
+/// `Play::Final` hands back the last iteration's strategy, with that strategy's own
+/// exploitability and values; `Play::Average` is `solve` exactly.
+#[test]
+fn a_solve_can_hand_back_the_last_iteration() {
+    let game = half_street(1.0);
+    let config = SolveConfig {
+        target_exploitability: 0.0,
+        max_iterations: Some(500),
+        time_ms: None,
+        threads: 1,
+    };
+    let average = solve(&game, &config);
+    assert_eq!(
+        solve_as(&game, &config, Play::Average).strategy.probs,
+        average.strategy.probs
+    );
+    let last = solve_as(&game, &config, Play::Final);
+    assert_eq!(last.iterations, average.iterations);
+    assert_ne!(last.strategy.probs, average.strategy.probs);
+    let (bettor, caller) = nodes(&game);
+    for (node, n) in [(bettor, game.n(IP)), (caller, game.n(OOP))] {
+        for combo in last.strategy.probs[node].chunks_exact(2).take(n) {
+            assert!((combo.iter().sum::<f64>() - 1.0).abs() < 1e-12, "{combo:?}");
+        }
+    }
+    let e = exploitability(&game, &last.strategy, false);
+    assert!((e.pot_share() - last.exploitability).abs() < 1e-12);
+    assert!((e.value[OOP] - last.values[OOP]).abs() < 1e-9);
+    assert!((e.value[IP] - last.values[IP]).abs() < 1e-9);
+    eprintln!("average {:.6}, last {:.6}", average.exploitability, last.exploitability);
 }
