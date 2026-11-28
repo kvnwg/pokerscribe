@@ -193,5 +193,8 @@ fn a_solve_can_hand_back_the_last_iteration() {
     assert!((e.pot_share() - last.exploitability).abs() < 1e-12);
     assert!((e.value[OOP] - last.values[OOP]).abs() < 1e-9);
     assert!((e.value[IP] - last.values[IP]).abs() < 1e-9);
-    eprintln!("average {:.6}, last {:.6}", average.exploitability, last.exploitability);
+    eprintln!(
+        "average {:.6}, last {:.6}",
+        average.exploitability, last.exploitability
+    );
 }

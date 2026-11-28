@@ -34,12 +34,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arena::{run_match, MatchConfig};
-use blueprint::{lbr_match, Blueprint, Deals};
-use lbr::{ActionProbs, PublicState, Strategy};
+use blueprint::{Blueprint, Deals};
+use lbr::{PublicState, Strategy};
 use nlhe::{Card, Config, Deal, State, Street};
-use search::cards::{combo_index, mix};
-use search::play::strategy_agent;
+use search::cards::combo_index;
+use search::runs::{self, play_hands, street_name};
 use search::solve::LeafChoice;
 use search::{leaf_path, SearchAgent, Settings};
 use serde_json::json;
@@ -227,6 +226,7 @@ fn leaf(opts: &HashMap<String, String>) {
 /// documentation). Returns the exit code.
 fn cloud_job(items: &[String]) -> i32 {
     use search::leaf_job::{self, JobConfig, JobEnd};
+    use search::plan_job::{self, PlanConfig, PlanEnd};
     let fail = |e: String| {
         eprintln!("search: {e}");
         1
@@ -240,7 +240,7 @@ fn cloud_job(items: &[String]) -> i32 {
             return fail(format!("unexpected argument {:?}", rest[i]));
         };
         if !["config", "checkpoint-dir", "threads"].contains(&k) {
-            return fail(format!("the leaf table job takes no --{k}"));
+            return fail(format!("the job takes no --{k}"));
         }
         let Some(v) = rest.get(i + 1) else {
             return fail(format!("--{k} needs a value"));
@@ -256,19 +256,48 @@ fn cloud_job(items: &[String]) -> i32 {
         Some(_) => return fail("--threads: a number above 0".into()),
         None => None,
     };
-    let config: JobConfig = match std::fs::read_to_string(config)
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
-    {
+    let text = match std::fs::read_to_string(config) {
+        Ok(t) => t,
+        Err(e) => return fail(format!("--config: {e}")),
+    };
+    // A plan has a gate; anything else is the leaf table job alone.
+    let is_plan = serde_json::from_str::<serde_json::Value>(&text)
+        .map(|v| v.get("gate").is_some())
+        .unwrap_or(false);
+    global_threads(threads);
+    if let Err(e) = cfr::signal::watch_sigterm() {
+        return fail(e.to_string());
+    }
+    let dir = Path::new(dir);
+    if is_plan {
+        let config = match PlanConfig::from_json(&text) {
+            Ok(c) => c,
+            Err(e) => return fail(format!("--config: {e}")),
+        };
+        let bp = match Blueprint::load(&config.strategy, config.tables.as_deref()) {
+            Ok(bp) => Arc::new(bp),
+            Err(e) => return fail(format!("{}: {e}", config.strategy.display())),
+        };
+        return match plan_job::run(
+            bp,
+            &config,
+            dir,
+            resume,
+            &cfr::signal::stop_requested,
+            &mut say_line,
+        ) {
+            Ok(PlanEnd::Done(_)) => 0,
+            // The run being played is given up: leave at once, before the machine goes.
+            Ok(PlanEnd::Stopped) => STOPPED,
+            Err(e) => fail(e),
+        };
+    }
+    let config: JobConfig = match serde_json::from_str(&text) {
         Ok(c) => c,
         Err(e) => return fail(format!("--config: {e}")),
     };
     if let Err(e) = config.check() {
         return fail(format!("--config: {e}"));
-    }
-    global_threads(threads);
-    if let Err(e) = cfr::signal::watch_sigterm() {
-        return fail(e.to_string());
     }
     let bp = match Blueprint::load(&config.strategy, config.tables.as_deref()) {
         Ok(bp) => bp,
@@ -277,7 +306,7 @@ fn cloud_job(items: &[String]) -> i32 {
     match leaf_job::run(
         &bp,
         &config,
-        Path::new(dir),
+        dir,
         resume,
         &cfr::signal::stop_requested,
         &mut say_line,
@@ -301,23 +330,6 @@ fn agent_named(
     }
 }
 
-struct Dyn(Arc<dyn Strategy + Send + Sync>);
-
-impl Strategy for Dyn {
-    fn action_probs(&self, public: &PublicState<'_>, hole: [Card; 2], out: &mut ActionProbs) {
-        self.0.action_probs(public, hole, out)
-    }
-    fn action_prob_for_range(
-        &self,
-        public: &PublicState<'_>,
-        action: nlhe::Action,
-        hands: &[[Card; 2]],
-        out: &mut [f64],
-    ) {
-        self.0.action_prob_for_range(public, action, hands, out)
-    }
-}
-
 fn head_to_head(opts: &HashMap<String, String>) {
     let strategy = PathBuf::from(need(opts, "strategy"));
     let deals: u64 = get(opts, "deals", 1000);
@@ -332,7 +344,6 @@ fn head_to_head(opts: &HashMap<String, String>) {
     let stack = stack_of(&bp);
     let searcher = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
         .expect("the search agent loads");
-    let a = strategy_agent("search", Arc::new(Dyn(Arc::new(searcher))));
     let other: Arc<dyn Strategy + Send + Sync> = match against.as_str() {
         "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
         "search" => Arc::new(
@@ -341,12 +352,16 @@ fn head_to_head(opts: &HashMap<String, String>) {
         ),
         _ => panic!("unknown agent {against}"),
     };
-    let b = strategy_agent(&against, Arc::new(Dyn(other)));
-    let mut config = MatchConfig::heads_up(deals, seed);
-    config.stack = stack;
-    config.threads = threads;
     let t0 = Instant::now();
-    let report = run_match(&config, &[a, b]).expect("the match runs");
+    let report = runs::head_to_head(
+        ("search", Arc::new(searcher)),
+        (&against, other),
+        stack,
+        deals,
+        seed,
+        threads,
+    )
+    .expect("the match runs");
     eprintln!("{} s", t0.elapsed().as_secs_f64());
     println!("{}", report.summary());
     if let Some(out) = opts.get("out") {
@@ -360,12 +375,7 @@ fn lbr(opts: &HashMap<String, String>) {
     let setting = need(opts, "setting");
     let hands: u64 = get(opts, "hands", 1000);
     let seed: u64 = get(opts, "seed", 1);
-    let (paper, lbr_config) = blueprint::gate::lbr_setting(&setting).expect("a known LBR setting");
     let bp = Arc::new(load_blueprint(opts, &strategy));
-    let table = lbr::MatchConfig {
-        stack: stack_of(&bp),
-        ..lbr::MatchConfig::acpc(hands, seed)
-    };
     // The search agent keeps a record of its solves, to count the re-solves LBR's bets cause.
     let searcher = (name == "search").then(|| {
         let mut a = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
@@ -373,34 +383,22 @@ fn lbr(opts: &HashMap<String, String>) {
         a.keep_records = true;
         Arc::new(a)
     });
-    let agent = Dyn(match &searcher {
+    let agent: Arc<dyn Strategy + Send + Sync> = match &searcher {
         Some(a) => Arc::clone(a) as Arc<dyn Strategy + Send + Sync>,
         None if name == "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
         None => agent_named(opts, &name, &strategy, settings(opts)),
-    });
-    let t0 = Instant::now();
-    let deals = lbr_match(&agent, &lbr_config, &table);
-    let secs = t0.elapsed().as_secs_f64();
-    let r = deals.result();
-    let mut solves = serde_json::Map::new();
-    if let Some(a) = &searcher {
-        let records = a.take_records();
-        for street in [Street::Flop, Street::Turn, Street::River] {
-            let of: Vec<_> = records.iter().filter(|r| r.street == street).collect();
-            let mut ms: Vec<f64> = of.iter().map(|r| r.ms).collect();
-            solves.insert(
-                street_name(street).into(),
-                json!({"solves": of.len(), "resolves": of.iter().filter(|r| r.resolve).count(),
-                       "solve_ms_p50": percentile(&mut ms, 0.5), "solve_ms_p95": percentile(&mut ms, 0.95),
-                       "solve_ms_max": percentile(&mut ms, 1.0)}),
-            );
-        }
-    }
-    println!(
-        "{}",
-        json!({"agent": name, "setting": setting, "paper": paper, "hands": r.hands, "seed": seed,
-               "lbr_bb_per_100": r.bb_per_100, "se": r.std_err, "seconds": secs, "solves": solves})
-    );
+    };
+    let (deals, summary) = runs::lbr_run(
+        &name,
+        agent,
+        searcher.as_deref(),
+        &setting,
+        stack_of(&bp),
+        hands,
+        seed,
+    )
+    .expect("LBR runs");
+    println!("{summary}");
     let out = need(opts, "out");
     deals.save(Path::new(&out)).expect("the deals save");
 }
@@ -408,95 +406,10 @@ fn lbr(opts: &HashMap<String, String>) {
 fn compare(rest: &[String]) {
     let a = Deals::load(Path::new(&rest[0])).expect("deals A");
     let b = Deals::load(Path::new(&rest[1])).expect("deals B");
-    let (diff, se) = a.minus(&b).expect("the same deals");
-    let (ra, rb) = (a.result(), b.result());
-    println!(
-        "{}",
-        json!({"a": rest[0], "b": rest[1], "a_bb_per_100": ra.bb_per_100, "a_se": ra.std_err,
-               "b_bb_per_100": rb.bb_per_100, "b_se": rb.std_err, "a_minus_b": diff, "se": se,
-               "z": if se > 0.0 { diff / se } else { 0.0 }})
-    );
-}
-
-/// Plays `hands` hands of the search agent against the blueprint, seats alternating, with
-/// the real cards known, calling `look` before every decision of the search agent.
-fn play_hands(
-    agent: &SearchAgent,
-    hands: u64,
-    seed: u64,
-    mut look: impl FnMut(&State, usize, f64),
-) -> (f64, u64) {
-    let bp = &agent.bp;
-    let c = bp.game().config();
-    let mut won = 0.0;
-    let mut decisions = 0;
-    for h in 0..hands {
-        let s = mix(seed ^ mix(h));
-        let config = Config::new(
-            &[c.stack, c.stack],
-            c.small_blind,
-            c.big_blind,
-            0,
-            (h % 2) as usize,
-        )
-        .unwrap();
-        let mut cards: Vec<Card> = (0..52).collect();
-        let mut x = s;
-        for i in 0..9 {
-            x = mix(x.wrapping_add(i as u64 + 1));
-            let j = i + (x % (52 - i as u64)) as usize;
-            cards.swap(i, j);
-        }
-        let deal = Deal::new(
-            &[[cards[0], cards[1]], [cards[2], cards[3]]],
-            [cards[4], cards[5], cards[6], cards[7], cards[8]],
-        )
-        .unwrap();
-        let mut state = State::new(&config, deal).unwrap();
-        // The search agent sits in seat 0.
-        let mut probs = ActionProbs::new();
-        let mut step = 0u64;
-        while !state.is_terminal() {
-            let seat = state.current_player().unwrap();
-            let public = PublicState::new(&state);
-            let hole = state.hole_cards(seat);
-            probs.clear();
-            if seat == 0 {
-                let t0 = Instant::now();
-                agent.action_probs(&public, hole, &mut probs);
-                let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                look(&state, seat, ms);
-                decisions += 1;
-            } else {
-                bp.action_probs(&public, hole, &mut probs);
-            }
-            step += 1;
-            let u = (mix(s ^ (step << 8)) >> 11) as f64 / (1u64 << 53) as f64;
-            let a = probs.sample(u).expect("some action");
-            state.apply(a).expect("a legal action");
-        }
-        let payouts = state.payouts(&lbr::EvalRanker).expect("the hand is over");
-        won += payouts[0] as f64;
-    }
-    (won, decisions)
-}
-
-fn percentile(v: &mut [f64], p: f64) -> f64 {
-    if v.is_empty() {
-        return f64::NAN;
-    }
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let i = ((v.len() as f64 - 1.0) * p).round() as usize;
-    v[i]
-}
-
-fn street_name(s: Street) -> &'static str {
-    match s {
-        Street::Preflop => "preflop",
-        Street::Flop => "flop",
-        Street::Turn => "turn",
-        Street::River => "river",
-    }
+    let mut v = runs::compare(&a, &b).expect("the same deals");
+    v["a"] = json!(rest[0]);
+    v["b"] = json!(rest[1]);
+    println!("{v}");
 }
 
 fn bench(opts: &HashMap<String, String>) {
@@ -513,77 +426,8 @@ fn bench(opts: &HashMap<String, String>) {
         ..settings(opts)
     };
     let mut agent = load_search(opts, &strategy, settings);
-    agent.keep_records = true;
-    let mut by_street: HashMap<&'static str, Vec<f64>> = HashMap::new();
-    let t0 = Instant::now();
-    let (_, decisions) = play_hands(&agent, hands, seed, |state, _, ms| {
-        by_street
-            .entry(street_name(state.street()))
-            .or_default()
-            .push(ms);
-    });
-    let records = agent.take_records();
-    let mut out = serde_json::Map::new();
-    for s in ["preflop", "flop", "turn", "river"] {
-        let mut v = by_street.remove(s).unwrap_or_default();
-        let n = v.len();
-        let (p50, p95, max) = (
-            percentile(&mut v, 0.5),
-            percentile(&mut v, 0.95),
-            percentile(&mut v, 1.0),
-        );
-        let mut solves: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.ms)
-            .collect();
-        let ns = solves.len();
-        let (s50, s95, smax) = (
-            percentile(&mut solves, 0.5),
-            percentile(&mut solves, 0.95),
-            percentile(&mut solves, 1.0),
-        );
-        let iters: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.iterations as f64)
-            .collect();
-        let expl: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.exploitability)
-            .collect();
-        let combos: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| (r.combos[0] + r.combos[1]) as f64 / 2.0)
-            .collect();
-        let nodes: Vec<f64> = records
-            .iter()
-            .filter(|r| street_name(r.street) == s)
-            .map(|r| r.solver_nodes as f64)
-            .collect();
-        let mean = |v: &[f64]| {
-            if v.is_empty() {
-                f64::NAN
-            } else {
-                v.iter().sum::<f64>() / v.len() as f64
-            }
-        };
-        out.insert(
-            s.into(),
-            json!({"decisions": n, "decision_ms_p50": p50, "decision_ms_p95": p95, "decision_ms_max": max,
-                   "solves": ns, "resolves": records.iter().filter(|r| street_name(r.street) == s && r.resolve).count(),
-                   "solve_ms_p50": s50, "solve_ms_p95": s95, "solve_ms_max": smax,
-                   "mean_iterations": mean(&iters), "mean_exploitability": mean(&expl),
-                   "mean_combos": mean(&combos), "mean_solver_nodes": mean(&nodes)}),
-        );
-    }
-    out.insert("hands".into(), json!(hands));
-    out.insert("decisions".into(), json!(decisions));
-    out.insert("threads".into(), json!(threads));
-    out.insert("seconds".into(), json!(t0.elapsed().as_secs_f64()));
-    let text = serde_json::to_string_pretty(&out).unwrap();
+    let report = runs::bench(&mut agent, hands, seed);
+    let text = serde_json::to_string_pretty(&report).unwrap();
     println!("{text}");
     if let Some(path) = opts.get("out") {
         std::fs::write(path, text).expect("the report saves");

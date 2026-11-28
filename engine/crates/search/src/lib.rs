@@ -15,6 +15,11 @@
 //!   `tools/cloud` trainer contract, and `search leaf`).
 //! - [`equity`]: exact flop all-in equity for every pair of combos.
 //! - [`play`]: a `Strategy` seated in the arena.
+//! - [`runs`]: a match, LBR and the decision-time bench, as the `search` commands and the
+//!   plan job run them.
+//! - [`plan_job`]: Phase 7's runs as one job on a rented machine (the `tools/cloud` trainer
+//!   contract): the leaf tables, the bench and its bounds, the pilot, the gate match, the
+//!   reported variants, LBR, and the repeat after a pass.
 
 pub mod agent;
 pub mod cards;
@@ -22,8 +27,10 @@ pub mod equity;
 pub mod flop;
 pub mod leaf;
 pub mod leaf_job;
+pub mod plan_job;
 pub mod play;
 pub mod real;
+pub mod runs;
 pub mod solve;
 pub mod street;
 

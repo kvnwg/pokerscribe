@@ -207,3 +207,102 @@ fn the_leaf_job_keeps_the_cloud_trainer_contract() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The plan job (`search::plan_job`) through the binary: a config with a gate is a plan;
+/// SIGTERM in the middle of the gate match exits 75 at once (the chunk being played is
+/// given up), and `--resume` goes on and ends with every step's results and exit 0.
+#[test]
+#[ignore = "needs built tables: set BLUEPRINT_TABLES to their directory"]
+fn the_plan_job_keeps_the_cloud_trainer_contract() {
+    let Some(tables) = std::env::var_os("BLUEPRINT_TABLES") else {
+        eprintln!("BLUEPRINT_TABLES is not set: nothing to check");
+        return;
+    };
+    let tables = PathBuf::from(tables);
+    let dir = std::env::temp_dir().join(format!("search-cloud-plan-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let strategy = small_blueprint(&tables, &dir);
+    let agent = |play: &str| {
+        serde_json::json!({"leaf_choice": "both", "play": play, "flop_iterations": 40,
+                           "turn_iterations": 16, "river_iterations": 60})
+    };
+    let config = dir.join("plan.json");
+    std::fs::write(
+        &config,
+        serde_json::json!({
+            "strategy": strategy, "tables": tables,
+            "leaf": {"deals": 20000, "seed": 5, "lanes": 16, "part_nodes": 2},
+            "agent": agent("average"),
+            "bench": {"hands": 4, "seed": 581, "threads": 2,
+                      "bound_ms": {"flop": 600000, "turn": 600000, "river": 600000}},
+            "pilot": {"deals": 16, "seed": 501},
+            "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 16, "min": 32, "max": 32},
+            "gate": {"chunk": 16, "seed": 600, "pass_z": 2.5},
+            "variants": [{"name": "final", "agent": agent("final"), "chunks": 1, "seed": 900}],
+            "lbr": {"hands": 4, "chunks": 1, "settings": [{"name": "fcpa14", "seed": 560}]},
+            "repeat": {"seed": 700}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let ckdir = dir.join("ck");
+    let job = |resume: bool| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_search"));
+        c.arg("--config")
+            .arg(&config)
+            .arg("--checkpoint-dir")
+            .arg(&ckdir);
+        if resume {
+            c.arg("--resume");
+        }
+        c.args(["--threads", "2"]).stdout(Stdio::piped());
+        c
+    };
+    let line = |s: &str| -> serde_json::Value { serde_json::from_str(s).expect("JSON lines") };
+    // SIGTERM once the gate match is playing.
+    let mut child = job(false).spawn().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    assert_eq!(line(&lines.next().unwrap().unwrap())["event"], "started");
+    loop {
+        let v = line(&lines.next().unwrap().unwrap());
+        if v["step"] == "size" {
+            break;
+        }
+    }
+    assert!(ckdir.join("plan.ckpt").exists() && ckdir.join("pilot.json").exists());
+    let asked = std::time::Instant::now();
+    assert!(Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap()
+        .success());
+    let mut last = serde_json::Value::Null;
+    for l in lines {
+        last = line(&l.unwrap());
+    }
+    assert_eq!(child.wait().unwrap().code(), Some(75));
+    assert!(asked.elapsed().as_secs_f64() < 5.0, "it stops at once");
+    assert_eq!(last["event"], "saved on SIGTERM");
+    assert_eq!(last["step"], "gate");
+    // Resumed: it ends with every step played.
+    let out = job(true).output().unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(line(text.lines().next().unwrap())["event"], "resumed");
+    assert_eq!(line(text.lines().last().unwrap())["event"], "done");
+    for f in [
+        "bench.json",
+        "pilot.json",
+        "size.json",
+        "match-01.json",
+        "match-02.json",
+        "gate.json",
+        "variant-final.json",
+        "compare-fcpa14-1.json",
+        "end.json",
+    ] {
+        assert!(ckdir.join(f).exists(), "{f}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
