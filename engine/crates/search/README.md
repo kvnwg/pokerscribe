@@ -180,11 +180,12 @@ with a hash of the strategy file, so a table built for another blueprint is refu
 
 The 200 big blind game's tables are 9.7 GB at 7 lanes (8,669 turn starts, 200 x 200 cells,
 `f32`) and 22.2 GB at 16, and a build in one piece would hold about 29 GB of sums (67 GB at 16
-lanes). So a build goes in parts of 256 turn starts (34 parts): each part plays all the deals for its turn starts, is written to
-its own file (`part-NNNNN.leafpart`, with a checksum) and its memory freed; the table file is
-then put together from the parts without loading them all, each part's checksum checked again
-on the way (a table file longer than its header says is refused on load). A build at 200 big blinds peaks at
-about 1.5 GB (2.65 GB at 16 lanes, which take 1.35 times as long).
+lanes). So a build goes in parts of 256 turn starts (34 parts): each part plays all the deals
+for its turn starts, is written to its own file (`part-NNNNN.leafpart`, with a checksum) and
+its memory freed; the table file is then put together from the parts without loading them all,
+each part's checksum checked again on the way (a table file longer than its header says is
+refused on load). A build at 200 big blinds peaks at about 1.5 GB (2.65 GB at 16 lanes, which
+take 1.35 times as long).
 
 - **The same tables, bit for bit, whatever the threads, block size or parts.** Within a block
   of deals, the deals are sorted by cell (the two hands' flop buckets) and, within a cell, by
@@ -230,9 +231,9 @@ with the `match`, `lbr`, `compare` and `bench` commands.
   are written whole and renamed, and a step skips the results already there, so a stopped job
   plays nothing again but the run it gave up, with the same seed and the same result.
 - **What it refuses**: a plan that can't be played as written (lanes too few for an agent's leaf
-  choice, a step that isn't a multiple of the chunk, seed ranges that overlap, an unknown LBR
-  setting or field), a checkpoint of another plan, a fresh start over a checkpoint and
-  `--resume` with none.
+  choice; a step that isn't a multiple of the chunk; two runs sharing a seed, among the bench,
+  the pilot, every match chunk and every LBR run; an unknown LBR setting or field), a checkpoint
+  of another plan, a fresh start over a checkpoint and `--resume` with none.
 - **Its lines** on stdout: started or resumed, the build's lines (with `"step": "leaf"`), each
   step's result, the progress of each match in deals (`iterations`, `target_iterations`, with
   the peak memory), "saved on SIGTERM" with the step, and "done" with how it ended (`end.json`).
