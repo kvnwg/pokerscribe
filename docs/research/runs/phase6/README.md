@@ -6,6 +6,14 @@ Google Cloud machine. Everything here is ready: when Kevin approves the spending
 `python -m tools.cloud launch` on his computer starts the run, and every strategy it writes
 can be measured afterwards with one command. Nothing has been rented or launched.
 
+**Result (27 Nov 2026)**: the calibration run trained past the stop rule's first "stop" (512M
+iterations) inside its $5 budget, so there was no full run, and **the gate passes**: the 512M
+file beats the 1M file head to head by +147.68 ± 3.89 bb/100 (z +37.99) and beats B0 heads-up
+by +16.3 ± 4.1 (z +4.00). 1,331M iterations in about 2h19m, $4.67 with the first launch's idle
+boot. The entry is in `docs/research/experiments.md`, "Phase 6: the calibration run and the
+gate", and the raw material in `calibration/`. The plan below was written before the run and is
+kept as it was.
+
 | File | What it is |
 | --- | --- |
 | `trainer.json` | The run: the game, the training settings, the stages. Passed to the trainer as `--config` |
@@ -15,6 +23,7 @@ can be measured afterwards with one command. Nothing has been rented or launched
 | `eval-early.md` | The evaluation command's summary on the rehearsal's first two strategy files |
 | `rehearsal.log` | The dress rehearsal's output |
 | `rehearsal-stages.jsonl`, `rehearsal-log.jsonl` | The trainer's stage lines (change, regrets by street, pruning counters, times, memory) and session lines (speed, table, saves) in the rehearsal |
+| `calibration/` | The calibration run, 27 Nov 2026: `notes.md` (the timeline, the cost, the evaluations, the incident), `summary-1.02G.md` (the first evaluation's summary, verbatim) and `huge-pages.md` (a side test) |
 
 ## The run, step by step
 

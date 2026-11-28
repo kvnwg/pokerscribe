@@ -194,19 +194,21 @@ heads-up, then Pluribus six-max). The old plan is kept under "Previous roadmap" 
   check: buckets at 100 big blinds): LBR wins less from 10 to 50 buckets but not from 50 to 200,
   yet 200 buckets beat 50 head to head by 3.57 ± 0.14 bb/100 (12 seeds). So Phase 6 keeps 200
   buckets, and its LBR readings don't show what the buckets are worth.
-- Phase 6 is next: the heads-up blueprint at 200bb (the `rich` menu, 200 buckets: 97M
-  information sets, about 7 GB) on a c4a-highcpu-64, after a calibration run of about 2 hours
-  capped at $10 (Kevin, 27 Nov 2026). Its gate changed the same day: the last checkpoint beats
-  the first head-to-head by 2.5 SE, and it beats B0 heads-up by 2.5 SE; LBR is reported at
-  every checkpoint, not pass or fail. Projected 2.5 to 14 hours at the central speed, uncertain
-  by a factor of about 100 (`engine/crates/blueprint/README.md`, Phase 6 projection).
-  The first calibration launch (27 Nov 2026, cap $3.50) trained nothing: the machine's build
-  stopped on Kevin's stale local `engine/Cargo.lock` (it predated the `search` crate), and the
-  startup script's failure handling didn't run, so the machine billed idle (about $1.25 at 51
-  minutes) until stopped. Fixed: `engine/Cargo.lock` is committed and CI builds `--locked`,
-  `check` and `launch` check the lockfile, the startup script powers off on any failure,
-  `recover` stops a machine that never reports, and the cost estimate counts such a boot
-  (`experiments.md`, Phase 6, "The calibration launch"). The next launch is Kevin's decision.
+- Phase 6 is done (gate passed, 27 Nov 2026): the heads-up blueprint at 200bb (the `rich` menu,
+  200 buckets, OCHS on the river), trained in the calibration run on a c4a-highcpu-64 Spot
+  machine: 1,331M iterations in about 2h19m, about 183,000 a second at the end, $4.67 with the
+  $1.29 idle boot of the first launch (it stopped on a stale `engine/Cargo.lock`, which is
+  committed now; CI builds `--locked`). The stop rule first said stop at 512M, so by the
+  pre-registration that file is the gate's last and there is no full run; the 1,024M file is
+  reported only. The 512M file beats the 1M file head to head by +147.7 ± 3.9 bb/100 (z +38.0)
+  and B0 heads-up by +16.3 ± 4.1 (z +4.00, 82,000 hands). LBR, reported: `fcpa14` fell from 391
+  to 156 bb/100, flat since 8M; `b56_14` stayed about 480 at every stage, which LBR wins with bets
+  off the menu (8.5% of the blueprint's decisions), Phase 7's problem. A false "no report" during the
+  run was fixed in #46 (a failed status read is "unknown"). Huge pages trained 1.145 times as
+  fast in a side test: not used heads-up, kept for six-max (`experiments.md`, "Phase 6: the
+  calibration run and the gate"; `docs/research/runs/phase6/calibration/`). Phase 7 is next:
+  depth-limited search on every postflop decision (Modicum) on this blueprint. Its gate: beat
+  the blueprint by 2.5 SE, a luck-adjusted Slumbot match, the GTO Wizard Benchmark.
 - Model for all sessions: Claude Opus 5.5 at extra-high effort (Kevin's choice, 26 Nov 2026).
   Don't use Fable.
 - Phase 6 groundwork, 27 Nov 2026: B0 plays any Rust agent heads-up in the arena

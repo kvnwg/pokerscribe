@@ -2613,6 +2613,184 @@ Kevin's decision: the stopped machine must go first (`cleanup`; `launch` refuses
 exists, and `resume` would boot it with the old bundle), and `BUDGET_USD` sets what the next
 attempt may spend on top of what this one cost (the billing console has the real figure).
 
+## Phase 6: the calibration run and the gate (27 Nov 2026)
+
+The calibration run of the Phase 6 plan (`runs/phase6/README.md`, "The plan": "The calibration
+run: about 2 hours, capped at $10"), on a second machine after the failed launch above, with the
+fixes of #44 and #45. It trained the heads-up blueprint past the stop rule's first "stop" inside
+the calibration's budget, so there is no full run, and **the Phase 6 gate passes**: the gate's
+last file (512M iterations) beats the first (1M) head to head by +147.7 ± 3.9 bb/100 (z +38.0)
+and beats B0 heads-up by +16.3 ± 4.1 (z +4.00). Run by hand from Kevin's Mac. The raw material,
+gathered by the manager session from the calibration session's reports, is in
+`runs/phase6/calibration/`: `notes.md` (the timeline, the cost, the evaluations, the incident),
+`summary-1.02G.md` (the first evaluation's summary, verbatim) and `huge-pages.md`. Training was
+on a rented machine and every match was against our own agents (rule 4).
+
+In short:
+
+- **The run**: c4a-highcpu-64 Spot in us-central1-a, about 2 hours 19 minutes from the launch
+  to the budget stop, 1,330,975,013 iterations, no preemption, restart or crash. **$4.67 in
+  all**, including the $1.29 the failed launch's idle boot cost.
+- **The speed**: about 183,000 iterations a second at the end on 64 Arm threads, 1.85 times the
+  Phase 5 projection's central speed and near its fast end (200,000). The 47,036 a second
+  `watch` showed at 7 minutes was the stage pauses diluting the rate, not the training speed.
+- **The stop rule** first said stop at the 512M stage (change 0.0745, LBR `b56_14` moved +10.9 ±
+  12.2). By the pre-registration that file is the gate's last, the 1,024M file is reported
+  only, and no full run is needed.
+- **The gate passes**: head to head +147.68 ± 3.89 bb/100 (z +37.99); B0 +16.3 ± 4.1 over
+  82,000 hands (z +4.00), in a match sized from the sizing match's sd (801 a deal), as
+  registered.
+- **LBR**, reported: `fcpa14` fell from +391 to +112 bb/100 by 8M and has been about flat since
+  (+94 to +156); `b56_14` stayed near +480 at every stage. What LBR wins with 56 sizes comes
+  from bets off the menu: Phase 7's problem.
+- **An incident**: one false "no report from the machine" during the run, from a failed read of
+  `status.json`. Fixed in #46, before it could stop a healthy machine.
+- **Huge pages**, a side test: the trainer 1.145 times as fast. Not used for heads-up, kept for
+  six-max (the manager session's decision).
+
+### The run
+
+`runs/phase6/trainer.json` and `cloud.env.example`, with `BUDGET_USD=5` (Kevin, inside his $10
+calibration approval): c4a-highcpu-64 Spot in us-central1-a, an 80 GB Hyperdisk Balanced at
+3,000 IOPS and 400 MiB/s, $1.4714 an hour (machine $1.4459, IP $0.0025, disk $0.0230). The cap
+counted the failed launch's boot ($1.29, recorded in the bucket since #45), and Google's hard
+stop on the machine was at 2h31m20s, about what the $3.71 left buys; the supervisor's budget
+stop came first. Launched about 19:32 UTC. Times from `watch`, about ±2 minutes:
+
+| After the launch | Iterations | `watch`'s speed, a second |
+| --- | ---: | ---: |
+| 7 minutes | 16M | 47,036 |
+| about 21 minutes | 128M | 141,821 |
+| about 34 minutes | 256M | 153,705 |
+| about 1h47m | 1,024M | 176,662 |
+| about 2h19m (21:51, the budget stop) | 1,330,975,013 | 183,096 (the trainer's own count: 182,020) |
+
+- **The stop**: requested at 21:51 by the budget; the trainer saved on SIGTERM and exited 75
+  (stopped). `recover`, running on Kevin's Mac, logged one "wait" line a minute and exited at
+  21:52 with "finished: the run is budget".
+- **The cost**: $4.67 (machine $4.56, IP $0.01, disk $0.10), the $1.29 boot included, so this
+  machine cost about $3.38. The plan's central estimate for the whole run (the power law,
+  stopping at the 1,024M stage) was $4.30.
+- **Memory**: the trainer used 7.5 GB, at most 9.8 GB, of the machine's 134.8 GB: more than the
+  rehearsal's peak (8.86 GB) and `TRAINER_MEMORY_GB=9`, which `check` tests, but harmless here.
+- **Files**: 13 artifacts, 5.5 GB (11 strategy files of 503.4 MB, `stages.jsonl` and
+  `log.jsonl`), and the last 3 checkpoints, 4.9 GB each. After `cleanup` only the bucket is
+  left: 20.28 GB, about $0.41 a month.
+- **On Kevin's Mac**: `abstraction-build check ~/abstraction/k200` passed its 19 checks with the
+  runbook's checksums (flop 7e143f5b92504f9b, turn e8f2df9a3d04e8b8, river e7ff8e349b9587b6),
+  and `blueprint` (`cargo --locked`) and `pokerscribe_engine` were rebuilt from main.
+
+### The speed
+
+`watch`'s rate is taken between the trainer's session lines, so it counts the stage pauses. The
+five stages from 1M to 16M come in the first 7 minutes, and at each one training waits while one
+thread exports the strategy file and measures it (about 1.5 minutes a stage in the rehearsal),
+so the 47,036 at 16M counts those waits as time without iterations. Each doubling takes twice
+as long as the one before, so the pauses weigh less and less, and the rate approaches the
+training speed: 141,821 at 128M, 153,705 at 256M, 176,662 at 1,024M and 183,096 at the end.
+
+The Phase 5 projection (57M, 112M and 227M states a second at 1,134 states an iteration) gave
+50,300, 98,800 and 200,000 iterations a second. The run's final speed is 1.85 times the central
+one and 0.92 times the fast one. Its states a second and states per iteration (`log.jsonl`)
+aren't in the notes.
+
+### The evaluations
+
+1. **All 11 files** (`summary-1.02G.md`; its header has the command, with `--b0 none`). The change
+   from each stage to the next rose to 0.2055 at 8M, inside the linear phase, then fell: 0.1883,
+   0.1691, 0.1488, 0.1187, 0.0887 (256M), 0.0745 (512M) and 0.0655 (1,024M), by a factor of 0.82
+   a doubling over the last four. **The stop rule** (a change of at most 0.08, and `b56_14` moved
+   by less than 3% or 2 SE) first says stop at 512M: change 0.0745, `b56_14` +10.9 ± 12.2 (z
+   +0.89). The run's own projection puts a change of 0.08 at about 4.4e8 iterations; the Phase
+   5 projection's power law had put it at 7.4e8.
+2. **Why the gate's last file is 512M, and why there is no full run** (the manager session's
+   reading of the pre-registration). README, "The gate": the checkpoints are the stage files
+   from 1M "up to the stage where the stop rule says stop", the last file is that stage's, and
+   which files are first and last is "fixed once the run starts". The stop rule said stop at
+   512M, so the 512M file is the gate's last. The run went on past it because the calibration
+   was meant to run about 2 hours, and its budget ended it at 1,331M. The 1,024M file is reported,
+   not judged. The full run was to train until the stop rule says stop (README, "From the
+   calibration to the full run": `until` stays 8,192M and the stop rule ends the run), and the
+   calibration already had, so there is none.
+3. **eval512**: the files from 1M to 512M (`--out ~/phase6/eval512 --b0 last --b0-deals 4000
+   --b0-seed 6201`). Every LBR figure (both settings, 10 files), every LBR difference and every
+   head to head between consecutive files repeated `summary-1.02G.md` exactly; only the hands a
+   second differ. New in it: 512M against 1M head to head, and LBR from the first file to the
+   last. Its summary after the gate's match (`summary-512M.md`, as `summary-1.02G.md` calls it)
+   is on Kevin's Mac; `notes.md` quotes its B0 and gate sections verbatim.
+4. **B0, the sizing match** (not judged): 4,000 deals (8,000 hands), seeds 6201 on, the blueprint
+   +12.9 ± 12.7 bb/100 (z +1.02), sd 801 a deal, 64.7 hands a second over all processes.
+5. **B0, the gate's match**: N = (2.5 × 801 / 10)² = 40,100 deals, rounded up to 41,000 (82,000
+   hands), seeds 7201 on: **the blueprint +16.3 ± 4.1 bb/100 (z +4.00)**, sd 825 a deal, at 67.3
+   hands a second (about 20 minutes). At the match's own sd N would have been 43,000; N is set
+   from the sizing match's sd, as registered, and the two matches are not pooled.
+
+### The gate
+
+| Condition (passes at z ≥ 2.5) | Result | |
+| --- | ---: | --- |
+| The 512M file against the 1M file head to head, 200,000 deals, seed 6101 | +147.68 ± 3.89 bb/100, z +37.99 | passes |
+| The 512M file against B0 heads-up, 41,000 deals, seeds 7201 on | +16.3 ± 4.1 bb/100, z +4.00 | passes |
+
+**The gate passes**, by the summary's own reading (`notes.md`). Head to head, every doubling
+still gained, by less each time: from +117.7 (2M against 1M) to +6.9 ± 2.3 (256M against 128M),
++3.4 ± 2.2 (512M against 256M, z +1.5) and +2.3 ± 2.1 (1,024M against 512M, z +1.1). The
+1,024M file beat the 1M file by +145.8 ± 3.9, about what the 512M file did. As the README says,
+beating the nearly random 1M file shows that the training went somewhere, and little more.
+
+### LBR (reported, not pass or fail)
+
+| Setting | 1M | 8M | 32M | 512M | 1,024M | 512M minus 1M |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `fcpa14` | +391.0 | +111.5 | +94.0 | +155.7 | +151.1 | -235.3 ± 39.6 (z -5.95) |
+| `b56_14` | +436.1 | +481.5 | +480.2 | +490.3 | +481.8 | +54.2 ± 41.4 (z +1.31) |
+
+- **`fcpa14`** (bets of the pot and all in only, the menu's own sizes): the fall was over by 8M.
+  The only step of 2.5 SE from one file to the next was 1M to 2M (-156.8 ± 35.0). From 8M on it
+  stayed between +94 and +156, with no step of 2 SE.
+- **`b56_14`** (56 sizes): between +410 and +523 at every stage, about +480, with no trend. With
+  56 sizes LBR makes bets the menu doesn't have, and at 512M the abstract game couldn't follow
+  the hand in 8.5% of the blueprint's decisions, so the blueprint just checked or called ("Off
+  the menu" in the summary; 0.7% under `fcpa14`). That is the weakness the Phase 5 gate found.
+  More training doesn't touch it. Phase 7's search adds off-tree bets and re-solves; in the
+  Phase 7 groundwork, at 20 big blinds, LBR `b56_14` won 35.8 ± 5.7 bb/100 less against search
+  than against its blueprint.
+
+### The incident: a false "no report"
+
+During the run one `watch` printed no status lines and "WARNING no report from the machine for
+78 min". A minute later `gcloud storage ls -l` showed `status.json` freshly written, and the
+next `watch` was normal. The cause: `GcsStore.get_bytes` returned None when a read failed (a
+failed `gcloud storage cat` that matched "not found", or JSON that didn't parse), and the tools
+took a missing status for "never reported this boot". `recover`'s stop of a silent machine
+(#45) read it the same way, so one bad read could have stopped a healthy machine; it didn't, in
+about 140 polls. Fixed in #46: a failed read is "unknown", the silent-machine stop needs 3 looks
+a poll apart that agree, `stop` waits for the save when the report is unknown, and `leftovers`
+prices each disk's provisioned IOPS and throughput (it had shown the stopped disk at $6.40 a
+month; Google bills $16.80 at 400 MiB/s).
+
+### Side test: huge pages
+
+`huge-pages.md` (the manager session): the Phase 6 game to 4M iterations on 4 threads in a
+4-core x86 cloud container, plain against huge pages through glibc
+(`GLIBC_TUNABLES=glibc.malloc.hugetlb=1`, about 3.75 of the 8 GB in huge pages), in the order
+plain, huge, huge, plain. With huge pages it trained 1.145 times as fast (279 s against 319 s
+on average). Huge pages won both pairs, by 1.09 and 1.19, and the container's runs vary by
+about 14%. **Decision (the manager session): not used for heads-up**, where the blueprint is
+done (it would have saved about $2 to $4 on a full run). **Kept for six-max** (Phase 8), where
+the runs are longer, and where asking for huge pages on every big table in the trainer
+(`madvise`) may give more than the glibc setting. Not measured on Arm.
+
+### Not done
+
+- **The run's own counters**: states a second, states per iteration, the regrets by street and
+  what pruning skipped (`stages.jsonl` and `log.jsonl`, in the bucket and on Kevin's Mac) aren't
+  in the notes, so they aren't reported here.
+- **Whether `fcpa14`'s rise from +94 at 32M to +156 at 512M is real**: no step between files was
+  2 SE, and at 20,000 hands each figure's SE is about 25 bb/100.
+- **The Phase 7 gate** on this blueprint: beating it by 2.5 SE, a luck-adjusted Slumbot match and
+  the GTO Wizard Benchmark.
+
 ## Phase 7 groundwork: depth-limited search (27 Nov 2026)
 
 Phase 7 of the roadmap (`README.md`): "Depth-limited search on every postflop decision
