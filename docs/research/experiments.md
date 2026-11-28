@@ -2916,7 +2916,11 @@ Pre-registered: written and committed before any run on the Phase 6 blueprint (i
 instructions: Kevin's MacBook Air (M3, 8 GB) can't hold the leaf tables, so every run moves to
 one rented machine as one `tools/cloud` job; and the gate agent lets both players choose at the
 leaves (as Pluribus), with Modicum's choice by the opponent alone and the last iteration's play
-reported beside it. The runbook is `runs/phase7/README.md`. `runs/phase7/phase7.json` is this
+reported beside it. Revised a second time the same day, still before any run, once AIVAT had
+passed its pre-registered checks ("Phase 7: AIVAT in the arena", the next entry): **AIVAT is now
+the gate's measure**, with the plain figure reported beside it, and LBR is set to 10,000 hands a
+setting (about ±50 bb/100) while Kevin chooses among ±30, ±50 and ±110, before the launch. The
+runbook is `runs/phase7/README.md`. `runs/phase7/phase7.json` is this
 plan as the job reads it (`engine/crates/search/src/plan_job.rs`; a test checks its seeds and
 caps against this entry), and `runs/phase7/gate.py` checks the job's arithmetic from the
 downloaded results. The measurements in "What was measured here" were on another blueprint (2M
@@ -2955,43 +2959,64 @@ kept unless the bug is in their build), and both versions are logged here.
 | **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
 | Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported |
 | Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported |
-| LBR `fcpa14`, against the gate agent and the blueprint | 28,000 hands each, 28 runs of 1,000 | 7301 to 7328 | reported |
-| LBR `b56_14`, against the gate agent and the blueprint | 28,000 hands each, 28 runs of 1,000 | 7401 to 7428 | reported |
+| LBR `fcpa14`, against the gate agent and the blueprint | 10,000 hands each, 10 runs of 1,000 | 7301 to 7310 | reported |
+| LBR `b56_14`, against the gate agent and the blueprint | 10,000 hands each, 10 runs of 1,000 | 7401 to 7410 | reported |
 | Repeat on fresh seeds (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion |
 
-- **Every match**: duplicate deals (each deal played twice with the seats swapped) and the
-  all-in equity adjustment (a hand all in before the river is scored by its equity over the
-  cards to come), bb/100 with its SE over deals, on the machine's 64 threads. Chunks are pooled
-  with the mean weighted by deals and SE = sqrt(sum((n x se)^2)) / sum(n).
-- **N** = (2.5 x sd / 10)^2 deals, sd the pilot's sd a deal in bb/100 (its SE times the square
-  root of its deals): the deals that see an edge of 10 bb/100 at 2.5 SE. Rounded up to a
-  multiple of 2,000 (the chunk), at least 4,000, at most 40,000. Above sd 800 the cap binds and
-  the edge seen at 2.5 SE is 2.5 x sd / 200 bb/100. The job writes N and the seeds
-  (`size.json`) before the gate match.
+- **Every match**: duplicate deals (each deal played twice with the seats swapped), scored two
+  ways on the same hands, on the machine's 64 threads:
+  - **AIVAT**, the measure: the arena's estimator at its defaults, the one shown unbiased in the
+    next entry (check-down values, a bet still to be answered valued at the minimum defense
+    frequency, an action valued one step further by the answers of the next player when it can
+    give them). Every card and both agents' choices are corrected, as both report the chances
+    they played with. The blueprint answers for situations the hand didn't reach; the search
+    agent doesn't (each answer would be a search), as in that entry's run 4.
+  - **The plain figure**, reported beside it: the all-in equity adjustment (a hand all in before
+    the river is scored by its equity over the cards to come).
+
+  Both are bb/100 with their SE over deals. Chunks are pooled with the mean weighted by deals
+  and SE = sqrt(sum((n x se)^2)) / sum(n), each figure on its own, and AIVAT minus the plain
+  figure is pooled the same way.
+- **Why AIVAT decides**: the roadmap's decisions of 28 Nov 2026 (`README.md`, "Decisions") let
+  gate SEs come from AIVAT once it is shown unbiased (mean about 0 on identical agents, and
+  agreeing with the plain figure on a large run). It passed all six of its pre-registered
+  checks (1a, 1b, 1c, 2a, 2b, 3 in the next entry). It needs 37% to 40% of the deals for the
+  same SE on blueprint against blueprint (SE ratio 0.61 to 0.64), and 0.61 on the search
+  groundwork's setup. This is settled here, before any run on it512M, not after the gate match
+  is seen.
+- **When AIVAT can't be used**, settled now too: if a result has no AIVAT figure, or either
+  agent has an unexplained decision in it (chances it reported that can't be the ones it played
+  with, which would make AIVAT unsafe; the arena counts them), that result is read on the plain
+  figure instead, with the same N and the same z >= 2.5. The job and `gate.py` apply this the
+  same way, to the pilot (for N), the gate match and the repeat.
+- **N** = (2.5 x sd / 10)^2 deals, sd the pilot's AIVAT sd a deal in bb/100 (its AIVAT SE times
+  the square root of its deals): the deals that see an edge of 10 bb/100 at 2.5 SE. Rounded up
+  to a multiple of 2,000 (the chunk), at least 4,000, at most 40,000. Above sd 780 the cap binds
+  and the edge seen at 2.5 SE is 2.5 x sd / 200 bb/100. The job writes N, the seeds and the
+  plain figure's sd and N beside them (`size.json`) before the gate match.
 - **The pass rule**: the head-to-head condition passes when the pooled gate match has z =
-  bb/100 / SE >= 2.5, read on the gate match alone. Anything below does not pass: no extra
-  deals, no other seeds, no pooling with the pilot, the variants or the repeat.
-- **AIVAT**: the gate's measure is the plain head-to-head above. If AIVAT is in the Rust arena
-  by the time of the run (another session is building it), its figure is reported beside the
-  plain one, and it may decide the gate once it is shown unbiased (the roadmap's decisions:
-  mean about 0 on identical agents, and agreeing with the plain figure on a large run). Which
-  figure decides is settled by whether that has been shown before the gate match is read, never
-  after; the same z >= 2.5 applies. The job doesn't compute AIVAT yet.
+  bb/100 / SE >= 2.5 on AIVAT, read on the gate match alone. Anything below does not pass: no
+  extra deals, no other seeds, no pooling with the pilot, the variants or the repeat. The plain
+  figure, its z and AIVAT minus the plain figure are reported beside it, not judged.
 - **For promotion** (CLAUDE.md, ground rules, beyond the gate): the repeat on fresh seeds also
-  at z >= 2.5, and LBR winning less against the search than against the blueprint. The job plays
-  the repeat only after the gate match passes. The repeat is read alone, not pooled with the
-  gate match.
+  at z >= 2.5, read the same way (AIVAT, the same fallback), and LBR winning less against the
+  search than against the blueprint. The job plays the repeat only after the gate match passes.
+  The repeat is read alone, not pooled with the gate match.
 - **The variants**, reported, not judged: each against the blueprint, compared with the gate
-  agent unpaired (SE = sqrt(se1^2 + se2^2), about ±10 bb/100 at sd 800, so only a difference
-  above about 25 bb/100 shows at 2.5 SE). A variant that looks better is not swapped in within
-  this plan: it would be a new agent version with its own plan.
+  agent unpaired (SE = sqrt(se1^2 + se2^2)) on AIVAT (on the plain figure if either can't use
+  it), the plain difference beside it. At an AIVAT sd of 500 (N 16,000) that is about ±7
+  bb/100, so only a difference above about 17 bb/100 shows at 2.5 SE. A variant that looks
+  better is not swapped in within this plan: it would be a new agent version with its own plan.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes)
   against both agents, the same seeds for both, so each run is paired deal by deal; the
-  difference is pooled over the runs with equal weights. 28,000 hands a setting against each
+  difference is pooled over the runs with equal weights. 10,000 hands a setting against each
   agent: at Phase 6's spread (about 50 big blinds a hand; the paired difference no tighter) that
-  is about ±30 bb/100 for each agent and ±35 for the difference, so a fall of more than about
-  90 bb/100 would show at 2.5 SE (2,000 hands would give ±110 and ±130). LBR against the search
-  is most of the run's cost: about 15.7 of its hours.
+  is about ±50 bb/100 for each agent and ±58 for the difference, so a fall of more than about
+  145 bb/100 would show at 2.5 SE. Kevin chooses the size before the launch; the other two are
+  one change to `phase7.json`, `lbr.chunks`: 28 (28,000 hands, ±30 and ±35, seeds 7301 to 7328
+  and 7401 to 7428) or 2 (2,000 hands, ±110 and ±130, seeds to 7302 and 7402). LBR has no AIVAT
+  here; its SE is its own. LBR against the search is most of the run's cost: about 5.7 of its
+  hours at 10,000 hands (15.7 at 28,000, 1.2 at 2,000).
 - **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, with the
   iterations, solver nodes and exploitability. **Bounded** means the slowest decision of each
   street is within flop 40 s, turn 65 s, river 2 s: twice the worst case at the iteration caps
@@ -3012,6 +3037,15 @@ kept unless the bug is in their build), and both versions are logged here.
   an upper bound. The cap stops the run without changing the plan: the results so far are kept
   and it goes on after a resume.
 
+### A flag from the AIVAT checks (reported, not judged)
+
+Run 4 of the AIVAT checks (the next entry) played the search agent against its blueprint at 20
+big blinds, the groundwork's setup on a separate training of the same spec: search won +30.79 ±
+11.13 bb/100 on the plain figure and +19.18 ± 6.79 on AIVAT, in 500 deals (seed 7521), where the
+groundwork's 3,000 deals gave -2.51 ± 4.56. That run was sized for AIVAT's SE ratio, not for the
+edge, so it is cited here as reported, not as a finding: it changes nothing in this plan, and the
+gate is read only on this plan's runs at 200 big blinds.
+
 ### Options and later work (noted, not in this plan)
 
 The roadmap's decisions of 28 Nov 2026 (`README.md`, "Decisions") put Pluribus's search fixes in
@@ -3026,8 +3060,8 @@ tried against the average); the third comes later:
 - **Preflop search of off-menu raises** (Phase 7, later): before the flop the agent plays the
   blueprint, which reads an off-menu raise as a menu size (the pseudo-harmonic mapping);
   Pluribus searched in the first round when a bet was far enough off its menu.
-- **AIVAT in the plan job**: once the arena has it, the job's matches can report it (the AIVAT
-  rule above); not built here.
+- **Answers from the search agent**: AIVAT would narrow further if the search agent said what
+  it would play at situations the hand didn't reach, but each answer would be a search.
 - **Slumbot and the GTO Wizard Benchmark**: the gate's other two conditions, with their own
   plan.
 
@@ -3060,13 +3094,22 @@ tried against the average); the third comes later:
 - **`--tables DIR`** on every `search` command and `search:<file>?tables=<dir>` in
   `pokerscribe_engine`: it512M was trained in the cloud, so the folder it names isn't on the
   machine that plays it.
+- **AIVAT in the job** (`plan_job.rs`, `runs.rs`, `play.rs`): every match is scored with the
+  arena's AIVAT beside the plain figure, the blueprint seated so that it answers AIVAT's
+  questions (`play::answering_strategy_agent`), the search agent not. Both figures are pooled
+  over the chunks; `gate.measure` (`aivat` here) picks the one that sizes N and decides the
+  gate and the repeat, with the fallback to the plain figure above; the variants are compared
+  on it. `gate.py` does the same from the downloaded results.
 - The match and LBR share one loaded blueprint between the two agents; LBR reports the search's
   solves per street.
 - Tests: in `src/flop.rs` (either player or both picking; picks neither sees as a simultaneous
   game; the last iteration), `src/plan_job.rs` (the registered plan reads with this entry's
-  seeds and caps; the size rule; pooling; refusals; the bound check), `tests/agent.rs` (bit for
+  seeds, caps and measure; the size rule; pooling, both figures; N from the pilot's AIVAT sd;
+  the fallback to the plain figure; the variants on the measure; refusals; the bound check),
+  `tests/agent.rs` (bit for
   bit in parts; the 16 lanes hold the 7; both players pick on 16-lane tables and 7-lane ones are
-  refused; the plan job stops and goes on with nothing played twice, and plays no match over the
+  refused; the plan job stops and goes on with nothing played twice, AIVAT corrects every
+  decision of both agents with none unexplained and decides, and it plays no match over the
   bound), `../subgame/tests/closed_form.rs` (the last iteration), `tests/cloud_job.rs` (the
   binary's contract for the build and the plan, nightly), and one in
   `app/tests/test_engine_bindings.py`.

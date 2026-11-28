@@ -40,7 +40,8 @@ On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
    2026). It is a separate file so Phase 6's `cloud.env` stays as it was; every command below
    names it through `P`.
 
-3. **Check and launch** (about 20 to 25 hours, capped at $50; "Sizes and costs"):
+3. **Check and launch** (about 10 to 14 hours, capped at $30, with LBR at 10,000 hands; "Sizes
+   and costs" has the other LBR sizes):
 
    ```
    P="--settings $HOME/.config/pokerscribe/cloud-phase7.env"
@@ -62,7 +63,7 @@ On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
 4. **If it stops early:**
    - `end.json` says "a street is over its bound: no match was played": the job ended after the
      bench, by the plan. Download (step 5) and tell the manager session; don't change the bound.
-   - The $50 cap stops it ("budget"): raise `BUDGET_USD` and `python -m tools.cloud $P resume`.
+   - The cap stops it ("budget"): raise `BUDGET_USD` and `python -m tools.cloud $P resume`.
      The parts and the results done are kept.
 
 5. **The results**, when `recover` exits and `watch` says done:
@@ -73,9 +74,10 @@ On Kevin's Mac, from the repo root. Nothing is built or played on the Mac.
    python3 docs/research/runs/phase7/gate.py ~/phase7/run
    ```
 
-   About a megabyte; the parts stay in the bucket. `gate.py` recomputes the bound check, N, the
-   gate's pooled result and its pass from `phase7.json` and the downloaded files, says so (and
-   exits 1) if any differ from the job's, and writes `~/phase7/run/summary.md`. The gate's
+   About a megabyte; the parts stay in the bucket. `gate.py` recomputes the bound check, the
+   measure, N, the gate's pooled result and its pass from `phase7.json` and the downloaded
+   files, says so (and exits 1) if any differ from the job's, and writes
+   `~/phase7/run/summary.md`, with AIVAT and the plain figure side by side. The gate's
    head-to-head condition is read there, by the rule in "The plan".
 
 6. **Clean up:** `python -m tools.cloud $P cleanup`, then `python -m tools.cloud $P leftovers`
@@ -96,13 +98,13 @@ written before any run on it512M; `phase7.json` is its machine form. In short:
 | --- | --- | --- | --- |
 | 1. Leaf tables | 16M deals, 16 lanes, 34 parts of 256 turn starts | 7 | the values at the flop's leaves |
 | 2. Bench | 200 hands against the blueprint, 4 threads, one decision at a time | 7581 | decision time per street; **the bound check**: over it, the job ends here |
-| 3. Pilot | 2,000 deals | 7501 | the sd a deal, for N; never pooled |
+| 3. Pilot | 2,000 deals | 7501 | the AIVAT sd a deal, for N; never pooled |
 | 4. Size | | | N by the rule below, the chunks and their seeds (`size.json`) |
 | 5. **Gate match** | N deals, chunks of 2,000 | 7601, 7602, ... (chunk k: 7600 + k) | **the gate's head-to-head condition** |
 | 6. Variant `modicum` | 8,000 deals, 4 chunks | 7801 to 7804 | reported: only the opponent chooses at the leaves |
 | 6. Variant `final` | 8,000 deals, 4 chunks | 7901 to 7904 | reported: the gate agent playing the last iteration |
-| 7. LBR `fcpa14` | 28 runs of 1,000 hands against each agent | 7301 to 7328 | reported |
-| 7. LBR `b56_14` | 28 runs of 1,000 hands against each agent | 7401 to 7428 | reported |
+| 7. LBR `fcpa14` | 10 runs of 1,000 hands against each agent | 7301 to 7310 | reported |
+| 7. LBR `b56_14` | 10 runs of 1,000 hands against each agent | 7401 to 7410 | reported |
 | 8. Repeat (only after a pass) | N deals, chunks of 2,000 | 7701, 7702, ... | for promotion (CLAUDE.md ground rules) |
 
 - **The gate agent**: the search agent at the plan's commit with `Settings::default()`'s caps
@@ -110,42 +112,54 @@ written before any run on it512M; `phase7.json` is its machine form. In short:
   0.1% of the largest weight left out), **both players choosing at the flop's leaves**
   ("Both players choose at the leaves") and playing the **average** strategy of its solves, on
   it512M with the leaf tables of step 1. Its opponent is it512M itself, played as the blueprint.
-- **Every match**: duplicate deals (each deal played twice with the seats swapped), the all-in
-  equity adjustment (a hand all in before the river is scored by its equity over the cards to
-  come), bb/100 with its SE over deals, 200 big blinds, the arena's heads-up rules, on the
-  machine's 64 threads. Each chunk of 2,000 deals is a match with its own seed; chunks pool by
-  deals (mean weighted by deals, SE = sqrt(sum((n x se)^2)) / sum(n)).
-- **N** = (2.5 x sd / 10)^2 deals, with sd the pilot's sd a deal (bb/100): the deals that see
-  an edge of 10 bb/100 at 2.5 SE. Rounded up to a multiple of 2,000, at least 4,000, at most
-  40,000. At sd 400 that is 10,000 deals; at sd 800 or more the cap holds it to 40,000, and the
-  edge seen at 2.5 SE is 2.5 x sd / 200 bb/100 (12.5 at sd 1,000). The 2M blueprint's matches
-  here had sd 946 and 1,377, so the cap is the likely case.
+- **Every match**: duplicate deals (each deal played twice with the seats swapped), 200 big
+  blinds, the arena's heads-up rules, on the machine's 64 threads, scored two ways on the same
+  hands, each as bb/100 with its SE over deals:
+  - **AIVAT, the measure**: the arena's estimator at its defaults, shown unbiased in
+    `experiments.md`, "Phase 7: AIVAT in the arena". It takes out the luck of every card and
+    of both agents' choices (both report the chances they played with); the blueprint also
+    says what it would play at situations the hand didn't reach, the search agent doesn't.
+  - **The plain figure**, beside it: the all-in equity adjustment (a hand all in before the
+    river is scored by its equity over the cards to come).
+
+  Each chunk of 2,000 deals is a match with its own seed; chunks pool by deals (mean weighted
+  by deals, SE = sqrt(sum((n x se)^2)) / sum(n)), each figure on its own.
+- **When AIVAT can't be used**: a result without an AIVAT figure, or with an unexplained
+  decision of either agent (chances it reported that can't be the ones it played with), is read
+  on the plain figure instead, with the same N and rule. The job and `gate.py` both apply this,
+  to the pilot, the gate match and the repeat, and say why.
+- **N** = (2.5 x sd / 10)^2 deals, with sd the pilot's AIVAT sd a deal (bb/100): the deals that
+  see an edge of 10 bb/100 at 2.5 SE. Rounded up to a multiple of 2,000, at least 4,000, at
+  most 40,000. At sd 400 that is 10,000 deals; from sd 780 the cap holds it to 40,000, and the
+  edge seen at 2.5 SE is 2.5 x sd / 200 bb/100. `size.json` also gives the plain figure's sd
+  and the N it would have given.
 - **The pass rule**: the gate's head-to-head condition passes when the pooled gate match is at
-  z = bb/100 / SE >= 2.5, read on that match alone. Anything below is "does not pass": no extra
-  deals, no second try on other seeds, no pooling with the pilot, the variants or the repeat.
+  z = bb/100 / SE >= 2.5 on AIVAT, read on that match alone. Anything below is "does not pass":
+  no extra deals, no second try on other seeds, no pooling with the pilot, the variants or the
+  repeat. The plain figure and its z are reported beside it, not judged.
 - **For promotion**, beyond the gate (CLAUDE.md, ground rules): the repeat on fresh seeds (7701
-  on, the same N) also at z >= 2.5, read alone, and LBR winning less against the search than
-  against the blueprint. The job plays the repeat only after the gate match passes.
+  on, the same N) also at z >= 2.5, read alone and the same way, and LBR winning less against
+  the search than against the blueprint. The job plays the repeat only after the gate match
+  passes.
 - **The variants**, reported, not judged: the same matches and chunk size against the
   blueprint, on their own seeds. Each is compared with the gate agent unpaired (SE =
-  sqrt(se1^2 + se2^2)); at sd 800 that is about ±10 bb/100, so only a difference above about
-  25 bb/100 shows at 2.5 SE.
+  sqrt(se1^2 + se2^2)) on AIVAT, the plain difference beside it; at an AIVAT sd of 500 that is
+  about ±7 bb/100, so only a difference above about 17 bb/100 shows at 2.5 SE.
 - **LBR**, reported, not judged: `fcpa14` (fold, call, pot, all in) and `b56_14` (56 sizes),
   against the gate agent and the blueprint on the same seeds, so each run is paired deal by deal
-  (`compare-SETTING-K.json`). 28,000 hands a setting against each agent: at Phase 6's spread
-  (about 50 big blinds a hand) that is about ±30 bb/100 for each agent and ±35 for the
-  difference, so a fall of more than about 90 bb/100 shows at 2.5 SE. LBR against the search
-  is most of the run's cost ("Sizes and costs" has cheaper sizes).
+  (`compare-SETTING-K.json`). 10,000 hands a setting against each agent: at Phase 6's spread
+  (about 50 big blinds a hand) that is about ±50 bb/100 for each agent and ±58 for the
+  difference, so a fall of more than about 145 bb/100 shows at 2.5 SE. Kevin chooses the size
+  before the launch: `lbr.chunks` in `phase7.json` is 10 (±50), 28 (±30) or 2 (±110), with
+  `BUDGET_USD` to match ("Sizes and costs"). LBR against the search is most of the run's cost.
 - **Decision time**: the bench's p50, p95 and slowest decision per street on 4 threads, checked
   against the bound ("Decision time"). The match's and LBR's solve times are reported beside
   it, not checked.
 - **Hardware**: one c4a-highcpu-64 (64 Arm Axion cores, 128 GB), Spot, through `tools/cloud`.
-- **AIVAT**: the gate's measure is the plain head-to-head above. If AIVAT is in the Rust arena
-  by the time of the run (another session is building it), its figure is reported beside the
-  plain one, and it may decide the gate once it is shown unbiased (the roadmap's decisions of 28
-  Nov 2026: mean about 0 on identical agents, and agreeing with the plain figure on a large
-  run). Which figure decides is settled by whether that has been shown before the gate match is
-  read, never after. The job doesn't compute AIVAT yet.
+- **Why AIVAT**: the roadmap's decisions of 28 Nov 2026 let gate SEs come from AIVAT once it is
+  shown unbiased, with the plain figure beside it. It passed all six of its pre-registered
+  checks, and it needs 37% to 40% of the deals for the same SE (an SE ratio of 0.61 on the
+  search groundwork's setup). This was settled before any run on it512M.
 - **Later, not in this plan**: preflop search of off-menu raises (`experiments.md`, the plan's
   "Options and later work").
 

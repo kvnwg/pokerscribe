@@ -192,13 +192,24 @@ impl SizeRule {
 }
 
 /// The gate match: chunks of `chunk` deals, chunk k (from 1) on seed `seed + k`; it
-/// passes at a pooled z of `pass_z` or more.
+/// passes at a pooled z of `pass_z` or more on `measure`, which also sizes N.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GatePlan {
     pub chunk: u64,
     pub seed: u64,
     pub pass_z: f64,
+    pub measure: Measure,
+}
+
+/// The figure that sizes N and decides the gate and the repeat: `aivat`, the arena's AIVAT
+/// at its defaults, or `plain`, duplicate deals with all-in equity. Both are reported
+/// either way. AIVAT falls back to the plain figure where it can't be used ([`decides`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Measure {
+    Aivat,
+    Plain,
 }
 
 /// A reported match against the blueprint: `chunks` chunks of the gate's size, chunk k on
@@ -415,9 +426,14 @@ fn agent_of<'a>(report: &'a Value, name: &str) -> Result<&'a Value, String> {
 }
 
 /// The search agent's result over match reports (independent chunks), pooled: the mean
-/// weighted by deals, its standard error, z, illegal actions of both agents and hours.
+/// weighted by deals, its standard error, z, illegal actions of both agents and hours; and
+/// `aivat`, the same for the AIVAT figure with AIVAT minus the plain one and the decisions
+/// AIVAT corrected for each agent (`null` unless every report has AIVAT).
 pub fn pool(reports: &[Value]) -> Result<Value, String> {
     let (mut total, mut sum, mut var, mut illegal, mut seconds) = (0u64, 0.0, 0.0, 0u64, 0.0);
+    let (mut a_sum, mut a_var, mut d_sum, mut d_var) = (0.0, 0.0, 0.0, 0.0);
+    let mut decisions = json!({});
+    let mut aivat = true;
     let mut seeds = Vec::new();
     for r in reports {
         let s = agent_of(r, "search")?;
@@ -435,17 +451,79 @@ pub fn pool(reports: &[Value]) -> Result<Value, String> {
                 .unwrap_or(0);
         seconds += r["timing"]["seconds"].as_f64().unwrap_or(0.0);
         seeds.push(r["config"]["seed"].clone());
+        let a = &s["aivat"];
+        match (
+            a["bb_per_100"].as_f64(),
+            a["se"].as_f64(),
+            a["minus_main"].as_f64(),
+            a["minus_main_se"].as_f64(),
+        ) {
+            (Some(m), Some(se), Some(d), Some(dse)) => {
+                a_sum += m * n as f64;
+                a_var += (se * n as f64).powi(2);
+                d_sum += d * n as f64;
+                d_var += (dse * n as f64).powi(2);
+            }
+            _ => aivat = false,
+        }
+        for who in ["search", "blueprint"] {
+            let a = &agent_of(r, who)?["aivat"];
+            for key in ["corrected", "unknown", "unexplained"] {
+                let k = format!("{key}_decisions");
+                let x = a[&k].as_u64().unwrap_or(0);
+                let slot = &mut decisions[who][key];
+                *slot = json!(slot.as_u64().unwrap_or(0) + x);
+            }
+        }
     }
     if total == 0 {
         return Err("no deals to pool".into());
     }
-    let mean = sum / total as f64;
-    let se = var.sqrt() / total as f64;
+    let w = total as f64;
+    let (mean, se) = (sum / w, var.sqrt() / w);
+    let z = |m: f64, se: f64| if se > 0.0 { m / se } else { 0.0 };
+    let aivat = if aivat {
+        let (m, ase) = (a_sum / w, a_var.sqrt() / w);
+        let unexplained = ["search", "blueprint"]
+            .iter()
+            .map(|who| decisions[who]["unexplained"].as_u64().unwrap_or(0))
+            .sum::<u64>();
+        json!({"bb_per_100": m, "se": ase, "z": z(m, ase),
+               "minus_plain": d_sum / w, "minus_plain_se": d_var.sqrt() / w,
+               "se_ratio": if se > 0.0 { ase / se } else { 0.0 },
+               "decisions": decisions, "unexplained_decisions": unexplained})
+    } else {
+        Value::Null
+    };
     Ok(
         json!({"deals": total, "hands": 2 * total, "bb_per_100": mean, "se": se,
-              "z": if se > 0.0 { mean / se } else { 0.0 }, "illegal_actions": illegal,
-              "hours": seconds / 3600.0, "seeds": seeds}),
+              "z": z(mean, se), "illegal_actions": illegal,
+              "hours": seconds / 3600.0, "seeds": seeds, "aivat": aivat}),
     )
+}
+
+/// The figure `measure` asks for in a pooled result ([`pool`]), as `measure`, `bb_per_100`,
+/// `se`, `z` and, when it fell back, `why`. AIVAT is used when it is there and no decision
+/// of either agent is unexplained (an agent whose reported chances can't be the ones it
+/// played with would make the AIVAT figure unsafe); otherwise the plain figure, the same
+/// way in the job and in `gate.py`.
+pub fn decides(pooled: &Value, measure: Measure) -> Value {
+    let plain = |why: Option<&str>| {
+        json!({"measure": "plain", "bb_per_100": pooled["bb_per_100"], "se": pooled["se"],
+               "z": pooled["z"], "why": why})
+    };
+    if measure == Measure::Plain {
+        return plain(None);
+    }
+    let a = &pooled["aivat"];
+    if a.is_null() {
+        return plain(Some("no AIVAT figure"));
+    }
+    if a["unexplained_decisions"].as_u64() != Some(0) {
+        return plain(Some("AIVAT has unexplained decisions"));
+    }
+    json!({"measure": "aivat", "bb_per_100": a["bb_per_100"], "se": a["se"], "z": a["z"],
+           "why": null})
 }
 
 /// The bench's slowest decision per street against the bounds.
@@ -468,24 +546,82 @@ pub fn bounds(bench: &Value, b: &Bounds) -> Value {
     json!({"streets": streets, "bounded": over.is_empty(), "over": over})
 }
 
-/// N from the pilot, by the size rule.
+/// N from the pilot, by the size rule, on the gate's measure ([`decides`]); the plain
+/// figure's sd and N beside it.
 pub fn size(pilot: &Value, config: &PlanConfig) -> Result<Value, String> {
     let deals = pilot["deals"].as_u64().ok_or("a pilot without deals")?;
-    let s = agent_of(pilot, "search")?;
-    let se = s["se"].as_f64().ok_or("a pilot without an SE")?;
-    let sd = se * (deals as f64).sqrt();
+    let p = pool(std::slice::from_ref(pilot))?;
+    let d = decides(&p, config.gate.measure);
+    let root = (deals as f64).sqrt();
+    let se = d["se"].as_f64().ok_or("a pilot without an SE")?;
+    let sd = se * root;
     let n = config.size.deals_for(sd);
     let chunks = n / config.gate.chunk;
+    let plain_sd = p["se"].as_f64().unwrap_or(0.0) * root;
+    let aivat = match p["aivat"]["se"].as_f64() {
+        Some(ase) => json!({"bb_per_100": p["aivat"]["bb_per_100"], "se": ase,
+                            "sd_per_deal": ase * root, "deals": config.size.deals_for(ase * root),
+                            "se_ratio": p["aivat"]["se_ratio"],
+                            "unexplained_decisions": p["aivat"]["unexplained_decisions"]}),
+        None => Value::Null,
+    };
     let per_deal = pilot["timing"]["seconds"].as_f64().unwrap_or(0.0) / deals as f64;
     Ok(json!({
         "pilot_deals": deals, "pilot_seed": pilot["config"]["seed"],
-        "pilot_bb_per_100": s["bb_per_100"], "pilot_se": se, "sd_per_deal": sd,
-        "illegal_actions": s["illegal_actions"],
+        "measure": d["measure"], "measure_why": d["why"],
+        "pilot_bb_per_100": d["bb_per_100"], "pilot_se": se, "sd_per_deal": sd,
+        "plain": {"bb_per_100": p["bb_per_100"], "se": p["se"], "sd_per_deal": plain_sd,
+                  "deals": config.size.deals_for(plain_sd)},
+        "aivat": aivat,
+        "illegal_actions": p["illegal_actions"],
         "deals": n, "chunk": config.gate.chunk, "chunks": chunks, "hands": 2 * n,
         "edge_seen_at_z": config.size.z * sd / (n as f64).sqrt(),
         "seconds_per_deal": per_deal, "hours": n as f64 * per_deal / 3600.0,
         "seeds": (1..=chunks).map(|k| config.gate.seed + k).collect::<Vec<_>>(),
     }))
+}
+
+/// `pooled`'s reading against `pass_z` on `measure`: the figure that decides
+/// ([`decides`]), `pass_z` and `passes`, written into it.
+fn judge(pooled: &mut Value, measure: Measure, pass_z: f64) -> bool {
+    let d = decides(pooled, measure);
+    let passes = d["z"].as_f64().unwrap_or(0.0) >= pass_z;
+    pooled["decides"] = d;
+    pooled["pass_z"] = json!(pass_z);
+    pooled["passes"] = json!(passes);
+    passes
+}
+
+/// A variant minus the gate agent, both against the blueprint, unpaired (SE =
+/// sqrt(se1^2 + se2^2)): on `measure` when both can use it ([`decides`]), else on the plain
+/// figure; the plain difference beside it.
+fn minus(variant: &Value, gate: &Value, measure: Measure) -> Value {
+    let diff = |a: &Value, b: &Value| {
+        let (m, se) = (
+            a["bb_per_100"].as_f64().unwrap_or(0.0),
+            a["se"].as_f64().unwrap_or(0.0),
+        );
+        let (gm, gse) = (
+            b["bb_per_100"].as_f64().unwrap_or(0.0),
+            b["se"].as_f64().unwrap_or(0.0),
+        );
+        let dse = (se * se + gse * gse).sqrt();
+        json!({"bb_per_100": m - gm, "se": dse, "z": if dse > 0.0 { (m - gm) / dse } else { 0.0 }})
+    };
+    let (v, g) = (decides(variant, measure), decides(gate, measure));
+    let (v, g) = if v["measure"] == g["measure"] {
+        (v, g)
+    } else {
+        (
+            decides(variant, Measure::Plain),
+            decides(gate, Measure::Plain),
+        )
+    };
+    let mut d = diff(&v, &g);
+    d["measure"] = v["measure"].clone();
+    d["plain"] = diff(variant, gate);
+    d["paired"] = json!(false);
+    d
 }
 
 struct Job<'a, B> {
@@ -560,8 +696,16 @@ impl<B: Bucketer + Send + Sync + 'static> Job<'_, B> {
         let report = unit(self.stop, move || {
             let opponent = bp as Arc<dyn Strategy + Send + Sync>;
             runs::head_to_head(
-                ("search", Arc::new(searcher)),
-                ("blueprint", opponent),
+                runs::Side {
+                    name: "search",
+                    strategy: Arc::new(searcher),
+                    answers: false,
+                },
+                runs::Side {
+                    name: "blueprint",
+                    strategy: opponent,
+                    answers: true,
+                },
                 stack,
                 deals,
                 seed,
@@ -597,6 +741,8 @@ impl<B: Bucketer + Send + Sync + 'static> Job<'_, B> {
             (self.say)(json!({"step": step, "file": name, "iterations": k * chunk,
                               "target_iterations": chunks * chunk,
                               "bb_per_100": s["bb_per_100"], "se": s["se"],
+                              "aivat_bb_per_100": s["aivat"]["bb_per_100"],
+                              "aivat_se": s["aivat"]["se"],
                               "peak_resident_bytes": blueprint::peak_resident_bytes()}));
             reports.push(r);
         }
@@ -827,7 +973,8 @@ pub fn run<B: Bucketer + Send + Sync + 'static>(
     write_json(dir, "size.json", &size)?;
     (job.say)(
         json!({"step": "size", "deals": size["deals"], "chunks": size["chunks"],
-                     "sd_per_deal": size["sd_per_deal"]}),
+                     "measure": size["measure"], "sd_per_deal": size["sd_per_deal"],
+                     "plain_sd_per_deal": size["plain"]["sd_per_deal"]}),
     );
     let chunks = size["chunks"].as_u64().unwrap();
 
@@ -837,14 +984,13 @@ pub fn run<B: Bucketer + Send + Sync + 'static>(
     else {
         return job.stopped("gate");
     };
-    let z = gate["z"].as_f64().unwrap_or(0.0);
-    let passes = z >= config.gate.pass_z;
-    gate["pass_z"] = json!(config.gate.pass_z);
-    gate["passes"] = json!(passes);
+    let passes = judge(&mut gate, config.gate.measure, config.gate.pass_z);
     write_json(dir, "gate.json", &gate)?;
+    let d = &gate["decides"];
     (job.say)(
-        json!({"step": "gate", "bb_per_100": gate["bb_per_100"], "se": gate["se"],
-                     "z": z, "passes": passes}),
+        json!({"step": "gate", "measure": d["measure"], "bb_per_100": d["bb_per_100"],
+                     "se": d["se"], "z": d["z"], "passes": passes,
+                     "plain_bb_per_100": gate["bb_per_100"], "plain_se": gate["se"]}),
     );
 
     // 6. The variants, reported.
@@ -856,16 +1002,8 @@ pub fn run<B: Bucketer + Send + Sync + 'static>(
         let Some(mut r) = job.chunked("variants", &prefix, &settings, v.chunks, v.seed)? else {
             return job.stopped("variants");
         };
-        let (m, se) = (r["bb_per_100"].as_f64().unwrap(), r["se"].as_f64().unwrap());
-        let (gm, gse) = (
-            gate["bb_per_100"].as_f64().unwrap(),
-            gate["se"].as_f64().unwrap(),
-        );
-        let dse = (se * se + gse * gse).sqrt();
         r["agent"] = serde_json::to_value(&v.agent).unwrap();
-        r["minus_gate_agent"] = json!({"bb_per_100": m - gm, "se": dse,
-                                       "z": if dse > 0.0 { (m - gm) / dse } else { 0.0 },
-                                       "paired": false});
+        r["minus_gate_agent"] = minus(&r, &gate, config.gate.measure);
         write_json(dir, &format!("{prefix}.json"), &r)?;
         variants.insert(v.name.clone(), r);
     }
@@ -899,7 +1037,7 @@ pub fn run<B: Bucketer + Send + Sync + 'static>(
     let mut repeat = Value::Null;
     if passes {
         job.checkpoint("repeat")?;
-        let Some(r) = job.chunked(
+        let Some(mut r) = job.chunked(
             "repeat",
             "repeat",
             &gate_settings,
@@ -909,6 +1047,7 @@ pub fn run<B: Bucketer + Send + Sync + 'static>(
         else {
             return job.stopped("repeat");
         };
+        judge(&mut r, config.gate.measure, config.gate.pass_z);
         write_json(dir, "repeat.json", &r)?;
         repeat = r;
     }
@@ -931,7 +1070,7 @@ mod tests {
                           "bound_ms": {"flop": 40000, "turn": 65000, "river": 2000}},
                 "pilot": {"deals": 2000, "seed": 7501},
                 "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 2000, "min": 4000, "max": 40000},
-                "gate": {"chunk": 2000, "seed": 7600, "pass_z": 2.5},
+                "gate": {"chunk": 2000, "seed": 7600, "pass_z": 2.5, "measure": "aivat"},
                 "variants": [{"name": "modicum", "agent": {"leaf_choice": "opponent", "play": "average"},
                               "chunks": 4, "seed": 7800}],
                 "lbr": {"hands": 1000, "chunks": 2,
@@ -972,8 +1111,10 @@ mod tests {
             (7600, 7700, 7501, 7581)
         );
         assert_eq!(p.size.deals_for(800.0), 40_000);
-        // LBR: 28,000 hands a setting against each agent, about ±30 bb/100 each.
-        assert_eq!((p.lbr.hands, p.lbr.chunks), (1000, 28));
+        // AIVAT sizes N and decides the gate and the repeat.
+        assert_eq!((p.gate.measure, p.gate.pass_z), (Measure::Aivat, 2.5));
+        // LBR: 10,000 hands a setting against each agent, about ±50 bb/100 each.
+        assert_eq!((p.lbr.hands, p.lbr.chunks), (1000, 10));
         let lbr: Vec<_> = p
             .lbr
             .settings
@@ -1008,6 +1149,99 @@ mod tests {
         assert_eq!(p["illegal_actions"], 2);
         assert_eq!(p["hours"], 2.0);
         assert_eq!(p["seeds"], json!([7601, 7602]));
+    }
+
+    /// A chunk's report as the arena writes it, with AIVAT beside the plain figure.
+    fn scored(mean: f64, se: f64, aivat: (f64, f64), unexplained: u64, seed: u64) -> Value {
+        let a = |sign: f64| {
+            json!({"bb_per_100": sign * aivat.0, "se": aivat.1, "minus_main": sign * (aivat.0 - mean),
+                   "minus_main_se": se / 2.0, "se_ratio": aivat.1 / se,
+                   "corrected_decisions": 100, "unknown_decisions": 0,
+                   "unexplained_decisions": unexplained})
+        };
+        json!({"deals": 2000, "config": {"seed": seed}, "timing": {"seconds": 60.0},
+               "results": [{"agent": "search", "bb_per_100": mean, "se": se, "illegal_actions": 0,
+                            "aivat": a(1.0)},
+                           {"agent": "blueprint", "bb_per_100": -mean, "se": se, "illegal_actions": 0,
+                            "aivat": a(-1.0)}]})
+    }
+
+    #[test]
+    fn aivat_pools_beside_the_plain_figure_and_decides() {
+        let p = pool(&[
+            scored(10.0, 20.0, (8.0, 12.0), 0, 7601),
+            scored(4.0, 20.0, (6.0, 12.0), 0, 7602),
+        ])
+        .unwrap();
+        let a = &p["aivat"];
+        assert!((a["bb_per_100"].as_f64().unwrap() - 7.0).abs() < 1e-12);
+        let ase = a["se"].as_f64().unwrap();
+        assert!((ase - 12.0 / 2f64.sqrt()).abs() < 1e-9, "{ase}");
+        assert!((a["se_ratio"].as_f64().unwrap() - 0.6).abs() < 1e-12);
+        assert!((a["minus_plain"].as_f64().unwrap()).abs() < 1e-12);
+        assert_eq!(a["decisions"]["search"]["corrected"], 200);
+        assert_eq!(a["decisions"]["blueprint"]["unexplained"], 0);
+        let d = decides(&p, Measure::Aivat);
+        assert_eq!(
+            (d["measure"].as_str(), d["z"].clone()),
+            (Some("aivat"), a["z"].clone())
+        );
+        assert_eq!(decides(&p, Measure::Plain)["z"], p["z"]);
+        // The plain z is 7 / 14.1 = 0.49, AIVAT's 7 / 8.5 = 0.82.
+        let mut g = p.clone();
+        assert!(judge(&mut g, Measure::Aivat, 0.8));
+        let mut g = p.clone();
+        assert!(!judge(&mut g, Measure::Plain, 0.8));
+        assert_eq!(g["decides"]["measure"], "plain");
+        // An unexplained decision, or a chunk without AIVAT, falls back to the plain figure.
+        let bad = pool(&[
+            scored(10.0, 20.0, (8.0, 12.0), 0, 7601),
+            scored(4.0, 20.0, (6.0, 12.0), 1, 7602),
+        ])
+        .unwrap();
+        assert_eq!(bad["aivat"]["unexplained_decisions"], 2);
+        let d = decides(&bad, Measure::Aivat);
+        assert_eq!(d["measure"], "plain");
+        assert_eq!(d["why"], "AIVAT has unexplained decisions");
+        let mut old = scored(4.0, 20.0, (6.0, 12.0), 0, 7602);
+        old["results"][0]["aivat"] = Value::Null;
+        let none = pool(&[scored(10.0, 20.0, (8.0, 12.0), 0, 7601), old]).unwrap();
+        assert!(none["aivat"].is_null());
+        assert_eq!(decides(&none, Measure::Aivat)["why"], "no AIVAT figure");
+    }
+
+    #[test]
+    fn n_comes_from_the_pilots_aivat_sd() {
+        let config = plan();
+        // sd a deal: plain 20 x sqrt(2000) = 894, AIVAT 12.5 x sqrt(2000) = 559.
+        let pilot = scored(5.0, 20.0, (4.0, 12.5), 0, 7501);
+        let s = size(&pilot, &config).unwrap();
+        assert_eq!(s["measure"], "aivat");
+        let sd = s["sd_per_deal"].as_f64().unwrap();
+        assert!((sd - 12.5 * 2000f64.sqrt()).abs() < 1e-9);
+        // (2.5 x 559 / 10)^2 = 19,531, up to 20,000; the plain sd gives 50,000, capped.
+        assert_eq!(s["deals"], 20_000);
+        assert_eq!(s["plain"]["deals"], 40_000);
+        assert_eq!(s["chunks"], 10);
+        assert_eq!(s["seeds"][0], 7601);
+        let mut plain = config.clone();
+        plain.gate.measure = Measure::Plain;
+        assert_eq!(size(&pilot, &plain).unwrap()["deals"], 40_000);
+    }
+
+    #[test]
+    fn a_variant_is_compared_on_the_gate_measure() {
+        let gate = pool(&[scored(10.0, 20.0, (8.0, 12.0), 0, 7601)]).unwrap();
+        let v = pool(&[scored(4.0, 20.0, (5.0, 16.0), 0, 7801)]).unwrap();
+        let d = minus(&v, &gate, Measure::Aivat);
+        assert_eq!(d["measure"], "aivat");
+        assert!((d["bb_per_100"].as_f64().unwrap() + 3.0).abs() < 1e-12);
+        assert!((d["se"].as_f64().unwrap() - 20.0).abs() < 1e-12);
+        assert!((d["plain"]["bb_per_100"].as_f64().unwrap() + 6.0).abs() < 1e-12);
+        // Without AIVAT on one side, both are compared on the plain figure.
+        let mut old = v.clone();
+        old["aivat"] = Value::Null;
+        assert_eq!(minus(&old, &gate, Measure::Aivat)["measure"], "plain");
     }
 
     #[test]

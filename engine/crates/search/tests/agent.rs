@@ -528,7 +528,7 @@ fn small_plan(strategy: &std::path::Path, flop_bound_ms: f64) -> search::plan_jo
                   "bound_ms": {"flop": flop_bound_ms, "turn": 600000, "river": 600000}},
         "pilot": {"deals": 8, "seed": 501},
         "size": {"edge_bb_per_100": 10, "z": 2.5, "step": 8, "min": 8, "max": 16},
-        "gate": {"chunk": 8, "seed": 600, "pass_z": -1e9},
+        "gate": {"chunk": 8, "seed": 600, "pass_z": -1e9, "measure": "aivat"},
         "variants": [{"name": "final", "agent": agent("both", "final"), "chunks": 1, "seed": 900},
                      {"name": "modicum", "agent": agent("opponent", "average"), "chunks": 1, "seed": 950}],
         "lbr": {"hands": 4, "chunks": 1, "settings": [{"name": "fcpa14", "seed": 560}]},
@@ -635,11 +635,36 @@ fn the_plan_job_plays_every_step_stops_and_goes_on() {
     assert_eq!(gate["deals"], chunks * 8);
     assert_eq!(gate["passes"], true);
     assert_eq!(gate["illegal_actions"], 0);
-    assert_eq!(read("repeat.json")["deals"], chunks * 8);
+    // AIVAT is pooled beside the plain figure and decides, as registered: every decision of
+    // both agents is corrected (their chances are known), none unexplained.
+    assert_eq!(size["measure"], "aivat");
+    assert!(size["plain"]["sd_per_deal"].as_f64().unwrap() > 0.0);
+    let a = &gate["aivat"];
+    assert!(a["se"].as_f64().unwrap() > 0.0, "{a}");
+    assert_eq!(a["unexplained_decisions"], 0);
+    for who in ["search", "blueprint"] {
+        assert!(
+            a["decisions"][who]["corrected"].as_u64().unwrap() > 0,
+            "{a}"
+        );
+        assert_eq!(a["decisions"][who]["unknown"], 0, "{a}");
+    }
+    assert_eq!(gate["decides"]["measure"], "aivat");
+    assert_eq!(gate["decides"]["z"], a["z"]);
+    let match1 = read("match-01.json");
+    assert!(match1["aivat_scoring"].as_str().is_some());
+    let repeat = read("repeat.json");
+    assert_eq!(repeat["deals"], chunks * 8);
+    assert_eq!(repeat["decides"]["measure"], "aivat");
+    assert_eq!(repeat["passes"], true);
     for v in ["final", "modicum"] {
         let r = read(&format!("variant-{v}.json"));
         assert_eq!(r["deals"], 8);
-        assert!(r["minus_gate_agent"]["se"].as_f64().unwrap() > 0.0);
+        assert!(r["aivat"]["se"].as_f64().unwrap() > 0.0);
+        let d = &r["minus_gate_agent"];
+        assert_eq!(d["measure"], "aivat");
+        assert!(d["se"].as_f64().unwrap() > 0.0);
+        assert!(d["plain"]["se"].as_f64().unwrap() > 0.0);
     }
     let lbr = read("lbr-search-fcpa14-1.json");
     assert_eq!(lbr["hands"], 4);
