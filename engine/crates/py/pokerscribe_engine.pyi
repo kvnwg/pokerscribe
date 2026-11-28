@@ -197,4 +197,7 @@ def run_match(
     max_runouts: Optional[int] = 10000,
     shared_randomness: bool = False,
     threads: Optional[int] = None,
+    aivat: bool = True,
+    aivat_facing: Optional[str] = None,
+    aivat_boards: Optional[int] = None,
 ) -> MatchReport: ...

@@ -10,15 +10,19 @@
 //! | `random` | [`RandomBot`]: fold, call or raise with equal chances |
 //! | `tag` | [`TightAggressive`]: few hands, played hard |
 //! | `tag-loose` | the same, one point looser before the flop (a "next version" to compare) |
+//! | `mixed` | [`MixedBot`]: a mixed strategy that reports its chances, so AIVAT can correct its choices |
+//! | `mixed-loose` | the same, folding half as often |
+
+use std::cell::Cell;
 
 use eval::Hand;
-use nlhe::{Action, Card, Chips, Street};
+use nlhe::{Action, Card, Chips, Street, MAX_PLAYERS};
 
 use crate::player::{Agent, Player, View};
 use crate::ranker::to_eval;
 
 /// The names [`builtin`] knows.
-pub const BUILTIN: [&str; 8] = [
+pub const BUILTIN: [&str; 10] = [
     "fold",
     "call",
     "raise",
@@ -27,6 +31,8 @@ pub const BUILTIN: [&str; 8] = [
     "random",
     "tag",
     "tag-loose",
+    "mixed",
+    "mixed-loose",
 ];
 
 /// A test agent by name (see the table above).
@@ -40,6 +46,8 @@ pub fn builtin(name: &str) -> Option<Agent> {
         "random" => Agent::of(name, RandomBot),
         "tag" => Agent::of(name, TightAggressive::default()),
         "tag-loose" => Agent::of(name, TightAggressive { looseness: 1.0 }),
+        "mixed" => Agent::of(name, MixedBot::new(1.0)),
+        "mixed-loose" => Agent::of(name, MixedBot::new(0.5)),
         _ => return None,
     })
 }
@@ -116,6 +124,110 @@ impl Player for RandomBot {
             count += 1;
         }
         options[rng.below(count as u64) as usize]
+    }
+}
+
+/// A mixed strategy whose chances are known, for testing AIVAT. At every decision it
+/// weighs fold (when there is a bet to call), check or call, a raise of half the pot, a
+/// raise of the pot and all in by the strength of its hand (`s`, from 0 to 1: the Chen
+/// score before the flop, [`hand_strength`] after it): `3 (1 - s)^2` times `fold`, 1,
+/// `s^2`, `s^3` and `s^6`. It draws one with [`View::pick`] and reports the weights
+/// ([`Player::probabilities`]), and says what it would play anywhere
+/// ([`Player::chances_at`]).
+#[derive(Clone, Debug)]
+pub struct MixedBot {
+    /// Multiplies the weight of folding.
+    pub fold: f64,
+    chances: Vec<(Action, f64)>,
+}
+
+impl MixedBot {
+    pub fn new(fold: f64) -> MixedBot {
+        MixedBot {
+            fold,
+            chances: Vec::new(),
+        }
+    }
+}
+
+/// A hand strength worked out: the cards, the board and its length, the strength.
+type Strength = ([Card; 2], [Card; 5], usize, f64);
+
+thread_local! {
+    /// The last hand strengths [`MixedBot`] worked out on this thread, one per seat at
+    /// most: AIVAT asks the players what they would play at many situations of a street.
+    static STRENGTHS: Cell<[Strength; MAX_PLAYERS]> =
+        const { Cell::new([([0; 2], [0; 5], usize::MAX, 0.0); MAX_PLAYERS]) };
+}
+
+impl MixedBot {
+    /// The weights at `view`, sizes that come to the same amount merged.
+    fn weigh(&self, view: &View<'_>, out: &mut Vec<(Action, f64)>) {
+        let s = if view.street() == Street::Preflop {
+            ((chen(view.hole()) as f64 + 1.0) / 21.0).clamp(0.0, 1.0)
+        } else {
+            let (hole, board) = (view.hole(), view.board());
+            let mut cards = [0; 5];
+            cards[..board.len()].copy_from_slice(board);
+            let slot = view.seat() % MAX_PLAYERS;
+            STRENGTHS.with(|cache| {
+                let mut all = cache.get();
+                let (h, b, len, s) = all[slot];
+                if (h, b, len) == (hole, cards, board.len()) {
+                    return s;
+                }
+                let s = hand_strength(hole, board) as f64;
+                all[slot] = (hole, cards, board.len(), s);
+                cache.set(all);
+                s
+            })
+        };
+        let legal = view.legal();
+        let mut options = [(view.check_or_call(), 1.0); 5];
+        let mut count = 1;
+        if legal.fold {
+            options[count] = (Action::Fold, 3.0 * (1.0 - s).powi(2) * self.fold);
+            count += 1;
+        }
+        if legal.raise.is_some() {
+            for (action, weight) in [
+                (view.raise_pot(0.5), s.powi(2)),
+                (view.raise_pot(1.0), s.powi(3)),
+                (view.raise_to(Chips::MAX), s.powi(6)),
+            ] {
+                options[count] = (action, weight);
+                count += 1;
+            }
+        }
+        out.clear();
+        for &(action, weight) in &options[..count] {
+            match out.iter_mut().find(|(a, _)| *a == action) {
+                Some(slot) => slot.1 += weight,
+                None => out.push((action, weight)),
+            }
+        }
+    }
+}
+
+impl Player for MixedBot {
+    fn act(&mut self, view: &View<'_>) -> Action {
+        let mut chances = std::mem::take(&mut self.chances);
+        self.weigh(view, &mut chances);
+        self.chances = chances;
+        let mut weights = [0.0; 5];
+        for (w, &(_, x)) in weights.iter_mut().zip(&self.chances) {
+            *w = x;
+        }
+        self.chances[view.pick(&weights[..self.chances.len()])].0
+    }
+
+    fn probabilities(&self) -> Option<&[(Action, f64)]> {
+        Some(&self.chances)
+    }
+
+    fn chances_at(&self, view: &View<'_>, out: &mut Vec<(Action, f64)>) -> bool {
+        self.weigh(view, out);
+        true
     }
 }
 

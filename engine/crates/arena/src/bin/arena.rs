@@ -3,14 +3,16 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use arena::{bots, run_match, MatchConfig};
+use arena::{bots, run_match, Aivat, Facing, MatchConfig};
 
 const USAGE: &str = "\
 arena --agents A,B[,C...] [--players N | --lineup I,J,...] [--deals N] [--seed N]
       [--plain] [--no-equity] [--max-runouts N | --exact-equity] [--shared-randomness]
       [--stack-bb N] [--blinds SB/BB] [--ante N] [--threads N] [--out FILE]
+      [--no-aivat | --aivat-facing NAME --aivat-boards N]
 
-  --agents A,B       Agents by name. Built in: fold call raise minraise jam random tag tag-loose.
+  --agents A,B       Agents by name. Built in: fold call raise minraise jam random tag tag-loose
+                     mixed mixed-loose.
   --players N        Table size, 2 to 6 (default 2). The second agent sits in each seat
                      in turn, the first agent in all the others.
   --lineup I,J,...   The agent (a number, 0 for the first) at each place of the table,
@@ -28,7 +30,12 @@ arena --agents A,B[,C...] [--players N | --lineup I,J,...] [--deals N] [--seed N
   --blinds SB/BB     Blinds in chips (default 50/100).
   --ante N           Ante in chips (default 0).
   --threads N        Worker threads (default: every core).
-  --out FILE         Save the report as JSON.";
+  --out FILE         Save the report as JSON.
+  --no-aivat         Don't score the match with AIVAT as well (it costs 20 to 50 microseconds a
+                     hand heads-up, more at six-max).
+  --aivat-facing NAME  How AIVAT values a bet still to be answered: minimum-defense (default),
+                     called or taken-back.
+  --aivat-boards N   Boards AIVAT draws for its values before the flop (default 2000).";
 
 fn usage(problem: &str) -> ExitCode {
     eprintln!("{problem}\n\n{USAGE}");
@@ -39,7 +46,9 @@ fn main() -> ExitCode {
     let mut names: Vec<String> = Vec::new();
     let mut players = 2usize;
     let mut lineup: Option<Vec<usize>> = None;
-    let mut config = MatchConfig::heads_up(10_000, 1);
+    let mut config = MatchConfig::heads_up(10_000, 1).with_aivat();
+    let mut aivat = Aivat::default();
+    let mut use_aivat = true;
     let mut stack_bb = 100u32;
     let mut out: Option<PathBuf> = None;
 
@@ -98,6 +107,20 @@ fn main() -> ExitCode {
             "--ante" => config.ante = number!(),
             "--threads" => config.threads = number!(),
             "--out" => out = Some(PathBuf::from(value!())),
+            "--no-aivat" => use_aivat = false,
+            "--aivat-facing" => {
+                let v = value!();
+                match Facing::parse(&v) {
+                    Some(f) => aivat.facing = f,
+                    None => {
+                        return usage(&format!(
+                            "--aivat-facing: {v:?} is not one of {}",
+                            Facing::NAMES.join(", ")
+                        ))
+                    }
+                }
+            }
+            "--aivat-boards" => aivat.boards = number!(),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
@@ -109,6 +132,7 @@ fn main() -> ExitCode {
     if names.is_empty() {
         return usage("--agents is needed");
     }
+    config.aivat = use_aivat.then_some(aivat);
     let mut agents = Vec::new();
     for name in &names {
         match bots::builtin(name) {

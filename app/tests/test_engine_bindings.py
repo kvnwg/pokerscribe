@@ -441,6 +441,7 @@ def _same_match(a, b):
 
 def test_the_rust_agents_by_name():
     assert pe.agents() == ["fold", "call", "raise", "minraise", "jam", "random", "tag", "tag-loose",
+                           "mixed", "mixed-loose",
                            "lbr-fold", "lbr-call", "lbr-jam", "lbr-call-or-raise", "lbr-random"]
     with pytest.raises(ValueError, match='no Rust agent is called "nobody"'):
         pe.run_match(["tag", "nobody"], 10)
@@ -501,6 +502,30 @@ def test_a_match_from_python_adds_up_and_repeats():
         pe.run_match(["call", "tag"], 0)
 
 
+def test_a_match_from_python_is_also_scored_with_aivat():
+    """AIVAT next to the main figure: the chances of `mixed` and of a Strategy (an LBR chump)
+    are known and their decisions corrected; the rule bot's and a Python agent's are not."""
+    d = pe.run_match(["tag", "mixed"], 2000, seed=11, stack=2000).to_dict()
+    assert d["aivat_scoring"].startswith("AIVAT") and d["config"]["aivat"]["facing"] == "minimum-defense"
+    tag, mixed = (r["aivat"] for r in d["results"])
+    assert tag["corrected_decisions"] == 0 and tag["unknown_decisions"] > 0
+    assert mixed["corrected_decisions"] > 0 and mixed["unknown_decisions"] == 0
+    assert mixed["unexplained_decisions"] == 0 and mixed["bb_per_100"] == -tag["bb_per_100"]
+    assert abs(mixed["minus_main"]) < 4 * mixed["minus_main_se"]
+    assert abs(mixed["se_ratio"] - mixed["se"] / d["results"][1]["se"]) < 1e-9
+    assert "AIVAT" in pe.run_match(["tag", "mixed"], 50, seed=11).summary()
+    chump = pe.run_match(["tag", "lbr-random"], 200, seed=11).to_dict()["results"][1]["aivat"]
+    assert chump["corrected_decisions"] > 0 and chump["unknown_decisions"] == 0
+    python = pe.run_match(["tag", _Watcher("w")], 50, seed=11).to_dict()["results"][1]["aivat"]
+    assert python["corrected_decisions"] == 0 and python["unknown_decisions"] > 0
+    off = pe.run_match(["tag", "mixed"], 50, seed=11, aivat=False).to_dict()
+    assert off["aivat_scoring"] is None and all(r["aivat"] is None for r in off["results"])
+    other = pe.run_match(["tag", "mixed"], 50, seed=11, aivat_facing="taken-back", aivat_boards=300)
+    assert other.to_dict()["config"]["aivat"] == {"boards": 300, "facing": "taken-back"}
+    with pytest.raises(ValueError, match="minimum-defense"):
+        pe.run_match(["tag", "mixed"], 10, aivat_facing="nobody")
+
+
 def test_the_report_saves_prints_and_reads_back(tmp_path):
     report = pe.run_match(["tag", "random"], 200, seed=3)
     assert json.loads(report.to_json()) == report.to_dict()
@@ -516,7 +541,15 @@ def test_strategies_play_through_the_strategy_hook():
     """LBR's chumps are Strategy implementations; through the adapter they play exactly as the
     arena's bots that do the same thing, so the match is the same to the last bit."""
     for bot, chump in (("call", "lbr-call"), ("fold", "lbr-fold"), ("jam", "lbr-jam")):
-        assert _same_match(pe.run_match(["tag", bot], 2000, seed=5), pe.run_match(["tag", chump], 2000, seed=5))
+        assert _same_match(pe.run_match(["tag", bot], 2000, seed=5, aivat=False),
+                           pe.run_match(["tag", chump], 2000, seed=5, aivat=False))
+        # AIVAT gives the same figures too (a choice made with chance 1 has no luck to take
+        # out), but only the chump's decisions count as corrected: it reports its chances.
+        x, y = (pe.run_match(["tag", name], 2000, seed=5).to_dict()["results"] for name in (bot, chump))
+        for a, b in zip(x, y):
+            assert (a["aivat"]["bb_per_100"], a["aivat"]["se"]) == (b["aivat"]["bb_per_100"], b["aivat"]["se"])
+        assert x[1]["aivat"]["corrected_decisions"] == 0 and x[1]["aivat"]["unknown_decisions"] > 0
+        assert y[1]["aivat"]["corrected_decisions"] > 0 and y[1]["aivat"]["unknown_decisions"] == 0
     for chump in ("lbr-random", "lbr-call-or-raise"):
         d = pe.run_match(["tag", chump], 2000, seed=5).to_dict()
         assert all(r["illegal_actions"] == 0 for r in d["results"]) and d["results"][0]["bb_per_100"] > 0

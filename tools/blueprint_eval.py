@@ -12,6 +12,10 @@ For the files given (sorted by the iterations in their headers):
 2. Head to head in the arena (`pokerscribe_engine.run_match`), each file against the one
    before it and the last against the first: duplicate deals (each played twice, seats
    swapped), all-in equity, bb/100 with its standard error, at the blueprint's 200 big blinds.
+   AIVAT's figure is reported next to it, with its standard error, its SE over the main one
+   and AIVAT minus the main figure deal by deal; the gate reads the main figure only (AIVAT
+   is reported, not gating, until shown unbiased: docs/research/experiments.md, "Phase 7:
+   AIVAT in the arena").
 3. B0 heads-up (``tools/b0_arena.py``) against the last file (``--b0 all``: every file), split
    over ``--b0-processes`` processes with seeds ``--b0-seed`` + 0, 1, ... and pooled: B0 is a
    Python agent and plays on one core per process. Its standard deviation per deal gives the
@@ -307,7 +311,11 @@ class Runner:
         report = pe.run_match([agent(a), agent(b)], deals, seed, stack=stack_bb * 100,
                               small_blind=50, big_blind=100).to_dict()
         r = next(x for x in report["results"] if x["index"] == 1)
-        return {"bb_per_100": r["bb_per_100"], "se": r["se"], "hands": report["hands"],
+        a = r.get("aivat") or {}
+        return {"bb_per_100": r["bb_per_100"], "se": r["se"], "plain_se": r["plain_se"],
+                "aivat_bb_per_100": a.get("bb_per_100"), "aivat_se": a.get("se"),
+                "aivat_se_ratio": a.get("se_ratio"), "aivat_minus_main": a.get("minus_main"),
+                "aivat_minus_main_se": a.get("minus_main_se"), "hands": report["hands"],
                 "deals": report["deals"], "seconds": report["timing"]["seconds"],
                 "illegal_actions": [x["illegal_actions"] for x in report["results"]]}
 
@@ -514,12 +522,23 @@ def markdown(s: dict) -> str:
                        f"{fmt(r['se'], sign=False)} | {fmt(r['z'], 2)} |")
     if s["h2h"]:
         out += ["", f"## Head to head ({s['h2h_deals']:,} deals, each twice with the seats swapped, "
-                    f"all-in equity)", "", "| Later | Earlier | Later wins, bb/100 | SE | z | Hands |",
-                "| --- | --- | ---: | ---: | ---: | ---: |"]
+                    f"all-in equity)", "",
+                "AIVAT is the same hands with the luck of the cards and of both files' own choices "
+                "taken out; reported, not used by the gate. Minus main: AIVAT minus the main "
+                "figure, deal by deal (0 up to its SE when AIVAT has no bias).", "",
+                "| Later | Earlier | Later wins, bb/100 | SE | z | AIVAT | AIVAT SE | AIVAT z | "
+                "SE ratio | Minus main | Hands |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
         for r in s["h2h"]:
+            av, ase = r.get("aivat_bb_per_100"), r.get("aivat_se")
+            minus = "" if r.get("aivat_minus_main") is None else (
+                f"{fmt(r['aivat_minus_main'], 2)} ± {fmt(r.get('aivat_minus_main_se'), 2, False)}")
+            aivat = ("| | | | | " if av is None else
+                     f"| {fmt(av, 2)} | {fmt(ase, 2, False)} | {fmt(z_of(av, ase), 2)} | "
+                     f"{fmt(r.get('aivat_se_ratio'), 3, False)} | {minus} ")
             out.append(f"| {r['later']} | {r['earlier']} | {fmt(r['bb_per_100'], 2)} | "
-                       f"{fmt(r['se'], 2, False)} | {fmt(z_of(r['bb_per_100'], r['se']), 2)} | "
-                       f"{r['hands']:,} |")
+                       f"{fmt(r['se'], 2, False)} | {fmt(z_of(r['bb_per_100'], r['se']), 2)} "
+                       f"{aivat}| {r['hands']:,} |")
     if s["b0"]:
         out += ["", "## B0 heads-up", "", "| File | Blueprint wins, bb/100 | SE | z | Hands | sd a deal | "
                 "Hands for 2.5 SE at 5 / 10 / 20 bb/100 | At the edge measured | Hands/s, all processes |",

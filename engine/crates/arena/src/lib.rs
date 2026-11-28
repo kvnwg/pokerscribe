@@ -17,8 +17,10 @@
 //! - [`run_match`] plays the deals of a [`MatchConfig`] on every core and returns a
 //!   [`MatchReport`]: bb/100 with its standard error, per agent and per seat.
 //! - Duplicate play (every deal replayed with the agents rotated through the seats) and
-//!   the all-in equity adjustment ([`AllInEquity`]) take most of the luck out. A custom
-//!   [`Scorer`] is the hook for AIVAT.
+//!   the all-in equity adjustment ([`AllInEquity`]) take most of the luck out. [`Aivat`]
+//!   takes out more, next to the main figure when [`MatchConfig::aivat`] is set: the luck
+//!   of every card, and of the random choices of the agents whose chances are known
+//!   ([`Player::probabilities`]). A custom [`Scorer`] can replace the main figure.
 //! - [`bots`] has the simple test agents.
 //!
 //! See README.md for the rules of a match, the JSON format and the measured results.
@@ -26,6 +28,7 @@
 // Loops over seat numbers read better than iterator chains over several arrays at once.
 #![allow(clippy::needless_range_loop)]
 
+pub mod aivat;
 pub mod bots;
 pub mod equity;
 pub mod hand;
@@ -35,12 +38,13 @@ pub mod ranker;
 pub mod report;
 pub mod runner;
 
+pub use aivat::{Aivat, AivatHand, Facing, Stakes, DEFAULT_AIVAT_BOARDS};
 pub use equity::{all_in_equity, all_in_runout, Pots};
-pub use hand::{play_hand, PlayedHand};
+pub use hand::{play_hand, play_hand_recorded, Decisions, PlayedHand};
 pub use luck::{ActualChips, AllInEquity, HandRecord, Scorer};
 pub use player::{Agent, Player, View};
 pub use ranker::EvalRanker;
-pub use report::{position_name, AgentResult, MatchReport, SeatResult, Timing};
+pub use report::{position_name, AgentResult, AivatResult, MatchReport, SeatResult, Timing};
 pub use runner::{run_match, run_match_scored, ArenaError, MatchConfig, DEFAULT_MAX_RUNOUTS};
 
 /// Mixes two numbers into one seed. Every seed of a match (the cards of a deal, each

@@ -1,0 +1,119 @@
+{
+ "format": "pokerscribe-arena/1",
+ "config": {
+  "lineup": [
+   0,
+   1
+  ],
+  "stack": 2000,
+  "small_blind": 50,
+  "big_blind": 100,
+  "ante": 0,
+  "deals": 1000000,
+  "seed": 7502,
+  "duplicate": true,
+  "all_in_equity": true,
+  "max_runouts": 10000,
+  "shared_randomness": false,
+  "threads": 4,
+  "aivat": {
+   "boards": 2000,
+   "facing": "minimum-defense"
+  }
+ },
+ "scoring": "all-in equity (at most 10000 boards)",
+ "aivat_scoring": "AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop)",
+ "agents": [
+  "blueprint:/root/bp/standard-k200/strategy-64000000.bps",
+  "blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200"
+ ],
+ "players": 2,
+ "deals": 1000000,
+ "replays_per_deal": 2,
+ "hands": 2000000,
+ "adjusted_hands": 123211,
+ "results": [
+  {
+   "index": 0,
+   "agent": "blueprint:/root/bp/standard-k200/strategy-64000000.bps",
+   "seats": 1,
+   "hands": 2000000,
+   "bb_per_100": 0.29146001515151587,
+   "se": 0.24050730753073912,
+   "actual_bb_per_100": 0.2895425,
+   "actual_se": 0.2675689465867291,
+   "plain_se": 0.4620655013491963,
+   "illegal_actions": 0,
+   "aivat": {
+    "bb_per_100": 0.020927348510274047,
+    "se": 0.14702099196641824,
+    "minus_main": -0.27053266664124337,
+    "minus_main_se": 0.190516044554862,
+    "se_ratio": 0.6112953218588901,
+    "corrected_decisions": 5351190,
+    "unknown_decisions": 0,
+    "unexplained_decisions": 0
+   },
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 1000000,
+     "bb_per_100": 4.870642925252568,
+     "se": 0.49092807181376413
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 1000000,
+     "bb_per_100": -4.2877228949495105,
+     "se": 0.4912961500209673
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "agent": "blueprint:/root/bp/standard-k200/strategy-64000000.bps?tables=/root/abstraction/k200",
+   "seats": 1,
+   "hands": 2000000,
+   "bb_per_100": -0.29146001515151587,
+   "se": 0.24050730753073912,
+   "actual_bb_per_100": -0.2895425,
+   "actual_se": 0.2675689465867291,
+   "plain_se": 0.4620655013491963,
+   "illegal_actions": 0,
+   "aivat": {
+    "bb_per_100": -0.02092734851027714,
+    "se": 0.14702099196641824,
+    "minus_main": 0.2705326666412414,
+    "minus_main_se": 0.19051604455486199,
+    "se_ratio": 0.6112953218588901,
+    "corrected_decisions": 5352112,
+    "unknown_decisions": 0,
+    "unexplained_decisions": 0
+   },
+   "by_seat": [
+    {
+     "seat": 0,
+     "position": "BTN/SB",
+     "hands": 1000000,
+     "bb_per_100": 4.2877228949495105,
+     "se": 0.4912961500209673
+    },
+    {
+     "seat": 1,
+     "position": "BB",
+     "hands": 1000000,
+     "bb_per_100": -4.87064292525257,
+     "se": 0.49092807181376413
+    }
+   ]
+  }
+ ],
+ "timing": {
+  "seconds": 71.468352399,
+  "hands_per_second": 27984.41453965832,
+  "threads": 4
+ },
+ "wall_seconds": 71.79349422454834
+}

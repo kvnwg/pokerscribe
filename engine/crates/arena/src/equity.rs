@@ -261,7 +261,7 @@ fn each_row<F: FnMut(Hand, &[eval::Card])>(
 /// A uniform integer in `0..n` with one multiplication in place of a division (Lemire's
 /// method, with its rejection step, so there is no bias).
 #[inline]
-fn below(rng: &mut Rng, n: u64) -> u64 {
+pub(crate) fn below(rng: &mut Rng, n: u64) -> u64 {
     let mut m = rng.next_u64() as u128 * n as u128;
     if (m as u64) < n {
         let threshold = n.wrapping_neg() % n;
@@ -272,7 +272,7 @@ fn below(rng: &mut Rng, n: u64) -> u64 {
     (m >> 64) as u64
 }
 
-fn choose(n: u64, k: u64) -> u64 {
+pub(crate) fn choose(n: u64, k: u64) -> u64 {
     (0..k).fold(1, |acc, i| acc * (n - i) / (i + 1))
 }
 

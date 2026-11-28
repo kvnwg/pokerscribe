@@ -1,6 +1,8 @@
 //! A `Strategy` seated in the arena: at each decision it is asked for its action
 //! probabilities at the public state the seat sees, and the action is drawn with
 //! `View::pick`, so a match repeats exactly (the same as the py crate's `strategy_agent`).
+//! It reports those probabilities (`Player::probabilities`), so the arena's AIVAT can take
+//! the luck of its choices out of the result.
 
 use std::sync::Arc;
 
@@ -43,5 +45,10 @@ impl<S: Strategy + Send + Sync> Player for Seated<S> {
             return Action::RaiseTo(0); // never legal: the arena counts and replaces it
         }
         self.probs.as_slice()[view.pick(&weights)].0
+    }
+
+    /// The probabilities the action was drawn from, for AIVAT.
+    fn probabilities(&self) -> Option<&[(Action, f64)]> {
+        Some(self.probs.as_slice())
     }
 }
