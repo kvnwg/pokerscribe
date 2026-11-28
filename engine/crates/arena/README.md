@@ -267,13 +267,29 @@ On by default in the binary (`--no-aivat` turns it off) and in Python's `run_mat
 (`aivat=False`); in Rust, `MatchConfig::heads_up(...).with_aivat()`. Each agent's line in the
 summary gets a second line:
 
+```bash
+./target/release/arena --agents tag,mixed --deals 100000 --seed 3
 ```
-AGENT_LINES
+
+```
+2 players [mixed tag], blinds 50/100, stacks 10000, seed 3
+100000 deals x 2 = 200000 hands, duplicate, scored as all-in equity (at most 10000 boards) (1078 hands adjusted)
+agent          seats     bb/100       SE       z   plain SE   illegal
+tag                1     +60.91     1.87   +32.6       2.25         0
+  AIVAT                  +61.12     1.66   +36.9   SE x 0.885, minus the above +0.21 +- 0.58
+  BTN/SB                 +33.54     2.52
+  BB                     +88.28     3.02
+mixed              1     -60.91     1.87   -32.6       2.25         0
+  AIVAT                  -61.12     1.66   -36.9   SE x 0.885, minus the above -0.21 +- 0.58
+  BTN/SB                 -88.28     3.02
+  BB                     -33.54     2.52
+AIVAT (check-down values, bets valued as minimum-defense or by the known answers, 2000 boards before the flop); decisions corrected: tag 0 of 251083, mixed 225017 of 225017
 ```
 
 `SE x` is AIVAT's SE over the main figure's, `minus the above` the paired difference AIVAT
 minus the main figure, deal by deal, with its SE: both figures have no bias, so it should be
-0 up to its SE. The last line counts the decisions whose random choice was corrected.
+0 up to its SE. The last line counts the decisions whose random choice was corrected: all of
+`mixed`'s, none of `tag`'s, whose chances are unknown.
 
 **What it takes out.** A hand is a sequence of events: the deal of the hole cards, each
 board card, each action. At every event whose chances are known exactly, AIVAT subtracts
