@@ -9,9 +9,10 @@
 //! together into the table file (`out`, by default `<strategy file name>.leaf`), the same
 //! tables bit for bit as a build in one piece (`crate::leaf::build`).
 //!
-//! - **Memory** is one part's: the sums of `part_nodes` nodes (8 bytes for each of 7 lanes
-//!   and every pair of flop buckets) and its values, about 0.9 GB at 256 nodes and 200
-//!   buckets, plus the blueprint. In one piece the Phase 6 game's build would need 29 GB.
+//! - **Memory** is one part's: the sums of `part_nodes` nodes (8 bytes for each lane and
+//!   every pair of flop buckets) and its values, about 0.9 GB at 256 nodes, 7 lanes and 200
+//!   buckets (2 GB at 16 lanes), plus the blueprint. In one piece the Phase 6 game's build
+//!   would need 29 GB (67 GB at 16 lanes).
 //! - **A stop** (SIGTERM, or Ctrl-C with `search leaf`) gives up the part being built and
 //!   exits; the next start goes on from the parts on the disk. At most one part's work is
 //!   lost.
@@ -19,20 +20,20 @@
 //!   artifacts, `*.leafpart`) before the job starts. A part the checkpoint lists but the
 //!   disk lacks (its upload was cut off) is built again; a part on the disk is used only if
 //!   its header matches this build and its values match their checksum.
-//! - **A changed build** (another strategy file, other deals, seed or part size) is refused
-//!   on `--resume`: the checkpoint's fingerprint must match.
+//! - **A changed build** (another strategy file, other deals, seed, lanes or part size) is
+//!   refused on `--resume`: the checkpoint's fingerprint must match.
 //!
 //! The config file (`--config`) is JSON:
 //!
 //! ```json
 //! {"strategy": "/opt/pscloud/bundle/files/strategy-512000000.bps",
 //!  "tables": "/opt/pscloud/bundle/files/k200",
-//!  "deals": 16000000, "seed": 7, "part_nodes": 256}
+//!  "deals": 16000000, "seed": 7, "lanes": 16, "part_nodes": 256}
 //! ```
 //!
-//! `tables` (the bucket tables; by default the folder the strategy file names),
-//! `part_nodes` (default 256) and `out` (the table file's name in the job's folder) can be
-//! left out.
+//! `tables` (the bucket tables; by default the folder the strategy file names), `lanes`
+//! (7, Modicum's, the default; or 16, both players choosing: `crate::leaf`), `part_nodes`
+//! (default 256) and `out` (the table file's name in the job's folder) can be left out.
 
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Read, Write};
@@ -46,7 +47,7 @@ use serde_json::json;
 
 use crate::leaf::{
     self, build_part, cell_deals, fnv, write_header, BuildConfig, Header, BIAS, FNV_START,
-    PRIOR_DEALS, TABLE_LANES,
+    PRIOR_DEALS,
 };
 
 /// The checkpoint's name in the job's folder (it matches `tools/cloud`'s `*.ckpt`).
@@ -65,6 +66,9 @@ pub struct JobConfig {
     pub tables: Option<PathBuf>,
     pub deals: u64,
     pub seed: u64,
+    /// [`leaf::MODICUM_LANES`] (the default) or [`leaf::BOTH_LANES`].
+    #[serde(default = "modicum_lanes")]
+    pub lanes: usize,
     #[serde(default = "part_nodes")]
     pub part_nodes: usize,
     /// The table file's name in the job's folder (default `<strategy file name>.leaf`).
@@ -74,6 +78,10 @@ pub struct JobConfig {
 
 fn part_nodes() -> usize {
     PART_NODES
+}
+
+fn modicum_lanes() -> usize {
+    leaf::MODICUM_LANES
 }
 
 impl JobConfig {
@@ -94,6 +102,14 @@ impl JobConfig {
         }
         if self.part_nodes == 0 {
             return Err("part_nodes must be more than 0".into());
+        }
+        if self.lanes != leaf::MODICUM_LANES && self.lanes != leaf::BOTH_LANES {
+            return Err(format!(
+                "lanes {}: {} or {}",
+                self.lanes,
+                leaf::MODICUM_LANES,
+                leaf::BOTH_LANES
+            ));
         }
         let out = self.out_name();
         if out.contains('/') || !out.ends_with(".leaf") {
@@ -152,7 +168,7 @@ fn fingerprint(strategy_hash: &str, config: &JobConfig, nodes: &[u32], buckets: 
         "part_nodes": config.part_nodes,
         "nodes": nodes,
         "buckets": buckets,
-        "lanes": TABLE_LANES,
+        "lanes": config.lanes,
         "bias": BIAS,
         "prior_deals": PRIOR_DEALS,
     });
@@ -312,7 +328,7 @@ pub fn run<B: Bucketer + Sync>(
         if c.fingerprint != fp {
             return Err(format!(
                 "{CHECKPOINT} is for another build (fingerprint {}, this one {fp}): another \
-                 strategy file, other deals, seed or part size",
+                 strategy file, other deals, seed, lanes or part size",
                 c.fingerprint
             ));
         }
@@ -330,7 +346,7 @@ pub fn run<B: Bucketer + Sync>(
     let mut done = vec![false; parts];
     for (k, d) in done.iter_mut().enumerate() {
         let (a, b) = range(k);
-        *d = part_is_good(dir, k, &fp, a, b - a, (b - a) * TABLE_LANES * cells);
+        *d = part_is_good(dir, k, &fp, a, b - a, (b - a) * config.lanes * cells);
     }
     let rebuilt: Vec<usize> = listed
         .iter()
@@ -373,6 +389,7 @@ pub fn run<B: Bucketer + Sync>(
     let block = BuildConfig {
         deals: config.deals,
         seed: config.seed,
+        lanes: config.lanes,
         ..Default::default()
     };
     for k in 0..parts {
@@ -477,6 +494,7 @@ fn assemble(
     let header = Header {
         nodes: nodes.to_vec(),
         buckets: nb,
+        lanes: config.lanes,
         deals: config.deals,
         seed: config.seed,
         bias: BIAS,
@@ -548,13 +566,14 @@ mod tests {
             tables: None,
             deals: 1,
             seed: 1,
+            lanes: leaf::MODICUM_LANES,
             part_nodes: 1,
             out: None,
         };
         let range = |k: usize| (k, k + 1);
         // One bucket: a node's values are its 7 lanes.
-        let a: Vec<f32> = (0..TABLE_LANES).map(|i| i as f32).collect();
-        let b: Vec<f32> = (0..TABLE_LANES).map(|i| 0.5 + i as f32).collect();
+        let a: Vec<f32> = (0..leaf::MODICUM_LANES).map(|i| i as f32).collect();
+        let b: Vec<f32> = (0..leaf::MODICUM_LANES).map(|i| 0.5 + i as f32).collect();
         part(&dir, 0, 0, &a);
         part(&dir, 1, 1, &b);
         let out = assemble(&dir, &config, &[10, 20], 1, "h", 2, &range).unwrap();

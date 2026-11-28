@@ -1,7 +1,7 @@
 //! The search agent's command line: leaf tables, matches, LBR, timing and the range check.
 //!
 //! ```text
-//! search leaf    --strategy F [--deals N] [--seed S] [--part-nodes K] [--work DIR] [--threads T]
+//! search leaf    --strategy F [--deals N] [--seed S] [--lanes 7|16] [--part-nodes K] [--work DIR] [--threads T]
 //! search match   --strategy F --deals N --seed S [--threads T] [--against blueprint|search] [--out FILE]
 //! search lbr     --strategy F --agent search|blueprint --setting fcpa14|b56_14 --hands N --seed S --out FILE
 //! search compare FILE_A FILE_B
@@ -11,6 +11,11 @@
 //! search scale   --strategy F --hands N --seed S [--spots K] (the same solves on 1, 2, 4 threads)
 //! search --config FILE --checkpoint-dir DIR [--resume] [--threads T]
 //! ```
+//!
+//! The commands that play the search agent take its settings: `--flop-target`,
+//! `--flop-iterations` (and the same for the turn and river), `--prune`, `--turn-river-menu
+//! allin|075|standard`, `--leaf-choice opponent|both` (who picks at the flop's leaves; both
+//! needs 16-lane tables) and `--play average|final` (the strategy a solve plays).
 //!
 //! Every command that loads a strategy file takes `--tables DIR`: the bucket tables, for a
 //! file trained on another machine (by default the folder the file names). They must be the
@@ -35,6 +40,7 @@ use lbr::{ActionProbs, PublicState, Strategy};
 use nlhe::{Card, Config, Deal, State, Street};
 use search::cards::{combo_index, mix};
 use search::play::strategy_agent;
+use search::solve::LeafChoice;
 use search::{leaf_path, SearchAgent, Settings};
 use serde_json::json;
 
@@ -106,6 +112,12 @@ fn settings(opts: &HashMap<String, String>) -> Settings {
     if let Some(m) = opts.get("turn-river-menu") {
         s.turn_river_menu = search::solve::river_menu_named(m).expect("a known river menu");
     }
+    if let Some(c) = opts.get("leaf-choice") {
+        s.leaf_choice = LeafChoice::named(c).expect("--leaf-choice opponent or both");
+    }
+    if let Some(p) = opts.get("play") {
+        s.play = search::solve::play_named(p).expect("--play average or final");
+    }
     s
 }
 
@@ -164,6 +176,7 @@ fn leaf(opts: &HashMap<String, String>) {
         deals: get(opts, "deals", 4_000_000),
         seed: get(opts, "seed", 7),
         part_nodes: get(opts, "part-nodes", leaf_job::PART_NODES),
+        lanes: get(opts, "lanes", search::leaf::MODICUM_LANES),
         out: None,
     };
     let work = opts.get("work").map(PathBuf::from).unwrap_or_else(|| {
@@ -707,8 +720,8 @@ fn trees(opts: &HashMap<String, String>) {
                         "flop_decisions": decisions, "flop_leaves": leaves, "turns": turns}),
         );
     }
-    // The whole abstract game's turn starts: one leaf table per start, 7 lanes of 200 x 200
-    // flop buckets in f32.
+    // The whole abstract game's turn starts: one leaf table per start, 7 or 16 lanes of
+    // 200 x 200 flop buckets in f32.
     let root = State::new(&config, deal).unwrap();
     let abstract_tree = abstract_game::tree::BettingTree::build(&root, &menus);
     let starts = search::leaf::turn_starts_in(&abstract_tree).len();
@@ -717,13 +730,14 @@ fn trees(opts: &HashMap<String, String>) {
     for id in 0..abstract_tree.len() as u32 {
         by_street[abstract_tree.node(id).street as usize] += 1;
     }
-    let table_bytes = starts as u64 * search::leaf::TABLE_LANES as u64 * 200 * 200 * 4;
+    let table_bytes = |lanes: usize| starts as u64 * lanes as u64 * 200 * 200 * 4;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"stack_bb": bb, "lines": out,
             "abstract_nodes": abstract_tree.len(), "abstract_nodes_by_street": by_street,
             "turn_starts": starts,
-            "leaf_table_bytes_at_200_buckets": table_bytes}))
+            "leaf_table_bytes_at_200_buckets": table_bytes(search::leaf::MODICUM_LANES),
+            "leaf_table_bytes_at_200_buckets_16_lanes": table_bytes(search::leaf::BOTH_LANES)}))
         .unwrap()
     );
 }

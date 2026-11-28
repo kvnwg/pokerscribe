@@ -11,8 +11,9 @@ use nlhe::{Action, Card, State, Street};
 use crate::cards::{blocked, card_mask, combo_cards, subgame_combo, NUM_COMBOS};
 use crate::equity::{flop_equity, Equity};
 use crate::flop::{self, Leaf, Problem, LANES};
-use crate::leaf::{chooser_lanes, LeafTables};
+use crate::leaf::{lane_of, LeafTables, BOTH_LANES, MODICUM_LANES};
 use crate::street::{to_subgame, Extra, Kind, StreetTree};
+pub use subgame::Play;
 
 /// How each street is solved.
 #[derive(Clone, Debug)]
@@ -35,6 +36,90 @@ pub struct Settings {
     /// The bets offered on the river inside a turn solve (the river is solved again, with
     /// the blueprint's menu, when it comes).
     pub turn_river_menu: Menus,
+    /// Who picks a continuation strategy at the flop's leaves.
+    pub leaf_choice: LeafChoice,
+    /// The strategy a solve plays, on every street: the average over its iterations or the
+    /// last iteration's. The stop is the same either way.
+    pub play: Play,
+}
+
+/// Who picks a continuation strategy (the blueprint, or biased toward folding, calling or
+/// raising) at the flop's leaves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LeafChoice {
+    /// The searcher's opponent only, as Modicum: 7 lanes of leaf tables are enough.
+    #[default]
+    Opponent,
+    /// Both players, neither seeing the other's pick, as Pluribus: 16 lanes.
+    Both,
+}
+
+impl LeafChoice {
+    pub fn named(name: &str) -> Option<LeafChoice> {
+        match name {
+            "opponent" => Some(LeafChoice::Opponent),
+            "both" => Some(LeafChoice::Both),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            LeafChoice::Opponent => "opponent",
+            LeafChoice::Both => "both",
+        }
+    }
+
+    /// The fewest lanes a leaf table needs for this choice.
+    pub fn lanes(self) -> usize {
+        match self {
+            LeafChoice::Opponent => MODICUM_LANES,
+            LeafChoice::Both => BOTH_LANES,
+        }
+    }
+
+    /// How many continuations each flop player (0 the big blind) picks from.
+    pub fn choices(self, searcher: usize) -> [usize; 2] {
+        match self {
+            LeafChoice::Opponent => {
+                let mut c = [1; 2];
+                c[1 - searcher] = LANES;
+                c
+            }
+            LeafChoice::Both => [LANES; 2],
+        }
+    }
+}
+
+/// Whether leaf tables have the lanes `choice` needs: 16 serve either choice, 7 only
+/// [`LeafChoice::Opponent`].
+pub fn check_lanes(lanes: usize, choice: LeafChoice) -> Result<(), String> {
+    if lanes < choice.lanes() {
+        return Err(format!(
+            "the leaf tables have {} lanes; leaf choice \"{}\" needs {}",
+            lanes,
+            choice.name(),
+            choice.lanes()
+        ));
+    }
+    Ok(())
+}
+
+/// `play` by name: `average` or `final`.
+pub fn play_named(name: &str) -> Option<Play> {
+    match name {
+        "average" => Some(Play::Average),
+        "final" => Some(Play::Final),
+        _ => None,
+    }
+}
+
+/// The name of `play`.
+pub fn play_name(play: Play) -> &'static str {
+    match play {
+        Play::Average => "average",
+        Play::Final => "final",
+    }
 }
 
 impl Default for Settings {
@@ -50,6 +135,8 @@ impl Default for Settings {
             turn_threads: 1,
             flop_parallel: true,
             turn_river_menu: river_menu_in_turn(),
+            leaf_choice: LeafChoice::Opponent,
+            play: Play::Average,
         }
     }
 }
@@ -115,7 +202,8 @@ pub struct Inputs<'a> {
     pub extras: Vec<Extra>,
     /// Fixed strategies: the street's actions to a decision node, and `[combo][action]`.
     pub frozen: Vec<(Vec<Action>, Vec<f32>)>,
-    /// The player searching (0 the big blind): the other one picks at the flop's leaves.
+    /// The player searching (0 the big blind): with [`LeafChoice::Opponent`], the other
+    /// one picks at the flop's leaves.
     pub searcher: usize,
 }
 
@@ -289,7 +377,7 @@ fn solve_late(
         check_frozen(tree, id, probs, &out.combos)?;
         game.freeze(converted.ids[id], probs.iter().map(|&p| p as f64).collect());
     }
-    let solution = subgame::solve(
+    let solution = subgame::solve_as(
         &game,
         &subgame::SolveConfig {
             target_exploitability: target,
@@ -297,6 +385,7 @@ fn solve_late(
             time_ms: None,
             threads,
         },
+        settings.play,
     );
     out.strategy = tree
         .nodes
@@ -353,8 +442,10 @@ fn solve_flop<B: Bucketer + Sync>(
         global[p] = seen;
     }
     let num_buckets = [global[0].len(), global[1].len()];
-    let chooser = 1 - inputs.searcher;
-    let lanes = chooser_lanes(chooser == 0);
+    let choices = settings.leaf_choice.choices(inputs.searcher);
+    if let Some(lt) = leaf {
+        check_lanes(lt.header.lanes, settings.leaf_choice).map_err(SolveError)?;
+    }
     let mut leaves = vec![Leaf::None; tree.nodes.len()];
     for (id, node) in tree.nodes.iter().enumerate() {
         if !matches!(node.kind, Kind::End) {
@@ -364,8 +455,10 @@ fn solve_flop<B: Bucketer + Sync>(
             let public = PublicState::new(&node.state);
             let d = bp.decision_point(&public)?;
             let nb = lt.header.buckets;
-            let mut qs = Vec::with_capacity(LANES);
-            for &lane in &lanes {
+            let mut qs = Vec::with_capacity(choices[0] * choices[1]);
+            // Pick c0 of the big blind (out of position on the flop), c1 of the small blind.
+            for (c0, c1) in (0..choices[0]).flat_map(|c0| (0..choices[1]).map(move |c1| (c0, c1))) {
+                let lane = lane_of(lt.header.lanes, c1, c0).expect("checked above");
                 let t = lt.table(d, lane)?;
                 let mut q = vec![0.0; num_buckets[0] * num_buckets[1]];
                 for (i, &go) in global[0].iter().enumerate() {
@@ -402,14 +495,15 @@ fn solve_flop<B: Bucketer + Sync>(
         leaves,
         buckets,
         num_buckets,
-        chooser,
+        choices,
         frozen: frozen_by_id,
     };
-    let solution = flop::solve(
+    let solution = flop::solve_as(
         &problem,
         settings.flop_target,
         settings.flop_iterations,
         settings.flop_parallel,
+        settings.play,
     );
     out.strategy = tree
         .nodes
