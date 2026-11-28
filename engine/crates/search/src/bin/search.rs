@@ -1,7 +1,7 @@
 //! The search agent's command line: leaf tables, matches, LBR, timing and the range check.
 //!
 //! ```text
-//! search leaf    --strategy F [--deals N] [--seed S]
+//! search leaf    --strategy F [--deals N] [--seed S] [--part-nodes K] [--work DIR] [--threads T]
 //! search match   --strategy F --deals N --seed S [--threads T] [--against blueprint|search] [--out FILE]
 //! search lbr     --strategy F --agent search|blueprint --setting fcpa14|b56_14 --hands N --seed S --out FILE
 //! search compare FILE_A FILE_B
@@ -9,7 +9,20 @@
 //! search ranges  --strategy F --hands N --seed S [--out FILE]
 //! search trees   [--stack-bb B] [--menu standard]     (tree sizes, for the 200bb estimate)
 //! search scale   --strategy F --hands N --seed S [--spots K] (the same solves on 1, 2, 4 threads)
+//! search --config FILE --checkpoint-dir DIR [--resume] [--threads T]
 //! ```
+//!
+//! Every command that loads a strategy file takes `--tables DIR`: the bucket tables, for a
+//! file trained on another machine (by default the folder the file names). They must be the
+//! tables it was trained with; the file's checksums are checked.
+//!
+//! `leaf` builds the leaf tables in parts (`search::leaf_job`) in a work folder (default
+//! `<strategy file>.leaf-parts`), and when every part is there writes `<strategy file>.leaf`
+//! and deletes the folder. Stopped (Ctrl-C), the same command goes on from the parts done.
+//! The last form is the same job under the `tools/cloud` trainer contract (its README, "The
+//! trainer"): the config is a `search::leaf_job::JobConfig` in JSON, the parts and the
+//! table file are written in the checkpoint directory, SIGTERM stops it with exit code 75,
+//! and it exits with 0 once the table file is written.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -55,6 +68,23 @@ fn need(opts: &HashMap<String, String>, k: &str) -> String {
         .unwrap_or_else(|| panic!("--{k} is needed"))
 }
 
+/// `--tables`, when given.
+fn tables(opts: &HashMap<String, String>) -> Option<PathBuf> {
+    opts.get("tables").map(PathBuf::from)
+}
+
+fn load_blueprint(
+    opts: &HashMap<String, String>,
+    strategy: &Path,
+) -> Blueprint<Arc<blueprint::Buckets>> {
+    Blueprint::load(strategy, tables(opts).as_deref()).expect("the blueprint loads")
+}
+
+fn load_search(opts: &HashMap<String, String>, strategy: &Path, settings: Settings) -> SearchAgent {
+    SearchAgent::load_with(strategy, tables(opts).as_deref(), settings)
+        .expect("the search agent loads")
+}
+
 /// The table every 20 big blind game here is played at: 2,000 chips, blinds 50 and 100.
 fn stack_of(bp: &Blueprint<Arc<blueprint::Buckets>>) -> u32 {
     bp.game().config().stack
@@ -80,6 +110,11 @@ fn settings(opts: &HashMap<String, String>) -> Settings {
 }
 
 fn main() {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    // The tools/cloud trainer has no command word: its first argument is an option.
+    if raw.first().is_some_and(|s| s.starts_with("--")) {
+        std::process::exit(cloud_job(&raw));
+    }
     let (cmd, opts, rest) = args();
     match cmd.as_str() {
         "leaf" => leaf(&opts),
@@ -97,33 +132,158 @@ fn main() {
     }
 }
 
-fn leaf(opts: &HashMap<String, String>) {
-    let strategy = PathBuf::from(need(opts, "strategy"));
-    let bp = Blueprint::load(&strategy, None).expect("the strategy loads");
-    let config = search::leaf::BuildConfig {
-        deals: get(opts, "deals", 4_000_000),
-        seed: get(opts, "seed", 7),
-        ..Default::default()
-    };
-    let nodes = search::leaf::turn_starts(&bp);
-    eprintln!("{} turn-start nodes, {} deals", nodes.len(), config.deals);
-    let t0 = Instant::now();
-    let tables = search::leaf::build(&bp, &strategy, &config, |done| {
-        eprintln!("  {done} deals, {:.0} s", t0.elapsed().as_secs_f64());
-    })
-    .expect("the tables build");
-    let out = leaf_path(&strategy);
-    tables.save(&out).expect("the tables save");
-    println!("{}", serde_json::to_string(&tables.header).unwrap());
-    eprintln!("wrote {}", out.display());
+/// Exit code after a stop asked for by a signal: the parts done are saved, start again
+/// (with `--resume` under the trainer contract) to go on.
+const STOPPED: i32 = 75;
+
+fn say_line(v: serde_json::Value) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{v}");
+    let _ = out.flush();
 }
 
-fn agent_named(name: &str, strategy: &Path, settings: Settings) -> Arc<dyn Strategy + Send + Sync> {
-    match name {
-        "search" => {
-            Arc::new(SearchAgent::load(strategy, settings).expect("the search agent loads"))
+fn global_threads(threads: Option<usize>) {
+    if let Some(t) = threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(t)
+            .build_global()
+            .ok();
+    }
+}
+
+/// `search leaf`: the leaf tables of a strategy file, in parts in a work folder, then
+/// `<file>.leaf`.
+fn leaf(opts: &HashMap<String, String>) {
+    use search::leaf_job::{self, JobConfig, JobEnd, CHECKPOINT};
+    let strategy = PathBuf::from(need(opts, "strategy"));
+    global_threads(opts.get("threads").and_then(|t| t.parse().ok()));
+    let config = JobConfig {
+        strategy: strategy.clone(),
+        tables: tables(opts),
+        deals: get(opts, "deals", 4_000_000),
+        seed: get(opts, "seed", 7),
+        part_nodes: get(opts, "part-nodes", leaf_job::PART_NODES),
+        out: None,
+    };
+    let work = opts.get("work").map(PathBuf::from).unwrap_or_else(|| {
+        let mut w = strategy.as_os_str().to_owned();
+        w.push(".leaf-parts");
+        w.into()
+    });
+    let bp = load_blueprint(opts, &strategy);
+    cfr::signal::watch_sigterm().ok();
+    cfr::signal::watch_sigint().ok();
+    let resume = work.join(CHECKPOINT).exists();
+    let end = leaf_job::run(
+        &bp,
+        &config,
+        &work,
+        resume,
+        &cfr::signal::stop_requested,
+        &mut |v| eprintln!("{v}"),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("search leaf: {e}");
+        std::process::exit(1)
+    });
+    match end {
+        JobEnd::Stopped => {
+            eprintln!(
+                "stopped; the parts done are in {}: run the same command again to go on",
+                work.display()
+            );
+            std::process::exit(STOPPED);
         }
-        "blueprint" => Arc::new(Blueprint::load(strategy, None).expect("the blueprint loads")),
+        JobEnd::Done(built) => {
+            let out = leaf_path(&strategy);
+            if std::fs::rename(&built, &out).is_err() {
+                std::fs::copy(&built, &out)
+                    .expect("the tables are copied next to the strategy file");
+            }
+            std::fs::remove_dir_all(&work).ok();
+            let header =
+                search::leaf::LeafTables::read_header(&out).expect("the tables were written");
+            println!("{}", serde_json::to_string(&header).unwrap());
+            eprintln!("wrote {}", out.display());
+        }
+    }
+}
+
+/// The leaf table job under the `tools/cloud` trainer contract (see the module
+/// documentation). Returns the exit code.
+fn cloud_job(items: &[String]) -> i32 {
+    use search::leaf_job::{self, JobConfig, JobEnd};
+    let fail = |e: String| {
+        eprintln!("search: {e}");
+        1
+    };
+    let resume = items.iter().any(|s| s == "--resume");
+    let mut map = HashMap::new();
+    let rest: Vec<&String> = items.iter().filter(|s| *s != "--resume").collect();
+    let mut i = 0;
+    while i < rest.len() {
+        let Some(k) = rest[i].strip_prefix("--") else {
+            return fail(format!("unexpected argument {:?}", rest[i]));
+        };
+        if !["config", "checkpoint-dir", "threads"].contains(&k) {
+            return fail(format!("the leaf table job takes no --{k}"));
+        }
+        let Some(v) = rest.get(i + 1) else {
+            return fail(format!("--{k} needs a value"));
+        };
+        map.insert(k.to_string(), v.to_string());
+        i += 2;
+    }
+    let (Some(config), Some(dir)) = (map.get("config"), map.get("checkpoint-dir")) else {
+        return fail("--config and --checkpoint-dir are needed".into());
+    };
+    let threads = match map.get("threads").map(|t| t.parse::<usize>()) {
+        Some(Ok(t)) if t > 0 => Some(t),
+        Some(_) => return fail("--threads: a number above 0".into()),
+        None => None,
+    };
+    let config: JobConfig = match std::fs::read_to_string(config)
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    {
+        Ok(c) => c,
+        Err(e) => return fail(format!("--config: {e}")),
+    };
+    if let Err(e) = config.check() {
+        return fail(format!("--config: {e}"));
+    }
+    global_threads(threads);
+    if let Err(e) = cfr::signal::watch_sigterm() {
+        return fail(e.to_string());
+    }
+    let bp = match Blueprint::load(&config.strategy, config.tables.as_deref()) {
+        Ok(bp) => bp,
+        Err(e) => return fail(format!("{}: {e}", config.strategy.display())),
+    };
+    match leaf_job::run(
+        &bp,
+        &config,
+        Path::new(dir),
+        resume,
+        &cfr::signal::stop_requested,
+        &mut say_line,
+    ) {
+        Ok(JobEnd::Done(_)) => 0,
+        Ok(JobEnd::Stopped) => STOPPED,
+        Err(e) => fail(e),
+    }
+}
+
+fn agent_named(
+    opts: &HashMap<String, String>,
+    name: &str,
+    strategy: &Path,
+    settings: Settings,
+) -> Arc<dyn Strategy + Send + Sync> {
+    match name {
+        "search" => Arc::new(load_search(opts, strategy, settings)),
+        "blueprint" => Arc::new(load_blueprint(opts, strategy)),
         _ => panic!("unknown agent {name}"),
     }
 }
@@ -154,16 +314,21 @@ fn head_to_head(opts: &HashMap<String, String>) {
         .get("against")
         .cloned()
         .unwrap_or_else(|| "blueprint".into());
-    let bp = Blueprint::load(&strategy, None).expect("the blueprint loads");
+    // One blueprint, shared by the search agent and the opponent (a 200bb file is 0.5 GB).
+    let bp = Arc::new(load_blueprint(opts, &strategy));
     let stack = stack_of(&bp);
-    let a = strategy_agent(
-        "search",
-        Arc::new(Dyn(agent_named("search", &strategy, settings(opts)))),
-    );
-    let b = strategy_agent(
-        &against,
-        Arc::new(Dyn(agent_named(&against, &strategy, settings(opts)))),
-    );
+    let searcher = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+        .expect("the search agent loads");
+    let a = strategy_agent("search", Arc::new(Dyn(Arc::new(searcher))));
+    let other: Arc<dyn Strategy + Send + Sync> = match against.as_str() {
+        "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
+        "search" => Arc::new(
+            SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+                .expect("the search agent loads"),
+        ),
+        _ => panic!("unknown agent {against}"),
+    };
+    let b = strategy_agent(&against, Arc::new(Dyn(other)));
     let mut config = MatchConfig::heads_up(deals, seed);
     config.stack = stack;
     config.threads = threads;
@@ -183,20 +348,22 @@ fn lbr(opts: &HashMap<String, String>) {
     let hands: u64 = get(opts, "hands", 1000);
     let seed: u64 = get(opts, "seed", 1);
     let (paper, lbr_config) = blueprint::gate::lbr_setting(&setting).expect("a known LBR setting");
-    let bp = Blueprint::load(&strategy, None).expect("the blueprint loads");
+    let bp = Arc::new(load_blueprint(opts, &strategy));
     let table = lbr::MatchConfig {
         stack: stack_of(&bp),
         ..lbr::MatchConfig::acpc(hands, seed)
     };
     // The search agent keeps a record of its solves, to count the re-solves LBR's bets cause.
     let searcher = (name == "search").then(|| {
-        let mut a = SearchAgent::load(&strategy, settings(opts)).expect("the search agent loads");
+        let mut a = SearchAgent::with_leaf_tables(Arc::clone(&bp), &strategy, settings(opts))
+            .expect("the search agent loads");
         a.keep_records = true;
         Arc::new(a)
     });
     let agent = Dyn(match &searcher {
         Some(a) => Arc::clone(a) as Arc<dyn Strategy + Send + Sync>,
-        None => agent_named(&name, &strategy, settings(opts)),
+        None if name == "blueprint" => Arc::clone(&bp) as Arc<dyn Strategy + Send + Sync>,
+        None => agent_named(opts, &name, &strategy, settings(opts)),
     });
     let t0 = Instant::now();
     let deals = lbr_match(&agent, &lbr_config, &table);
@@ -211,7 +378,8 @@ fn lbr(opts: &HashMap<String, String>) {
             solves.insert(
                 street_name(street).into(),
                 json!({"solves": of.len(), "resolves": of.iter().filter(|r| r.resolve).count(),
-                       "solve_ms_p50": percentile(&mut ms, 0.5), "solve_ms_p95": percentile(&mut ms, 0.95)}),
+                       "solve_ms_p50": percentile(&mut ms, 0.5), "solve_ms_p95": percentile(&mut ms, 0.95),
+                       "solve_ms_max": percentile(&mut ms, 1.0)}),
             );
         }
     }
@@ -331,7 +499,7 @@ fn bench(opts: &HashMap<String, String>) {
         turn_threads: threads,
         ..settings(opts)
     };
-    let mut agent = SearchAgent::load(&strategy, settings).expect("the agent loads");
+    let mut agent = load_search(opts, &strategy, settings);
     agent.keep_records = true;
     let mut by_street: HashMap<&'static str, Vec<f64>> = HashMap::new();
     let t0 = Instant::now();
@@ -413,7 +581,7 @@ fn ranges(opts: &HashMap<String, String>) {
     let strategy = PathBuf::from(need(opts, "strategy"));
     let hands: u64 = get(opts, "hands", 200);
     let seed: u64 = get(opts, "seed", 1);
-    let agent = SearchAgent::load(&strategy, settings(opts)).expect("the agent loads");
+    let agent = load_search(opts, &strategy, settings(opts));
     // [street][own, opponent]: (decisions, in the range, in the solve, sum of percentile)
     let mut tally: HashMap<&'static str, [[f64; 4]; 2]> = HashMap::new();
     play_hands(&agent, hands, seed, |state, me, _| {
@@ -567,7 +735,7 @@ fn scale(opts: &HashMap<String, String>) {
     let hands: u64 = get(opts, "hands", 40);
     let seed: u64 = get(opts, "seed", 1);
     let spots: usize = get(opts, "spots", 6);
-    let base = SearchAgent::load(&strategy, settings(opts)).expect("the agent loads");
+    let base = load_search(opts, &strategy, settings(opts));
     let mut saved: Vec<State> = Vec::new();
     play_hands(&base, hands, seed, |state, _, _| {
         let street = state.street();

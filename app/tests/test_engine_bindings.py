@@ -471,6 +471,12 @@ def test_the_search_agent_is_named_by_its_strategy_file(tmp_path):
     damaged.write_bytes(b"PSBLUEP\n" + bytes(100))
     with pytest.raises(ValueError, match="search:"):
         pe.run_match(["tag", f"search:{damaged}"], 10)
+    # "?tables=<dir>" gives the bucket tables, for a file trained on another machine: the
+    # file is still the one named, and the error names it.
+    with pytest.raises(ValueError, match=re.escape(f"search:{missing}?tables={tmp_path}")):
+        pe.run_match(["tag", f"search:{missing}?tables={tmp_path}"], 10)
+    with pytest.raises(ValueError, match=r"missing\.bps"):
+        pe.run_match(["tag", f"search:{missing}?tables={tmp_path}"], 10)
 
 
 def test_a_match_from_python_adds_up_and_repeats():

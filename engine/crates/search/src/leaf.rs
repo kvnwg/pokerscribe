@@ -25,8 +25,13 @@
 //! deal the abstract subtree under every `d` is walked exactly, every action of both
 //! players weighted by its probability, with the turn and river buckets of the deal. A cell
 //! with few deals is pulled toward an additive fit of its row and column (a pseudo-count
-//! of [`PRIOR_DEALS`] deals). The deal stream is fixed by the seed and the blocks are split
-//! by `d`, so a build gives the same tables on any number of threads.
+//! of [`PRIOR_DEALS`] deals). The deal stream is fixed by the seed, and every cell adds its
+//! deals in the stream's order, so a build gives the same tables on any number of threads.
+//!
+//! A build can be split into parts, each a run of the turn starts ([`build_part`]): a part
+//! walks every deal for its nodes only, so its memory is the part's, and the parts put
+//! together are the whole build's tables bit for bit (`crate::leaf_job` runs them as a
+//! resumable job).
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -97,37 +102,48 @@ impl LeafTables {
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let mut f = io::BufWriter::new(std::fs::File::create(path)?);
-        f.write_all(MAGIC)?;
-        let header = serde_json::to_vec(&self.header)?;
-        f.write_all(&(header.len() as u64).to_le_bytes())?;
-        f.write_all(&header)?;
-        for x in &self.q {
-            f.write_all(&x.to_le_bytes())?;
-        }
+        write_header(&mut f, &self.header)?;
+        write_f32s(&mut f, &self.q)?;
         f.flush()
     }
 
-    pub fn load(path: &Path) -> io::Result<LeafTables> {
-        let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    /// The tables as one slice, `[node][lane][big blind bucket][small blind bucket]`.
+    pub fn values(&self) -> &[f32] {
+        &self.q
+    }
+
+    /// The header of a table file, without its values.
+    pub fn read_header(path: &Path) -> io::Result<Header> {
         let mut f = io::BufReader::new(std::fs::File::open(path)?);
-        let mut magic = [0u8; 8];
-        f.read_exact(&mut magic)?;
-        if &magic != MAGIC {
-            return Err(bad("not a leaf table file"));
-        }
-        let mut len = [0u8; 8];
-        f.read_exact(&mut len)?;
-        let mut header = vec![0u8; u64::from_le_bytes(len) as usize];
-        f.read_exact(&mut header)?;
-        let header: Header = serde_json::from_slice(&header)?;
+        read_header_from(&mut f)
+    }
+
+    pub fn load(path: &Path) -> io::Result<LeafTables> {
+        let mut f = io::BufReader::new(std::fs::File::open(path)?);
+        let header = read_header_from(&mut f)?;
         let b = header.buckets;
         let n = header.nodes.len() * TABLE_LANES * b * b;
-        let mut bytes = vec![0u8; n * 4];
-        f.read_exact(&mut bytes)?;
-        let q = bytes
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
+        // Read in slices straight into the table: a 200bb table is 9.7 GB, so a second copy
+        // of it as bytes would double the memory a load needs.
+        let mut q = Vec::with_capacity(n);
+        let mut buf = vec![0u8; (16 << 20).min(n * 4)];
+        let mut left = n * 4;
+        while left > 0 {
+            let k = left.min(buf.len());
+            f.read_exact(&mut buf[..k])?;
+            q.extend(
+                buf[..k]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
+            );
+            left -= k;
+        }
+        if f.read(&mut [0u8; 1])? != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the file is longer than its header says",
+            ));
+        }
         let index = header
             .nodes
             .iter()
@@ -138,13 +154,68 @@ impl LeafTables {
     }
 }
 
-/// FNV-1a over a file's bytes, as hex: ties a table file to its strategy file.
-pub fn file_hash(path: &Path) -> io::Result<String> {
-    let bytes = std::fs::read(path)?;
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
+fn read_header_from(f: &mut impl Read) -> io::Result<Header> {
+    let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    let mut magic = [0u8; 8];
+    f.read_exact(&mut magic)?;
+    if &magic != MAGIC {
+        return Err(bad("not a leaf table file"));
+    }
+    let mut len = [0u8; 8];
+    f.read_exact(&mut len)?;
+    let len = u64::from_le_bytes(len);
+    if len > 1 << 30 {
+        return Err(bad("a leaf table header too long"));
+    }
+    let mut header = vec![0u8; len as usize];
+    f.read_exact(&mut header)?;
+    Ok(serde_json::from_slice(&header)?)
+}
+
+/// The start of a table file: the magic and the header (the values follow it).
+pub fn write_header(f: &mut impl Write, header: &Header) -> io::Result<()> {
+    f.write_all(MAGIC)?;
+    let header = serde_json::to_vec(header)?;
+    f.write_all(&(header.len() as u64).to_le_bytes())?;
+    f.write_all(&header)
+}
+
+/// Values as little-endian f32, the table file's format.
+pub fn write_f32s(f: &mut impl Write, values: &[f32]) -> io::Result<()> {
+    let mut buf = Vec::with_capacity(1 << 20);
+    for chunk in values.chunks(1 << 18) {
+        buf.clear();
+        for x in chunk {
+            buf.extend_from_slice(&x.to_le_bytes());
+        }
+        f.write_all(&buf)?;
+    }
+    Ok(())
+}
+
+/// FNV-1a over bytes, continuing from `h` (start from [`FNV_START`]).
+pub fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
+    for &b in bytes {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+pub const FNV_START: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a over a file's bytes, as hex: ties a table file to its strategy file. Read in
+/// slices, so hashing a 0.5 GB strategy file doesn't hold it all in memory.
+pub fn file_hash(path: &Path) -> io::Result<String> {
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; 1 << 20];
+    let mut h = FNV_START;
+    loop {
+        let k = f.read(&mut buf)?;
+        if k == 0 {
+            break;
+        }
+        h = fnv(h, &buf[..k]);
     }
     Ok(format!("{h:016x}"))
 }
@@ -332,47 +403,94 @@ impl Default for BuildConfig {
     }
 }
 
-/// Builds the tables of `bp` (made from `strategy`, hashed into the header).
-pub fn build<B: Bucketer + Sync>(
+/// One part of a build: the tables of a run of turn starts, and the deals per cell (the
+/// same for every part, since every part walks every deal).
+pub struct Part {
+    /// `[node][lane][big blind bucket][small blind bucket]`, for the part's nodes in order.
+    pub q: Vec<f32>,
+    /// Deals per cell, `[big blind bucket][small blind bucket]`.
+    pub count: Vec<u64>,
+    pub seconds: f64,
+}
+
+/// Cell ranges a block is split into for the walk. Any split gives the same sums: a cell
+/// is in one range only and adds its deals in the stream's order.
+const SLICES: usize = 64;
+
+/// Builds the tables of `nodes` (turn starts of `bp`, in table order) over the deals of
+/// `config`. `stop` is asked between blocks of deals; when it says yes the part is given up
+/// (`None`). `progress` gets the deals done after each block.
+pub fn build_part<B: Bucketer + Sync>(
     bp: &blueprint::play::Blueprint<B>,
-    strategy: &Path,
+    nodes: &[u32],
     config: &BuildConfig,
+    stop: &dyn Fn() -> bool,
     mut progress: impl FnMut(u64),
-) -> io::Result<LeafTables> {
+) -> Option<Part> {
     let start = std::time::Instant::now();
-    let nodes = turn_starts(bp);
     let bucketer = bp.game().bucketer();
     let nb = bucketer.num_buckets(Street::Flop) as usize;
     let cells = nb * nb;
     let at: Vec<(f64, f64)> = nodes.iter().map(|&n| committed_and_pot(bp, n)).collect();
-    // sums[node][lane][cell]
-    let mut sums: Vec<Vec<f64>> = vec![vec![0.0; TABLE_LANES * cells]; nodes.len()];
+    // sums[node][cell][lane]: a cell's lanes side by side, so a range of cells is one slice.
+    let mut sums: Vec<Vec<f64>> = vec![vec![0.0; cells * TABLE_LANES]; nodes.len()];
     let mut count = vec![0u64; cells];
     let walker = Walker { bp };
+    // The cell ranges of the walk.
+    let bounds: Vec<usize> = (0..=SLICES).map(|i| i * cells / SLICES).collect();
     let mut done = 0u64;
     while done < config.deals {
+        if stop() {
+            return None;
+        }
         let n = config.block.min(config.deals - done);
         let deals: Vec<Deal> = (done..done + n)
             .into_par_iter()
             .map(|i| deal(bucketer, config.seed, i))
             .collect();
-        for d in &deals {
-            let [b_sb, b_bb] = d.buckets[0];
-            assert!(
-                (b_sb as usize) < nb && (b_bb as usize) < nb,
-                "flop bucket out of range"
-            );
-            count[b_bb as usize * nb + b_sb as usize] += 1;
+        // The block's deals by cell, and within a cell in the stream's order.
+        let mut order: Vec<(u32, u32)> = deals
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let [b_sb, b_bb] = d.buckets[0];
+                assert!(
+                    (b_sb as usize) < nb && (b_bb as usize) < nb,
+                    "flop bucket out of range"
+                );
+                ((b_bb as usize * nb + b_sb as usize) as u32, i as u32)
+            })
+            .collect();
+        order.sort_unstable();
+        for &(cell, _) in &order {
+            count[cell as usize] += 1;
         }
-        sums.par_iter_mut().enumerate().for_each(|(i, sum)| {
+        // Where each cell range starts in `order`.
+        let firsts: Vec<usize> = bounds
+            .iter()
+            .map(|&c| order.partition_point(|&(cell, _)| (cell as usize) < c))
+            .collect();
+        // One piece of work per node and cell range, each with its own slice of the sums.
+        let mut work = Vec::with_capacity(nodes.len() * SLICES);
+        for (i, sum) in sums.iter_mut().enumerate() {
+            let mut rest = &mut sum[..];
+            for r in 0..SLICES {
+                let width = (bounds[r + 1] - bounds[r]) * TABLE_LANES;
+                let (piece, tail) = rest.split_at_mut(width);
+                rest = tail;
+                if firsts[r] < firsts[r + 1] {
+                    work.push((i, r, piece));
+                }
+            }
+        }
+        work.into_par_iter().for_each(|(i, r, piece)| {
             let (c, p) = at[i];
             let mut v = [0f64; TABLE_LANES];
-            for d in &deals {
-                walker.walk(nodes[i], d, &mut v);
-                let [b_sb, b_bb] = d.buckets[0];
-                let cell = b_bb as usize * nb + b_sb as usize;
+            for &(cell, k) in &order[firsts[r]..firsts[r + 1]] {
+                walker.walk(nodes[i], &deals[k as usize], &mut v);
+                let at = (cell as usize - bounds[r]) * TABLE_LANES;
                 for (lane, x) in v.iter().enumerate() {
-                    sum[lane * cells + cell] += (x + c) / p;
+                    piece[at + lane] += (x + c) / p;
                 }
             }
         });
@@ -380,30 +498,111 @@ pub fn build<B: Bucketer + Sync>(
         progress(done);
     }
     let mut q = vec![0f32; nodes.len() * TABLE_LANES * cells];
+    let mut lane_sum = vec![0f64; cells];
     for (i, sum) in sums.iter().enumerate() {
         for lane in 0..TABLE_LANES {
-            let s = &sum[lane * cells..(lane + 1) * cells];
+            for (cell, s) in lane_sum.iter_mut().enumerate() {
+                *s = sum[cell * TABLE_LANES + lane];
+            }
             let out =
                 &mut q[(i * TABLE_LANES + lane) * cells..(i * TABLE_LANES + lane + 1) * cells];
-            shrink(s, &count, nb, out);
+            shrink(&lane_sum, &count, nb, out);
         }
     }
-    let mut sorted = count.clone();
+    Some(Part {
+        q,
+        count,
+        seconds: start.elapsed().as_secs_f64(),
+    })
+}
+
+/// Deals per cell: the fewest, the median and the most.
+pub fn cell_deals(count: &[u64]) -> [u64; 3] {
+    let mut sorted = count.to_vec();
     sorted.sort_unstable();
+    let n = sorted.len();
+    [sorted[0], sorted[n / 2], sorted[n - 1]]
+}
+
+/// Builds the tables of `bp` (made from `strategy`, hashed into the header) in one part,
+/// held in memory. `crate::leaf_job` builds the same tables in parts.
+pub fn build<B: Bucketer + Sync>(
+    bp: &blueprint::play::Blueprint<B>,
+    strategy: &Path,
+    config: &BuildConfig,
+    progress: impl FnMut(u64),
+) -> io::Result<LeafTables> {
+    let nodes = turn_starts(bp);
+    let part = build_part(bp, &nodes, config, &|| false, progress).expect("never stopped");
     let header = Header {
         nodes: nodes.clone(),
-        buckets: nb,
+        buckets: bp.game().bucketer().num_buckets(Street::Flop) as usize,
         deals: config.deals,
         seed: config.seed,
         bias: BIAS,
         prior_deals: PRIOR_DEALS,
         strategy: strategy.display().to_string(),
         strategy_hash: file_hash(strategy)?,
-        cell_deals: [sorted[0], sorted[cells / 2], sorted[cells - 1]],
-        seconds: start.elapsed().as_secs_f64(),
+        cell_deals: cell_deals(&part.count),
+        seconds: part.seconds,
     };
-    let index = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    Ok(LeafTables { header, index, q })
+    Ok(LeafTables::new(header, part.q))
+}
+
+impl LeafTables {
+    /// Tables from a header and their values (`[node][lane][bb][sb]`, in the header's node
+    /// order).
+    pub fn new(header: Header, q: Vec<f32>) -> LeafTables {
+        let b = header.buckets;
+        assert_eq!(q.len(), header.nodes.len() * TABLE_LANES * b * b);
+        let index = header
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| (n, i))
+            .collect();
+        LeafTables { header, index, q }
+    }
+}
+
+/// The sequential build the parallel one must match bit for bit: every node walks every
+/// deal in the stream's order (the build as it was before parts). For tests.
+#[doc(hidden)]
+pub fn build_reference<B: Bucketer>(
+    bp: &blueprint::play::Blueprint<B>,
+    nodes: &[u32],
+    config: &BuildConfig,
+) -> Vec<f32> {
+    let bucketer = bp.game().bucketer();
+    let nb = bucketer.num_buckets(Street::Flop) as usize;
+    let cells = nb * nb;
+    let walker = Walker { bp };
+    let at: Vec<(f64, f64)> = nodes.iter().map(|&n| committed_and_pot(bp, n)).collect();
+    let mut count = vec![0u64; cells];
+    let mut sums = vec![vec![0.0; TABLE_LANES * cells]; nodes.len()];
+    for i in 0..config.deals {
+        let d = deal(bucketer, config.seed, i);
+        let [b_sb, b_bb] = d.buckets[0];
+        let cell = b_bb as usize * nb + b_sb as usize;
+        count[cell] += 1;
+        for (k, &node) in nodes.iter().enumerate() {
+            let (c, p) = at[k];
+            let mut v = [0f64; TABLE_LANES];
+            walker.walk(node, &d, &mut v);
+            for (lane, x) in v.iter().enumerate() {
+                sums[k][lane * cells + cell] += (x + c) / p;
+            }
+        }
+    }
+    let mut q = vec![0f32; nodes.len() * TABLE_LANES * cells];
+    for (k, sum) in sums.iter().enumerate() {
+        for lane in 0..TABLE_LANES {
+            let out =
+                &mut q[(k * TABLE_LANES + lane) * cells..(k * TABLE_LANES + lane + 1) * cells];
+            shrink(&sum[lane * cells..(lane + 1) * cells], &count, nb, out);
+        }
+    }
+    q
 }
 
 /// Cell means pulled toward the additive fit `row + column - all` by [`PRIOR_DEALS`].

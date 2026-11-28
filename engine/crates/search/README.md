@@ -37,7 +37,8 @@ each with a test:
 cargo build --release -p search
 S=/path/to/strategy.bps
 
-# the leaf tables, once per strategy file (written next to it as $S.leaf)
+# the leaf tables, once per strategy file (written next to it as $S.leaf); stopped, the same
+# command goes on from the parts done
 target/release/search leaf --strategy $S --deals 16000000 --seed 7
 
 # search against the blueprint: duplicate deals, all-in equity, bb/100 with its SE
@@ -57,10 +58,14 @@ target/release/search ranges --strategy $S --hands 300 --seed 7106 --out ranges.
 
 Every command takes the settings as options (`--flop-target`, `--flop-iterations`,
 `--turn-target`, `--turn-iterations`, `--river-target`, `--river-iterations`, `--prune`,
-`--turn-river-menu allin|075|standard`); without them it uses `Settings::default()`.
+`--turn-river-menu allin|075|standard`); without them it uses `Settings::default()`. Every
+command that loads a strategy file takes `--tables DIR`, the bucket tables it was trained with,
+for a file trained on another machine (by default the folder the file names; the checksums are
+checked either way).
 
-In the arena and from Python the agent is `search:<strategy file>` (with the leaf tables next to
-it; without them the flop's leaves are checked down):
+In the arena and from Python the agent is `search:<strategy file>`, or
+`search:<strategy file>?tables=<dir>` (with the leaf tables next to the file; without them the
+flop's leaves are checked down):
 
 ```
 python tools/b0_arena.py search:$S --stack-bb 20 --deals 100 --seed 7107
@@ -154,8 +159,41 @@ by combo for the opposing combos that share a card. Where the blueprint can't pl
 one of its nodes, the leaf is checked down (the equity table).
 
 The tables are built once per strategy file (`search leaf`) and saved next to it as `<file>.leaf`
-with a hash of the strategy file, so a table built for another blueprint is refused. A build
-gives the same tables on any number of threads.
+with a hash of the strategy file, so a table built for another blueprint is refused.
+
+### Building the leaf tables in parts (`leaf.rs`, `leaf_job.rs`)
+
+The 200 big blind game's tables are 9.7 GB (8,669 turn starts, 7 lanes, 200 x 200 cells,
+`f32`), and a build in one piece would hold about 29 GB of sums. So a build goes in parts of
+256 turn starts (34 parts): each part plays all the deals for its turn starts, is written to
+its own file (`part-NNNNN.leafpart`, with a checksum) and its memory freed; the table file is
+then put together from the parts without loading them all, each part's checksum checked again
+on the way (a table file longer than its header says is refused on load). A build at 200 big blinds peaks at
+about 1.5 GB.
+
+- **The same tables, bit for bit, whatever the threads, block size or parts.** Within a block
+  of deals, the deals are sorted by cell (the two hands' flop buckets) and, within a cell, by
+  their place in the stream; the cells are split into 64 ranges, and each (turn start, cell
+  range) is one piece of work with its own slice of the sums. So every sum adds its deals in
+  the stream's order, as a build on one thread does (`build_reference`, kept for the test).
+- **Stops and goes on.** A checkpoint (`leaf.ckpt`) lists the parts done and a fingerprint of
+  the build (the strategy file's hash, deals, seed, part size, turn starts, buckets, the
+  smoothing). A stop gives up the part being built; going on, each listed part on the disk is
+  checked (header, size, checksum) and a missing or damaged one is built again. A checkpoint of
+  another build, a fresh start over a checkpoint and `--resume` with none are refused.
+- **As a cloud job.** `search --config FILE --checkpoint-dir DIR [--resume] [--threads T]` is the
+  same job under the `tools/cloud` trainer contract (`tools/cloud/README.md`, "The trainer"):
+  the config is a `leaf_job::JobConfig` in JSON (strategy file, bucket tables, deals, seed,
+  part size), the parts and the table file go in the checkpoint directory (artifacts
+  `*.leafpart`, `*.leaf`), JSON lines on stdout (started or resumed, progress, each part with
+  its speed and memory, done), SIGTERM saves and exits 75, and it exits 0 when the table file is
+  written. The Phase 7 settings and runbook: `docs/research/runs/phase7/`.
+
+Measured here (4 vCPU, Intel Xeon at 2.1 GHz) on a 2M-iteration 200 big blind `rich` k200
+blueprint, every turn start at 65,536 deals: 1.6M walks (a turn start and a deal) a second on 4
+threads, 34 parts of 5.5 to 17.7 s, peak memory 1.54 GB, a 9,709,339,447 byte file. At 16M deals
+that is about 96 thread-hours here, about 1.3 hours on a c4a-highcpu-64 at Phase 6's speed per
+Arm thread (`docs/research/runs/phase7/README.md`, "The leaf tables").
 
 ### Re-solving (`agent.rs`)
 
@@ -258,13 +296,28 @@ method.
   leaf tables made from the equity give the checked-down values; the chooser picks the lane that
   pays it most; a frozen node keeps its strategy.
 - `src/leaf.rs`, `src/equity.rs`: the table layout and the exact equity.
+- `src/leaf_job.rs`: a part damaged on the disk after it was written stops the table file (and
+  leaves no half-written file); a table file with a byte too many is refused.
 - `tests/agent.rs` (a small blueprint trained in the test): the leaf tables are the same on 1
-  and 3 threads; the agent only plays legal actions and its real hand stays in its own range; an
-  off-tree bet is added and the street is solved again with the searcher's check frozen, and an
-  on-menu bet reuses the solve; the same public state gives the same answer.
+  and 3 threads; built in parts, on any threads and block size, they are the sequential build's
+  bit for bit, and a stop gives up its part; the leaf job stops after some parts, refuses a fresh
+  start over a checkpoint, a resume with none and another build's checkpoint, builds again a
+  damaged and a missing part, and gives the one-piece build's tables; the agent only plays legal
+  actions and its real hand stays in its own range; an off-tree bet is added and the street is
+  solved again with the searcher's check frozen, and an on-menu bet reuses the solve; the same
+  public state gives the same answer.
+- `tests/cloud_job.rs` (ignored; set `BLUEPRINT_TABLES`, as the nightly workflow does): the
+  leaf job through the binary under the `tools/cloud` contract on a blueprint whose tables
+  folder is gone (so every load needs `--tables`): `--resume` with nothing to resume and an
+  unknown option fail, SIGTERM after a part exits 75, the resume goes on from the parts saved
+  and finishes, the tables are the one-piece build's; `search leaf` gives the same and deletes
+  its parts; the agent and `search bench` load with `--tables`.
+- `docs/research/runs/phase7/leaf_rehearsal.py`: the real `tools/cloud` supervisor runs the job
+  with a local folder as the bucket, a SIGTERM after two parts, a new machine that resumes from
+  the bucket, and the table file compared with `search leaf`'s bit for bit.
 - `../subgame/tests/search_hooks.rs`, `../blueprint/tests/play.rs`: the hooks above.
-- `app/tests/test_engine_bindings.py`: `search:<file>` is named in the arena's errors when the
-  file is missing or damaged.
+- `app/tests/test_engine_bindings.py`: `search:<file>` (and `search:<file>?tables=<dir>`) is
+  named in the arena's errors when the file is missing or damaged.
 
 ## Layout
 
@@ -272,7 +325,8 @@ method.
 - `src/street.rs`: a street's tree over real states; conversion to `subgame`.
 - `src/solve.rs`: `Settings`, the solve of one street.
 - `src/flop.rs`: the depth-limited flop solver.
-- `src/leaf.rs`: the leaf tables (build, save, load).
+- `src/leaf.rs`: the leaf tables (build, a build's part, save, load).
+- `src/leaf_job.rs`: the build in parts, resumable, and as a `tools/cloud` job.
 - `src/equity.rs`: exact flop all-in equity.
 - `src/real.rs`, `src/cards.rs`: real states from public information; card and combo numbering.
 - `src/play.rs`: a `Strategy` seated in the arena.
